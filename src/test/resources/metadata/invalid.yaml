@@ -1,0 +1,19 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+
+columns:
+  - catalog: crm
+    schema: public
+    column: phone
+    policy: phone_mask
+
+policies:
+  phone_mask:
+    udf: mask_phone
+    arguments: [3, 4]

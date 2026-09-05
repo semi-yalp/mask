@@ -1,0 +1,38 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+        - name: phone
+          type: varchar
+        - name: email
+          type: varchar
+        - name: status
+          type: varchar
+        - name: name
+          type: varchar
+        - name: address
+          type: varchar
+
+columns:
+  - catalog: crm
+    schema: public
+    table: customer
+    column: phone
+    policy: phone_mask
+  - catalog: crm
+    schema: public
+    table: customer
+    column: email
+    policy: email_mask
+
+policies:
+  phone_mask:
+    udf: mask_phone
+    arguments: [3, 4]
+  email_mask:
+    udf: mask_email
+    arguments: []
