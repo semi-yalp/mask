@@ -238,6 +238,7 @@
 // ---------- state ----------
 let state = { tables: [], bindings: [], policies: [] };
 let activeTab = "tables";
+let yamlDirtyByUser = false;
 
 const SAMPLE_STATE = () => ({
   tables: [{
@@ -270,7 +271,7 @@ SELECT phone FROM active;
 SELECT concat(email, '-', phone) AS contact FROM customer;
 
 -- 无策略命中：原样输出，不加包装
-SELECT id, name FROM customer;`;
+SELECT id, status FROM customer;`;
 
 const $ = (id) => document.getElementById(id);
 const sqlEl = $("sql"), statusEl = $("status"), resultsEl = $("results"),
@@ -343,6 +344,31 @@ function generateYaml() {
     }
   }
   return L.join("\n");
+}
+
+// ---------- form pre-flight validation (catch incomplete rows before the API does) ----------
+function formProblems() {
+  const problems = [];
+  state.tables.forEach((t, ti) => {
+    const label = `表 ${ti + 1}${t.name ? `（${t.name}）` : ""}`;
+    if (!String(t.catalog).trim()) problems.push(`${label}：catalog 未填写`);
+    if (!String(t.schema).trim()) problems.push(`${label}：schema 未填写`);
+    if (!String(t.name).trim()) problems.push(`${label}：表名未填写`);
+    t.columns.forEach((c, ci) => {
+      if (!String(c.name).trim()) problems.push(`${label} 第 ${ci + 1} 列：列名未填写`);
+      if (!String(c.type).trim()) problems.push(`${label} 第 ${ci + 1} 列：类型未填写`);
+    });
+  });
+  state.bindings.forEach((b, bi) => {
+    if (!b.tableRef) problems.push(`列策略 ${bi + 1}：未选择表`);
+    if (!b.column) problems.push(`列策略 ${bi + 1}：未选择列`);
+    if (!b.policy) problems.push(`列策略 ${bi + 1}：未选择策略`);
+  });
+  state.policies.forEach((p, pi) => {
+    if (!String(p.name).trim()) problems.push(`策略 ${pi + 1}：策略名未填写`);
+    if (!String(p.udf).trim()) problems.push(`策略 ${pi + 1}：UDF 名未填写`);
+  });
+  return problems;
 }
 
 // ---------- rendering ----------
@@ -446,6 +472,7 @@ function renderPolicies() {
 function syncYamlView() {
   yamlEl.value = generateYaml();
   $("yaml-dirty").hidden = true;
+  yamlDirtyByUser = false;
 }
 
 // ---------- tabs ----------
@@ -472,7 +499,10 @@ $("tabs").addEventListener("click", (e) => {
 document.addEventListener("input", (e) => {
   const el = e.target;
   if (!el.dataset || !el.dataset.edit) {
-    if (el === yamlEl) $("yaml-dirty").hidden = yamlEl.value === generateYaml();
+    if (el === yamlEl) {
+      yamlDirtyByUser = true;
+      $("yaml-dirty").hidden = yamlEl.value === generateYaml();
+    }
     return;
   }
   const kind = el.dataset.edit, field = el.dataset.field, i = +el.dataset.i;
@@ -597,10 +627,21 @@ function render(data) {
 }
 
 async function run() {
-  // if the user is editing the YAML source tab, apply pending edits first
+  // only pending user edits inside the YAML textarea need applying; after plain
+  // form edits the form is authoritative and the stale YAML view must be dropped
   if (yamlEl.value !== generateYaml()) {
-    const ok = await applyYaml();
-    if (!ok) { statusEl.textContent = "失败：YAML 未通过校验"; return; }
+    if (yamlDirtyByUser) {
+      const ok = await applyYaml();
+      if (!ok) { statusEl.textContent = "失败：YAML 未通过校验"; return; }
+    } else {
+      syncYamlView();
+    }
+  }
+  const problems = formProblems();
+  if (problems.length) {
+    showError("CONFIG_ERROR", "表单配置不完整，请在对应页签补全或删除多余行：\n" + problems.join("\n"));
+    statusEl.textContent = "失败：表单配置不完整";
+    return;
   }
   runBtn.disabled = true;
   statusEl.textContent = "处理中…";
