@@ -30,3 +30,4 @@ dependency-reduced-pom.xml
 
 # TPC-DS manual test output
 tpcds/out/
+.worktrees/
