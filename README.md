@@ -164,7 +164,7 @@ policies: {}
 API 与页面：`POST /api/rewrite` 的每条语句新增 `"rowFiltered": true|false`
 （true 表示该语句注入了行过滤条件，可与 `masked` 同时为 true）。页面结果卡片按
 `(masked, rowFiltered)` 组合展示标签：「原样输出」「已行过滤」「已脱敏（外层包装
-UDF）」「已脱敏（外层包装 UDF）+ 已行过滤」；表结构页签中每张表有独立的行过滤
+UDF）」「已脱敏（外层包装 UDF） + 已行过滤」；表结构页签中每张表有独立的行过滤
 输入框；YAML 导出对未配置的表不输出 `rowFilter:` 字段，YAML ⇄ 表单往返不丢失
 配置、不残留空白字段。
 

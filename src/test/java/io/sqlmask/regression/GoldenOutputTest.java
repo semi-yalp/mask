@@ -1,14 +1,18 @@
 package io.sqlmask.regression;
 
+import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Byte-level behavior lock for the pre-row-filter output: the metadata
@@ -16,6 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * bytes the pipeline produced before the feature existed. Unlike the rest of
  * the suite (which normalizes whitespace), these comparisons catch any
  * change in line breaks, quoting, spacing or clause order.
+ *
+ * <p>The lock covers every SUCCESS-classified TPC-DS query file alongside the
+ * core fixtures; files the TPC-DS corpus classifies as expected-failures are
+ * covered by {@link #tpcdsExpectedFailureFilesFailWithClassifiedErrors()}
+ * instead — they abort the run, so there is no success output to lock.
  *
  * <p>To regenerate after an intentional behavior change run with
  * {@code -Dgolden.write=true} and review the diff carefully — the golden
@@ -29,7 +38,18 @@ class GoldenOutputTest {
   private static final Path METADATA = Path.of("src/test/resources/metadata/integration.yaml");
   private static final Path QUERIES = Path.of("src/test/resources/queries/with-and-nested.sql");
   private static final Path TPCDS_METADATA = Path.of("tpcds/metadata.yaml");
-  private static final Path TPCDS_QUERIES = Path.of("tpcds/queries/tpcds_common_cases.sql");
+  private static final Path TPCDS_QUERIES_DIR = Path.of("tpcds/queries");
+
+  private static final Path TPCDS_MASKING_GOLDEN =
+      Path.of("src/test/resources/golden/tpcds-masking-test.sql");
+  private static final Path TPCDS_DEEP_GOLDEN =
+      Path.of("src/test/resources/golden/tpcds-deep-cases.sql");
+  private static final Path TPCDS_ROBUSTNESS_GOLDEN =
+      Path.of("src/test/resources/golden/tpcds-robustness.sql");
+  private static final Path TPCDS_ONELINE_GOLDEN =
+      Path.of("src/test/resources/golden/tpcds-oneline.sql");
+  private static final Path TPCDS_CRLF_GOLDEN =
+      Path.of("src/test/resources/golden/tpcds-crlf.sql");
 
   private static final String WRITE_STATEMENTS = String.join(";\n", List.of(
       "INSERT INTO archive SELECT id, phone FROM customer WHERE status = 'ACTIVE'",
@@ -54,15 +74,76 @@ class GoldenOutputTest {
     // representative real-world shapes (CTE + UNION ALL + self-joins,
     // EXISTS subqueries, aggregates) — locks the CteExpander rewrite and
     // engine wiring against the TPC-DS corpus
-    assertMatchesGolden(TPCDS_GOLDEN,
-        engine.rewrite(readFile(TPCDS_METADATA), readFile(TPCDS_QUERIES), "postgresql"));
+    assertMatchesGolden(TPCDS_GOLDEN, renderTpcds("tpcds_common_cases.sql"));
   }
+
+  @Test
+  void tpcdsMaskingTestRendersIdenticallyByteForByte() throws Exception {
+    assertMatchesGolden(TPCDS_MASKING_GOLDEN, renderTpcds("tpcds_masking_test.sql"));
+  }
+
+  @Test
+  void tpcdsDeepCasesRenderIdenticallyByteForByte() throws Exception {
+    assertMatchesGolden(TPCDS_DEEP_GOLDEN, renderTpcds("tpcds_deep_cases.sql"));
+  }
+
+  @Test
+  void tpcdsRobustnessRendersIdenticallyByteForByte() throws Exception {
+    // comment handling and mixed pass-through/wrapped statement order
+    assertMatchesGolden(TPCDS_ROBUSTNESS_GOLDEN, renderTpcds("tpcds_robustness.sql"));
+  }
+
+  @Test
+  void tpcdsOnelineRendersIdenticallyByteForByte() throws Exception {
+    // several statements on one line must still split in order
+    assertMatchesGolden(TPCDS_ONELINE_GOLDEN, renderTpcds("tpcds_oneline.sql"));
+  }
+
+  @Test
+  void tpcdsCrlfRendersIdenticallyByteForByte() throws Exception {
+    // CRLF input must split cleanly without leaking carriage returns
+    assertMatchesGolden(TPCDS_CRLF_GOLDEN, renderTpcds("tpcds_crlf.sql"));
+  }
+
+  /**
+   * Expected-failure corpus: these files abort the run with a classified,
+   * non-crash diagnostic (see tpcds/EXPECTED.md), so they get a failure
+   * classification instead of a golden lock. tpcds_atomic_fail.sql is
+   * deliberately absent: since {@code INSERT ... VALUES} became pass-through
+   * it rewrites cleanly end to end — its recorded expected-failure is stale,
+   * and it must not be golden-locked as success output either.
+   */
+  @Test
+  void tpcdsExpectedFailureFilesFailWithClassifiedErrors() {
+    Map<String, SqlMaskException.Code> expectedCodes = new LinkedHashMap<>();
+    // E1 aborts the file: duplicate output alias cannot be wrapped safely
+    expectedCodes.put("tpcds_edge_cases.sql", SqlMaskException.Code.REWRITE_ERROR);
+    // D2 aborts the file: correlated scalar subquery has no traceable origin
+    expectedCodes.put("tpcds_open_cases.sql", SqlMaskException.Code.LINEAGE_UNKNOWN);
+    expectedCodes.put("tpcds_unsupported.sql", SqlMaskException.Code.LINEAGE_UNKNOWN);
+    expectedCodes.put("tpcds_unsupported_setops.sql", SqlMaskException.Code.UNSUPPORTED_STATEMENT);
+    // W1 as committed references date_dim.d_year without joining date_dim,
+    // so the run aborts with a validation diagnostic
+    expectedCodes.put("tpcds_write_cases.sql", SqlMaskException.Code.VALIDATION_ERROR);
+    for (Map.Entry<String, SqlMaskException.Code> entry : expectedCodes.entrySet()) {
+      SqlMaskException e = assertThrows(SqlMaskException.class,
+          () -> renderTpcds(entry.getKey()), () -> entry.getKey());
+      assertEquals(entry.getValue(), e.getCode(),
+          () -> entry.getKey() + ": " + e.getMessage());
+    }
+  }
+
   private String readFile(Path path) throws Exception {
     return Files.readString(path, StandardCharsets.UTF_8);
   }
 
   private List<RewriteEngine.StatementRewrite> render(String sql) throws Exception {
     return engine.rewrite(readFile(METADATA), sql, "postgresql");
+  }
+
+  private List<RewriteEngine.StatementRewrite> renderTpcds(String fileName) throws Exception {
+    return engine.rewrite(readFile(TPCDS_METADATA),
+        readFile(TPCDS_QUERIES_DIR.resolve(fileName)), "postgresql");
   }
 
   private void assertMatchesGolden(Path golden, List<RewriteEngine.StatementRewrite> statements)
