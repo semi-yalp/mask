@@ -154,9 +154,8 @@ public final class RowFilterRewriter {
             && newOffset == operands.get(2) && newFetch == operands.get(3)) {
           return orderBy;
         }
-        // rebuild explicitly: only the concrete SqlOrderBy node type unparses
-        // correctly (its operator's unparse casts the call to SqlOrderBy), so
-        // the wrapper must never go through the generic createCall path
+        // build the wrapper as a concrete SqlOrderBy the way SqlNodeCopier
+        // does; never depend on a private anonymous-class operator override
         return new SqlOrderBy(orderBy.getParserPosition(), newQuery,
             (SqlNodeList) newOrderList, newOffset, newFetch);
       }
@@ -177,17 +176,17 @@ public final class RowFilterRewriter {
     Set<String> scope = new HashSet<>();
     cteScopes.push(scope);
     try {
-      // register every item name before rewriting any body: a forward
-      // reference to a later item is invalid SQL and must keep failing
-      // downstream, not be reinterpreted as a base-table reference
-      for (SqlNode itemNode : with.withList) {
-        scope.add(((SqlWithItem) itemNode).name.getSimple());
-      }
       List<SqlNode> newItems = new ArrayList<>();
       boolean itemsChanged = false;
       for (SqlNode itemNode : with.withList) {
         SqlWithItem item = (SqlWithItem) itemNode;
         SqlNode newQuery = rewriteQuery(item.query, context, cteScopes);
+        // register each name only AFTER its own body is rewritten: PostgreSQL
+        // and Calcite both bind a forward reference to the base table
+        // (non-recursive WITH items only see earlier siblings), so
+        // register-after-rewrite makes the rewriter match and filtered tables
+        // are injected, not skipped
+        scope.add(item.name.getSimple());
         if (newQuery != item.query) {
           newItems.add(new SqlWithItem(item.getParserPosition(), item.name, item.columnList,
               newQuery, item.recursive));

@@ -157,8 +157,16 @@ class GoldenOutputTest {
       Files.writeString(golden, actual, StandardCharsets.UTF_8);
       return;
     }
-    assertEquals(Files.readString(golden, StandardCharsets.UTF_8), actual,
+    // the only normalization allowed here: a fresh Windows clone restores the
+    // golden blobs with LF while engine output carries the checkout's CRLF —
+    // compare line endings away, keep every other byte exact
+    assertEquals(normalizeLineEndings(Files.readString(golden, StandardCharsets.UTF_8)),
+        normalizeLineEndings(actual),
         "output changed at byte level; if intentional, regenerate the golden file "
             + "and review the diff as a behavior change");
+  }
+
+  private static String normalizeLineEndings(String text) {
+    return text.replace("\r\n", "\n");
   }
 }

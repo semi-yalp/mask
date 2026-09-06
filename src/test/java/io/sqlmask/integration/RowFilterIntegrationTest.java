@@ -54,6 +54,26 @@ class RowFilterIntegrationTest {
       policies: {}
       """;
 
+  /** customer filtered, plus a second unfiltered table for CTE scoping shapes. */
+  private static final String CTE_FORWARD_YAML = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            rowFilter: "status = 'active'"
+            columns:
+              - {name: id, type: bigint}
+              - {name: status, type: varchar}
+          - catalog: crm
+            schema: public
+            name: other
+            columns:
+              - {name: id, type: bigint}
+              - {name: tag, type: varchar}
+      policies: {}
+      """;
+
   private final RewriteEngine engine = new RewriteEngine();
 
   private static String flat(String sql) {
@@ -122,6 +142,50 @@ class RowFilterIntegrationTest {
     assertTrue(flat(result.rewrittenSql()).contains(
             "WITH active AS (SELECT id FROM (SELECT * FROM crm.public.customer WHERE status = 'active') AS customer)"),
         () -> result.rewrittenSql());
+  }
+
+  @Test
+  void withForwardReferenceToFilteredTableInjectsBaseTableBinding() {
+    // both engines bind a reference in an item body to a later sibling to the
+    // BASE table (PostgreSQL: non-recursive WITH items only see earlier
+    // siblings; Calcite probe-verified) — skipping the reference would leak
+    // the filtered base table's rows unfiltered through item a
+    var results = engine.rewrite(CTE_FORWARD_YAML,
+        "WITH a AS (SELECT id FROM customer), customer AS (SELECT id FROM crm.public.other) "
+            + "SELECT * FROM a", "postgresql");
+    var result = results.get(0);
+    assertTrue(result.rowFiltered());
+    String rendered = flat(result.rewrittenSql());
+    assertTrue(rendered.contains(
+            "WITH a AS (SELECT id FROM (SELECT * FROM customer WHERE status = 'active') AS customer)"),
+        () -> rendered);
+  }
+
+  @Test
+  void withForwardReferenceFiltersBothBodiesWhenSiblingIsAlsoFiltered() {
+    var results = engine.rewrite(CTE_FORWARD_YAML,
+        "WITH a AS (SELECT id FROM customer), customer AS (SELECT id FROM crm.public.customer) "
+            + "SELECT * FROM a", "postgresql");
+    var result = results.get(0);
+    assertTrue(result.rowFiltered());
+    String rendered = flat(result.rewrittenSql());
+    assertEquals(2, countOccurrences(rendered, "WHERE status = 'active'"), () -> rendered);
+    // every bare `FROM customer` that remains sits inside a filtered derived
+    // table — no unfiltered reference may survive outside them
+    assertEquals(countOccurrences(rendered, "FROM customer"),
+        countOccurrences(rendered, "FROM customer WHERE status = 'active'"), () -> rendered);
+  }
+
+  @Test
+  void withSelfReferenceOfFilteredTableNameFailsClosed() {
+    // the rewriter injects the self-reference's base-table binding; the
+    // pipeline then fails closed at CteExpander's existing recursive-CTE
+    // diagnostic — the cycle never produces output
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> engine.rewrite(CTE_FORWARD_YAML,
+            "WITH customer AS (SELECT id FROM customer) SELECT * FROM customer", "postgresql"));
+    assertEquals(SqlMaskException.Code.LINEAGE_UNKNOWN, e.getCode(), () -> e.getMessage());
+    assertTrue(e.getMessage().contains("recursive CTE 'customer'"), () -> e.getMessage());
   }
 
   @Test

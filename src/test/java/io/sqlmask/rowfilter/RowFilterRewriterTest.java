@@ -358,27 +358,59 @@ class RowFilterRewriterTest {
   }
 
   @Test
-  void forwardCteReferenceIsNotReinterpretedAsBaseTable() {
-    // a's body references a later CTE name that is also a declared filtered
-    // table. PostgreSQL would reject the forward reference; Calcite's scope
-    // (like the ambiguity deviation documented for E4) accepts it and binds
-    // the CTE. The rewriter matches the validator: the name is never treated
-    // as a base-table hit, and the CTE body itself gets the filter injected,
-    // so no unfiltered rows can leak through the forward reference.
+  void forwardReferenceToFilteredTableIsInjected() {
+    // both engines bind a reference in an item body to a later sibling (or
+    // the item's own name) to the BASE table: PostgreSQL's non-recursive WITH
+    // items only see earlier siblings, and Calcite was probe-verified to bind
+    // the base table too. Registering each name only after its body is
+    // rewritten makes the rewriter match, so a same-named filtered table is
+    // injected — skipping it would read the filtered base table unfiltered.
     Fixture f = fixture(THREE_TABLE_YAML);
     RowFilterRewriter.Result result = apply(f,
         "WITH a AS (SELECT id FROM customer), customer AS (SELECT id FROM crm.public.other) "
             + "SELECT * FROM a");
-    assertEquals(0, result.injections(),
-        "a forward CTE reference is never a base-table injection site");
+    assertEquals(1, result.injections(),
+        "the forward reference to 'customer' binds the base table and is injected");
+    String rendered = flat(adapter.unparse(result.node()));
+    assertTrue(rendered.contains(
+            "WITH a AS (SELECT id FROM (SELECT * FROM customer WHERE status = 'active') AS customer)"),
+        () -> rendered);
     adapter.validate(result.node(), f.schema());
 
-    RowFilterRewriter.Result filtered = apply(f,
+    RowFilterRewriter.Result bothBodies = apply(f,
         "WITH a AS (SELECT id FROM customer), customer AS (SELECT id FROM crm.public.customer) "
             + "SELECT * FROM a");
-    assertEquals(1, filtered.injections(),
-        "the forward-referenced CTE's own body is filtered");
-    adapter.validate(filtered.node(), f.schema());
+    assertEquals(2, bothBodies.injections(),
+        "the forward reference and the later item's own body are both filtered");
+    assertEquals(2, countOccurrences(flat(adapter.unparse(bothBodies.node())),
+        "WHERE status = 'active'"));
+    adapter.validate(bothBodies.node(), f.schema());
+  }
+
+  @Test
+  void forwardReferenceToUndeclaredNameKeepsCurrentFailure() {
+    // REW-11: an item body's forward reference to an undeclared name resolves
+    // to nothing — row filtering must not change the existing validation
+    // failure for it
+    Fixture f = fixture(THREE_TABLE_YAML);
+    assertThrows(SqlMaskException.class, () -> {
+      RowFilterRewriter.Result result = apply(f,
+          "WITH a AS (SELECT id FROM b), b AS (SELECT id FROM crm.public.other) SELECT * FROM a");
+      adapter.validate(result.node(), f.schema());
+    });
+  }
+
+  @Test
+  void selfReferenceToFilteredTableNameIsInjectedAtRewriterLevel() {
+    // the item body's own name binds the base table until registration (both
+    // engines agree), so the rewriter injects; the pipeline then fails closed
+    // downstream in CteExpander with the existing recursive-CTE diagnostic —
+    // no machinery here to special-case the cycle
+    Fixture f = fixture(THREE_TABLE_YAML);
+    RowFilterRewriter.Result result = apply(f,
+        "WITH customer AS (SELECT id FROM customer) SELECT * FROM customer");
+    assertEquals(1, result.injections(),
+        "the self-reference binds the base table and is injected");
   }
 
   // --- identifier casing ---
@@ -479,9 +511,10 @@ class RowFilterRewriterTest {
 
   @Test
   void orderAndLimitOnFilteredTableRendersOnce() {
-    // a top-level ORDER BY/LIMIT wraps the query in a SqlOrderBy node whose
-    // operator cannot rebuild it through the generic createCall path — the
-    // rewritten wrapper must stay a real SqlOrderBy so unparse keeps working
+    // a top-level ORDER BY/LIMIT wraps the query in a SqlOrderBy node: build
+    // the wrapper as a concrete SqlOrderBy the way SqlNodeCopier does, never
+    // depending on a private anonymous-class operator override, so unparse
+    // keeps working
     Fixture f = fixture(TWO_TABLE_YAML);
     RowFilterRewriter.Result result =
         apply(f, "SELECT id FROM crm.public.customer ORDER BY id LIMIT 5");
