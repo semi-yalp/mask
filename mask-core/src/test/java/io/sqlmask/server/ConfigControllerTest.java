@@ -74,6 +74,34 @@ class ConfigControllerTest {
         .andExpect(jsonPath("$.policies[0].arguments[1]").value(4));
   }
 
+  @Test
+  void parseRespectsDialectForTypeValidation() throws Exception {
+    // datetime 是 MySQL 类型名；按方言解析并原样回显，未注册该类型的方言报 CONFIG_ERROR
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: shop
+              schema: app
+              name: orders
+              columns:
+                - name: taken_at
+                  type: datetime
+        policies: {}
+        """;
+    mvc.perform(post("/api/config/parse")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(
+                Map.of("metadataYaml", yaml, "dialect", "mysql"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tables[0].columns[0].type").value("datetime"));
+    mvc.perform(post("/api/config/parse")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(
+                Map.of("metadataYaml", yaml, "dialect", "postgresql"))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
   private static final String ROW_FILTER_YAML = """
       metadata:
         tables:

@@ -216,7 +216,12 @@
     <div class="actions">
       <button id="run" class="btn primary">执行改写</button>
       <button id="sample" class="btn">载入示例</button>
-      <span class="badge">dialect: postgresql</span>
+      <select id="dialect" class="badge" aria-label="目标方言">
+        <option value="postgresql">dialect: postgresql</option>
+        <option value="trino">dialect: trino</option>
+        <option value="mysql">dialect: mysql</option>
+      </select>
+      <span class="hint" id="dialect-hint"></span>
       <span id="status"></span>
     </div>
     <div class="row" style="margin-top:10px">
@@ -324,6 +329,18 @@ SELECT id, status FROM customer;`;
 const $ = (id) => document.getElementById(id);
 const sqlEl = $("sql"), statusEl = $("status"), resultsEl = $("results"),
     errorEl = $("error"), runBtn = $("run"), copyBtn = $("copy"), yamlEl = $("yaml");
+const dialectEl = $("dialect"), dialectHintEl = $("dialect-hint");
+
+const DIALECT_HINTS = {
+  postgresql: "双引号是标识符，字符串用单引号",
+  trino: "双引号是标识符，字符串用单引号",
+  mysql: "反引号是标识符，双引号是字符串"
+};
+function refreshDialectHint() {
+  dialectHintEl.textContent = DIALECT_HINTS[dialectEl.value] || "";
+}
+dialectEl.addEventListener("change", refreshDialectHint);
+refreshDialectHint();
 
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -617,7 +634,7 @@ async function applyYaml() {
     const res = await fetch("/api/config/parse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ metadataYaml: yamlEl.value })
+      body: JSON.stringify({ metadataYaml: yamlEl.value, dialect: dialectEl.value })
     });
     const payload = await res.json().catch(() => null);
     if (!res.ok) {
@@ -807,7 +824,7 @@ async function run() {
         metadataYaml: generateYaml(),
         policyYaml: state.policyYaml || undefined,
         sql: sqlEl.value,
-        dialect: "postgresql",
+        dialect: dialectEl.value,
         user: $("run-user").value.trim() || undefined,
         groups: $("run-groups").value.split(",").map((g) => g.trim()).filter(Boolean)
       })

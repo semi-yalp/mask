@@ -28,6 +28,22 @@ class SqlMaskApplicationTest {
   }
 
   @Test
+  void unknownDialectExitsWithUsageError() {
+    // oracle 未注册；方言校验在任何文件读取之前发生（exit code 2 = 用法错误）
+    var out = new ByteArrayOutputStream();
+    var err = new ByteArrayOutputStream();
+    int code = app.run(new String[] {"--metadata", "whatever.yaml", "--sql", "SELECT 1",
+        "--dialect", "oracle"}, System.in,
+        new PrintStream(out), new PrintStream(err, true, StandardCharsets.UTF_8));
+    assertEquals(2, code);
+    String stderr = err.toString(StandardCharsets.UTF_8);
+    assertTrue(stderr.contains("unsupported dialect"),
+        () -> "stderr should mention the unsupported dialect but was: " + stderr);
+    assertTrue(stderr.contains("trino") && stderr.contains("mysql"),
+        () -> "stderr should list the supported dialects but was: " + stderr);
+  }
+
+  @Test
   void noArgumentsReturnsNonZeroAndWritesDiagnostic() {
     var out = new ByteArrayOutputStream();
     var err = new ByteArrayOutputStream();
