@@ -2,7 +2,8 @@
 
 基于 Apache Calcite 的 PostgreSQL SQL 脱敏改写服务。读取 YAML 中声明的表结构、
 列脱敏策略和 UDF 参数，把查询改写为「原始查询作为内层、最外层对结果列调用脱敏
-UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，不连接查询引擎、不执行 SQL。
+UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从不执行业务 SQL；唯一的
+数据库访问是 `--pull-metadata` 的只读元数据采集。
 
 同一个 jar 提供两种使用方式：
 
@@ -10,6 +11,38 @@ UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，不�
   浏览器打开 `http://localhost:8080` 使用内置页面；
 - **CLI**：`java -jar target/sql-mask.jar --metadata ... --sql/--input ...`，
   带命令行参数时自动走命令行模式，结果输出到 stdout 或文件。
+
+## 元数据采集（--pull-metadata）
+
+`--pull-metadata` 连接一个 PostgreSQL 库，把库表结构拉取成 metadata 骨架 YAML：
+表、列、类型都已生成，列策略（`columns`）与行过滤（`rowFilter`）需要人工后补。
+采集只读 `pg_catalog`，JDBC 连接以只读模式打开，不执行任何业务 SQL。
+
+```bash
+java -jar target/sql-mask.jar --pull-metadata --host 127.0.0.1 \
+  --database crm --user postgres --password 'PgTest2026' --output crm.yaml
+```
+
+- `--database` / `--user` / `--output` 必填；`--host` 缺省 127.0.0.1，
+  `--port` 缺省 5432；
+- `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema；
+- `--include-views`：连同视图与物化视图一起导出；
+- `--strict`：只要有列类型降级为 varchar 就拒绝导出（退出码 1，
+  错误码 `STRICT_DEGRADED`）；
+- 密码来源：`--password` 优先于环境变量 `PGPASSWORD`，两者都没有则退出码 2。
+
+行为要点：
+
+- 类型映射清单见 spec 第 3 节（`docs/superpowers/plans/2026-09-06-metadata-introspection.md`），
+  与「metadata.yaml 示例」一节的支持类型一致：`boolean`、`smallint`、`integer`、
+  `bigint`、`real`、`double precision`、`numeric(p,s)`、`char(n)`、`varchar(n)`、
+  `text`、`date`、`timestamp[(p)]`、`timestamptz`、`time[(p)]`、`timetz`；
+- 不可映射的类型（`jsonb`、`uuid`、数组等）不报错、列不消失：降级为 `varchar`
+  并在 stderr 输出一条警告（`... PG type jsonb is not representable, degraded to varchar`）；
+- 库里没有可导出的表时输出空骨架 `tables: []`，退出码仍为 0；
+- 输出确定性：同一数据库重复导出逐字节一致（可直接 diff 提交审阅），成功时
+  stdout 摘要 `introspected N tables / M columns / K warnings`；
+- 失败路径（连接失败、`--strict` 命中降级）不会创建或覆盖 `--output` 文件。
 
 ## 构建
 
@@ -30,6 +63,9 @@ java -jar target/sql-mask.jar
 打开 `http://localhost:8080`，页面提供结构化配置编辑器与改写结果展示：
 
 - **表结构**：可增删改表（catalog / schema / 表名）及其列（列名 + 类型，含常用类型提示）；
+- **从数据库导入**：在「表结构」页签填写连接信息（主机/端口/库/用户/密码，
+  可选 schema 过滤与包含视图），调用 `POST /api/metadata/pull` 拉取表结构骨架
+  合并进表单，类型降级警告逐条展示；
 - **列策略**：为「表结构」中声明的列绑定「策略定义」中的策略（下拉选择，重命名自动联动）；
 - **策略定义**：策略名、UDF 名、有序标量参数（逗号分隔）均可编辑；
 - **YAML 源码**：从表单实时生成；也可直接编辑后点「校验并应用到表单」，
@@ -68,7 +104,41 @@ java -jar target/sql-mask.jar
 
 错误码：`CONFIG_ERROR`（YAML/参数）、`PARSE_ERROR`、`VALIDATION_ERROR`、
 `UNSUPPORTED_STATEMENT`（DML/DDL/递归 CTE）、`LINEAGE_UNKNOWN`（来源无法追踪）、
-`REWRITE_ERROR`（如重复输出列名需包装）、`IO_ERROR`、`INTERNAL_ERROR`。
+`REWRITE_ERROR`（如重复输出列名需包装）、`IO_ERROR`、`INTERNAL_ERROR`、
+`INTROSPECT_ERROR`（元数据采集失败）、`STRICT_DEGRADED`（`--strict` 命中降级）。
+
+### POST /api/metadata/pull
+
+连接一个 PostgreSQL 库做只读元数据采集，返回骨架 YAML（与 CLI 的
+`--pull-metadata` 同一实现，表结构导入页面也走这个接口）：
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 5432,
+  "database": "crm",
+  "user": "postgres",
+  "password": "***",
+  "schemas": ["public"],
+  "includeViews": false
+}
+```
+
+`database`、`user`、`password` 必填；`host`/`port` 缺省 127.0.0.1:5432，
+`schemas` 缺省导出全部非系统 schema。成功返回 200：
+
+```json
+{
+  "yaml": "metadata:\n  tables:\n    - ...",
+  "tableCount": 4,
+  "columnCount": 21,
+  "warnings": [],
+  "catalog": "crm"
+}
+```
+
+失败返回 400：`CONFIG_ERROR`（参数缺失或空白）、`INTROSPECT_ERROR`（连接或
+采集失败）。密码只在本次请求内使用，不写日志、不出现在响应中。
 
 ### POST /api/config/parse
 
