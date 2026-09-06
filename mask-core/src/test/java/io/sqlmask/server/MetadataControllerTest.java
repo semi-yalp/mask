@@ -72,6 +72,21 @@ class MetadataControllerTest {
   }
 
   @Test
+  void unknownEngineIsConfigError() throws Exception {
+    introspector = stubReturning(sample());
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+        .setControllerAdvice(new ApiExceptionHandler())
+        .build();
+    mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
+        {"engine":"oracle","database":"d","user":"u","password":"p"}
+        """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
+        .andExpect(jsonPath("$.message")
+            .value("unsupported engine 'oracle' (supported: postgresql, mysql, trino)"));
+  }
+
+  @Test
   void connectionFailureIsIntrospectError400() throws Exception {
     introspector = new PgMetadataIntrospector() {
       @Override protected Connection open(io.sqlmask.introspect.ConnectionSpec spec) throws java.sql.SQLException {

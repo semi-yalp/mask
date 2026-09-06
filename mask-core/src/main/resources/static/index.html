@@ -236,6 +236,11 @@
 <dialog id="import-dialog" style="border:none;border-radius:10px;padding:0;max-width:420px;width:92%">
   <form method="dialog" style="padding:18px">
     <h3 style="margin:0 0 12px;font-size:15px">连接 PostgreSQL 拉取元数据</h3>
+    <div class="row"><select id="imp-engine">
+      <option value="postgresql">postgresql（默认）</option>
+      <option value="mysql">mysql</option>
+      <option value="trino">trino</option>
+    </select></div>
     <div class="row"><input id="imp-host" placeholder="host，默认 127.0.0.1">
       <input id="imp-port" placeholder="port，默认 5432" style="flex:0 0 110px"></div>
     <div class="row"><input id="imp-database" placeholder="database（必填）">
@@ -669,6 +674,7 @@ async function importFromDatabase() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        engine: $("imp-engine").value,
         host: $("imp-host").value.trim() || "127.0.0.1",
         port: parseInt($("imp-port").value, 10) || 5432,
         database, user, password, schemas,
