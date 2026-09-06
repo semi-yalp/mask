@@ -80,8 +80,9 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
 
 已知行为（当前版本有意保留）：
 
-- Web 侧 `engine` 字段不做大小写归一化，建议按小写传入（CLI 侧 `--engine`
-  大小写不敏感）；
+- Web 与 CLI 的引擎名均经注册表（`MetadataIntrospectors.byEngine`）做
+  trim+小写归一化，`MySQL` 这类写法两侧行为一致；显式传入非法引擎时
+  Web 报 `CONFIG_ERROR`，CLI 退出码 2；
 - 改写模式下 `--engine` 被忽略，目标方言由 `--dialect` 决定；
 - 页面导入弹窗标题仍写「连接 PostgreSQL 拉取元数据」，但通过弹窗顶部的引擎
   下拉框三引擎均可用。
