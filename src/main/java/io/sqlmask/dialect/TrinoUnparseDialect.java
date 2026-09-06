@@ -15,9 +15,11 @@ import org.apache.calcite.util.Util;
  * {@code x BETWEEN lo AND hi} renders as {@code BETWEEN ASYMMETRIC ...} —
  * syntax the real Trino grammar rejects (verified against trino-parser:
  * {@code ASYMMETRIC} and {@code SYMMETRIC} are both no keywords after
- * BETWEEN). This dialect intercepts the plain (ASYMMETRIC) form and renders
- * the identical keyword structure without the flag; ASYMMETRIC is the SQL
- * default, so the semantics are unchanged.
+ * BETWEEN). This dialect intercepts the plain (ASYMMETRIC) form — negated
+ * or not; Calcite's {@code NOT_BETWEEN} carries the same ASYMMETRIC flag —
+ * and renders the identical keyword structure without the flag: plain
+ * {@code BETWEEN} and {@code NOT BETWEEN} are both legal Trino
+ * ({@code NOT? BETWEEN}), so the semantics are unchanged either way.
  *
  * <p>The SYMMETRIC form (semantics Trino cannot express) keeps Calcite's
  * default rendering, which the real Trino parser then rejects loudly — it
@@ -42,10 +44,12 @@ final class TrinoUnparseDialect extends TrinoSqlDialect {
 
   /**
    * {@link SqlBetweenOperator#unparse} minus the flag keyword: operand 0,
-   * "BETWEEN", the lower bound (parenthesized when it contains a top-level
-   * AND, exactly like Calcite's AndFinder guard), "AND", the upper bound.
-   * The keyword must be the literal "BETWEEN": {@link SqlBetweenOperator#getName()}
-   * returns "BETWEEN ASYMMETRIC" — Calcite bakes the flag into the virtual
+   * "BETWEEN"/"NOT BETWEEN" (per {@link SqlBetweenOperator#isNegated()};
+   * dropping the negation would silently invert the predicate), the lower
+   * bound (parenthesized when it contains a top-level AND, exactly like
+   * Calcite's AndFinder guard), "AND", the upper bound. The keyword must be
+   * this literal and not {@link SqlBetweenOperator#getName()}: that virtual
+   * method returns "BETWEEN ASYMMETRIC" — Calcite bakes the flag into the
    * operator name — so calling {@code writer.sep(between.getName())} would
    * re-emit the very keyword this dialect exists to remove.
    */
@@ -54,7 +58,7 @@ final class TrinoUnparseDialect extends TrinoSqlDialect {
     SqlWriter.Frame frame = writer.startList("", "");
     call.operand(SqlBetweenOperator.VALUE_OPERAND)
         .unparse(writer, between.getLeftPrec(), 0);
-    writer.sep("BETWEEN");
+    writer.sep(between.isNegated() ? "NOT BETWEEN" : "BETWEEN");
     SqlNode lower = call.operand(SqlBetweenOperator.LOWER_OPERAND);
     SqlNode upper = call.operand(SqlBetweenOperator.UPPER_OPERAND);
     int lowerPrec = containsAnd(lower) ? 100 : 0;

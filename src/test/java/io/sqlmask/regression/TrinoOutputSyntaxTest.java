@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -44,6 +46,27 @@ class TrinoOutputSyntaxTest {
         Path.of("src/test/resources/queries/with-and-nested.sql"), StandardCharsets.UTF_8);
     for (RewriteEngine.StatementRewrite statement : engine.rewrite(metadata, queries, "trino")) {
       assertValidTrino(statement.rewrittenSql());
+    }
+  }
+
+  /**
+   * Locks both BETWEEN forms the trino dialect may emit: Calcite renders
+   * plain BETWEEN as "BETWEEN ASYMMETRIC" (rejected by the real Trino
+   * grammar), and the unparse fix must preserve the negated form — silently
+   * emitting "BETWEEN" for "NOT BETWEEN" would invert the predicate while
+   * producing perfectly valid Trino, invisible to a parse-only check.
+   */
+  @Test
+  void betweenFormsRenderFaithfullyAndParseInRealTrino() throws Exception {
+    String metadata = Files.readString(TRINO_METADATA, StandardCharsets.UTF_8);
+    for (String predicate : List.of("BETWEEN 1 AND 5", "NOT BETWEEN 1 AND 5")) {
+      String queries = "SELECT id FROM crm.public.customer WHERE id " + predicate;
+      List<RewriteEngine.StatementRewrite> statements = engine.rewrite(metadata, queries, "trino");
+      assertEquals(1, statements.size());
+      String sql = statements.get(0).rewrittenSql();
+      assertTrue(sql.contains(" id " + predicate),
+          "rewritten SQL lost the predicate form '" + predicate + "':\n" + sql);
+      assertValidTrino(sql);
     }
   }
 
