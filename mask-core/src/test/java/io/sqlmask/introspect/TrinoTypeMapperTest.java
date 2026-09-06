@@ -56,6 +56,18 @@ class TrinoTypeMapperTest {
     }
   }
 
+  @ParameterizedTest(name = "{0} -> varchar degraded")
+  @CsvSource({
+      "'decimal(99999999999)'",
+      "'decimal(x)'",
+      "'char ()'"
+  })
+  void malformedParamsDegrade(String dataType) {
+    PgTypeMapper.Mapped m = mapper.map(dataType);
+    assertEquals("varchar", m.yamlType(), dataType);
+    assertTrue(m.degraded(), dataType);
+  }
+
   @Test
   void neverThrows() {
     for (String t : new String[]{null, "", "decimal(99999999999)", "row(", "  "}) {
@@ -67,8 +79,9 @@ class TrinoTypeMapperTest {
   /** 硬防线：每个精确映射结果必须通过 TrinoTypeResolver。 */
   @Test
   void everyMappedTypePassesTrinoResolver() {
-    String[] samples = {"boolean", "tinyint", "smallint", "integer", "bigint", "real",
-        "double", "decimal(10,2)", "char(10)", "varchar(50)", "varchar", "varbinary",
+    String[] samples = {"boolean", "tinyint", "smallint", "integer", "int", "bigint", "real",
+        "double", "decimal", "decimal(10,2)", "char(1)", "char(10)", "character(10)",
+        "varchar(50)", "varchar", "character varying(50)", "varbinary",
         "date", "time(3)", "time(3) with time zone", "timestamp(3)",
         "timestamp(3) with time zone"};
     for (String yamlType : samples) {

@@ -2,6 +2,7 @@ package io.sqlmask.introspect;
 
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Maps Trino {@code information_schema.COLUMNS.data_type} text (e.g.
@@ -15,6 +16,9 @@ public final class TrinoTypeMapper {
       "boolean", "tinyint", "smallint", "int", "integer", "bigint", "real", "double",
       "decimal", "char", "character", "varchar", "character varying", "varbinary",
       "date", "time", "timestamp");
+
+  /** Shape the echoed parenthesized parameters must have: {@code digits[, digits]}. */
+  private static final Pattern VALID_PARAMS = Pattern.compile("\\d+(\\s*,\\s*\\d+)?");
 
   public PgTypeMapper.Mapped map(String dataTypeText) {
     if (dataTypeText == null || dataTypeText.isBlank()) {
@@ -32,6 +36,12 @@ public final class TrinoTypeMapper {
       return new PgTypeMapper.Mapped("varchar", true);
     }
     boolean parameterized = !bare.equals(stripped);
+    if (parameterized && !validParams(stripped)) {
+      // Malformed (char ()) or int-overflowing (decimal(99999999999)) parameters
+      // would blow up TrinoTypeResolver downstream: degrade instead of echoing
+      // a declaration the resolver cannot parse.
+      return new PgTypeMapper.Mapped("varchar", true);
+    }
     if (!parameterized && (bare.equals("char") || bare.equals("character"))) {
       // resolver defaults to char(1); echo explicitly. A parameterized char(n)
       // keeps its length: silently collapsing it to char(1) would lose data.
@@ -40,9 +50,39 @@ public final class TrinoTypeMapper {
     return new PgTypeMapper.Mapped(raw, false);
   }
 
+  /**
+   * True when the outermost parenthesized parameters of {@code text} are
+   * {@code digits[, digits]} and every number fits in an {@code int}; the
+   * resolver parses them with {@code Integer.valueOf} and would throw otherwise.
+   */
+  private boolean validParams(String text) {
+    int open = trailingOpenParen(text);
+    if (open < 0) {
+      return false;
+    }
+    String content = text.substring(open + 1, text.length() - 1);
+    if (!VALID_PARAMS.matcher(content).matches()) {
+      return false;
+    }
+    for (String part : content.split(",")) {
+      try {
+        Integer.valueOf(part.trim());
+      } catch (NumberFormatException e) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private String stripParams(String text) {
+    int open = trailingOpenParen(text);
+    return open < 0 ? text : text.substring(0, open).trim();
+  }
+
+  /** Index of the {@code (} matching a trailing {@code )}, or -1 when absent or unbalanced. */
+  private static int trailingOpenParen(String text) {
     if (!text.endsWith(")")) {
-      return text;
+      return -1;
     }
     int depth = 0;
     for (int i = text.length() - 1; i >= 0; i--) {
@@ -51,10 +91,10 @@ public final class TrinoTypeMapper {
       else if (c == '(') {
         depth--;
         if (depth == 0) {
-          return text.substring(0, i).trim();
+          return i;
         }
       }
     }
-    return text;
+    return -1;
   }
 }
