@@ -1,0 +1,13 @@
+metadata:
+  tables:
+    - catalog: shop
+      schema: shop
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+        - name: name
+          type: varchar(50)
+        - name: created_at
+          type: datetime(3)
+policies: {}

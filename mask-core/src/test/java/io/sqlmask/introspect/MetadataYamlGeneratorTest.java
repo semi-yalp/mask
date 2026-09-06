@@ -43,6 +43,23 @@ class MetadataYamlGeneratorTest {
         List.of("未找到任何表，请检查 schema 过滤条件"));
   }
 
+  private IntrospectionResult mysql() {
+    return new IntrospectionResult("shop", List.of(
+        new IntrospectionResult.TableInfo("shop", "shop", "customer", List.of(
+            new IntrospectionResult.ColumnInfo("id", "bigint", "bigint unsigned", true),
+            new IntrospectionResult.ColumnInfo("name", "varchar(50)", "varchar(50)", false),
+            new IntrospectionResult.ColumnInfo("created_at", "datetime(3)", "datetime(3)", false)))),
+        List.of("column shop.shop.customer.id: mysql type bigint unsigned is not representable, degraded to varchar"));
+  }
+
+  private IntrospectionResult trino() {
+    return new IntrospectionResult("crm", List.of(
+        new IntrospectionResult.TableInfo("crm", "public", "customer", List.of(
+            new IntrospectionResult.ColumnInfo("id", "bigint", "bigint", false),
+            new IntrospectionResult.ColumnInfo("tags", "varchar", "json", true)))),
+        List.of("column crm.public.customer.tags: trino type json is not representable, degraded to varchar"));
+  }
+
   @Test
   void multiTableGolden() throws Exception {
     assertGolden("introspect-multi-table.yaml", multiTable());
@@ -56,6 +73,16 @@ class MetadataYamlGeneratorTest {
   @Test
   void emptySkeletonGolden() throws Exception {
     assertGolden("introspect-empty.yaml", empty());
+  }
+
+  @Test
+  void mysqlGolden() throws Exception {
+    assertGolden("introspect-mysql.yaml", mysql());
+  }
+
+  @Test
+  void trinoGolden() throws Exception {
+    assertGolden("introspect-trino.yaml", trino());
   }
 
   @Test

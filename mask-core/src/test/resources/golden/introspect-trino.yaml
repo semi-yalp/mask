@@ -1,0 +1,11 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+        - name: tags
+          type: varchar
+policies: {}
