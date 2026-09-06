@@ -42,6 +42,17 @@ class PgTypeMapperTest {
     assertFalse(m.degraded(), pgType);
   }
 
+  @ParameterizedTest(name = "{0} degrades on precision overflow")
+  @CsvSource({
+      "'numeric(99999999999)'",
+      "'varchar(2147483648)'"
+  })
+  void oversizedPrecisionDegrades(String pgType) {
+    PgTypeMapper.Mapped m = mapper.map(pgType);
+    assertEquals("varchar", m.yamlType(), pgType);
+    assertTrue(m.degraded(), pgType);
+  }
+
   @Test
   void arrayTypesDegrade() {
     PgTypeMapper.Mapped m = mapper.map("integer[]");

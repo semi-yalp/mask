@@ -39,8 +39,16 @@ public final class PgTypeMapper {
       return new Mapped("varchar", true);
     }
     String base = m.group(1).trim().toLowerCase(Locale.ROOT);
-    Integer p = m.group(2) == null ? null : Integer.valueOf(m.group(2));
-    Integer s = m.group(3) == null ? null : Integer.valueOf(m.group(3));
+    Integer p;
+    Integer s;
+    try {
+      p = m.group(2) == null ? null : Integer.valueOf(m.group(2));
+      s = m.group(3) == null ? null : Integer.valueOf(m.group(3));
+    } catch (NumberFormatException e) {
+      // Precision that overflows int (e.g. numeric(99999999999)) is unsupported
+      // shape, not a crash: degrade instead of violating the never-throw contract.
+      return new Mapped("varchar", true);
+    }
     return switch (base) {
       case "boolean" -> new Mapped("boolean", false);
       case "smallint" -> new Mapped("smallint", false);
