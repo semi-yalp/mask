@@ -100,7 +100,9 @@ capabilities             DialectCapabilities
 - postgresql / trino：维持现状——每个声明的 `catalog.schema` 对一条路径，
   非限定名唯一时解析，多命中报歧义。
 - mysql：额外为每个 `schema` 生成一元素路径 `[schema]`，使 MySQL 惯用的两段名
-  `db.table` 可解析；三段名与非限定名行为不变。
+  `db.table` 可解析；三段名与非限定名行为不变。多路径的解析顺序行为必须用
+  pinning 测试钉死（见 §10.1；若二义性行为不符预期，备选方案是 MySQL 仅用
+  `[schema]` 单路径，`catalog` 退化为纯 YAML 分组字段）。
 
 ### 3.6 能力声明
 
@@ -228,3 +230,50 @@ VARCHAR（无界）；`binary[(n)]`|`varbinary(n)`→BINARY/VARBINARY；`date`�
   包名冲突，输出验证只能用 golden 或独立模块。
 
 三者均为：新增一个 profile + 注册表登记 + 该引擎测试集，SPI 不需要再改。
+
+## 10. 自评审发现与待办项（2026-09-06）
+
+### 10.1 设计待钉死项
+
+1. **MySQL 多搜索路径的解析顺序**：`[catalog, schema]` 与 `[schema]` 双路径下，
+   CalciteCatalogReader 对 `db.table`（仅 `[schema]` 路径可解析）与非限定名
+   （两类路径都可解析）是首匹配还是报二义，行为未验证。实现时先写 pinning
+   测试钉死实际行为并写入文档；若双路径产生错误二义，MySQL profile 改用
+   `[schema]` 单路径（`catalog` 仅作 YAML 逻辑分组），两段名/非限定名仍可解析。
+2. **Trino 保留字集合需要具体化**：§3.4 的「小型集合」实现时必须从 Trino 官方
+   文档的 reserved words 派生完整清单，并用「保留字命名列 + 包装」的测试覆盖，
+   不得凭印象截取。
+
+### 10.2 实现期验证项（每项都要有对应测试）
+
+3. **方言 SqlDialect 行为**：`TrinoSqlDialect` / `MysqlSqlDialect` 的实例化方式
+   （context/DEFAULT）与字面量转义行为用测试钉死，尤其 MySQL 字符串参数的反斜杠
+   转义（默认 MySQL 把 `\` 视为转义符）。
+4. **MySQL CTAS 列定义边界**：`CREATE TABLE t (a INT PRIMARY KEY, …) AS SELECT`
+   这类带约束的列定义能否被 Calcite DDL parser 解析未验证；解析不了的进安全
+   失败清单。另外重组语句时列定义被重渲染为 Calcite 规范形式（`INT`→`INTEGER`
+   等），golden 测试确认重渲染结果仍是合法 MySQL。
+5. **`SqlConformanceEnum.MYSQL_5` 回归影响**：对既有管线（未知函数兜底、类型
+   推导、聚合不剪枝、`count(col)` 血缘）跑全量测试确认无副作用。
+6. **trino-parser 依赖**：选定版本并验证与 calcite 的传递依赖（guava 等）无
+   冲突（test scope）；该依赖只出现在测试代码，主代码不得引用。
+7. **CteExpander 方言假设**：其注释声明按「PostgreSQL 作用域」做 CTE 遮蔽，
+   需确认逻辑对 MySQL/Trino 的 CTE 语义等价；有 PG 假设则泛化。
+8. **schemaPaths 生成去重**：路径生成目前同时存在于
+   `YamlCalciteSchemaFactory.schemaPaths` 与 `PostgresqlDialectAdapter.schemaPaths`
+   （重复代码），profile 化时统一为一处，由 `schemaPathStyle` 驱动。
+
+### 10.3 测试计划澄清
+
+9. **集成测试的方言变体**：§6.3 的「同一批场景」实现为按方言维护 SQL 变体集——
+   PG 特有语法（`::` 强转、`$$` 字符串等）在 trino/mysql 场景用等价写法，
+   不强行让一条 SQL 跑三方言。
+10. **TPC-DS 跨方言元数据**：`tpcds/metadata.yaml` 是 PG 类型名；trino/mysql
+    跑 TPC-DS 子集前需生成按方言类型的 metadata 文件（类型名机械翻译即可），
+    作为测试资源入库。
+
+### 10.4 文档补充项
+
+11. **内层 SQL 的引擎语义说明**：用户原始 SQL 内层保留原文，其中的反斜杠转义、
+    双引号字符串等由目标引擎按自身语义解释；Calcite 校验期的解释可能不同，但
+    只影响校验不影响脱敏正确性（内层字节不变）。此限制写入 README。
