@@ -16,6 +16,8 @@ public final class DialectProfiles {
     PROFILES.put(pg.name(), pg.profile());
     TrinoDialectAdapter trino = new TrinoDialectAdapter();
     PROFILES.put(trino.name(), trino.profile());
+    MysqlDialectAdapter mysql = new MysqlDialectAdapter();
+    PROFILES.put(mysql.name(), mysql.profile());
   }
 
   public static DialectProfile byName(String name) {

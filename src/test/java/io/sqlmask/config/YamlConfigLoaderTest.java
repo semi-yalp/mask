@@ -3,7 +3,6 @@ package io.sqlmask.config;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -321,7 +320,6 @@ class YamlConfigLoaderTest {
   }
 
   @Test
-  @Disabled("mysql dialect profile is registered in Task 5; enable this there")
   void mysqlTypeNamesParseUnderMysqlDialect() {
     String yaml = """
         metadata:

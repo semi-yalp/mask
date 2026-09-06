@@ -243,7 +243,11 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
   /**
    * Search paths derived from the schema tree, honoring the profile's style.
    * Order matters: the {@code [catalog, schema]} pair precedes the bare
-   * {@code [schema]} path so fully-qualified resolution wins.
+   * {@code [catalog]} path so fully-qualified resolution wins. Calcite
+   * resolves a qualified name by concatenating each search-path entry with
+   * the name's leading schema parts, so the bare {@code [catalog]} entry is
+   * what lets MySQL two-part names ({@code db.table}) reach the declared
+   * {@code catalog.db} schema.
    */
   private List<List<String>> schemaPaths(SchemaPlus rootSchema) {
     List<List<String>> paths = new ArrayList<>();
@@ -252,7 +256,7 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
       for (String schema : catalogSchema.getSubSchemaNames()) {
         paths.add(List.of(catalog, schema));
         if (profile.schemaPathStyle() == DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA) {
-          paths.add(List.of(schema));
+          paths.add(List.of(catalog));
         }
       }
     }

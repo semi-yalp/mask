@@ -25,7 +25,10 @@ public record DialectProfile(
    * Search paths for unqualified table references: {@code CATALOG_SCHEMA}
    * yields {@code [catalog, schema]} pairs (PostgreSQL/Trino);
    * {@code CATALOG_SCHEMA_AND_SCHEMA} additionally yields one-element
-   * {@code [schema]} paths so MySQL two-part names ({@code db.table}) resolve.
+   * {@code [catalog]} paths so MySQL two-part names ({@code db.table})
+   * resolve — Calcite concatenates each search-path entry with the name's
+   * leading schema parts, so {@code [catalog]} + {@code db} reaches the
+   * declared {@code catalog.db} schema.
    */
   public enum SchemaPathStyle { CATALOG_SCHEMA, CATALOG_SCHEMA_AND_SCHEMA }
 }

@@ -35,6 +35,31 @@ class MultiDialectRewriteTest {
           arguments: [3, 4]
       """;
 
+  private static final String MYSQL_YAML = """
+      metadata:
+        tables:
+          - catalog: shop
+            schema: app
+            name: customer
+            columns:
+              - name: id
+                type: bigint
+              - name: phone
+                type: varchar(20)
+              - name: email
+                type: varchar(100)
+      columns:
+        - catalog: shop
+          schema: app
+          table: customer
+          column: phone
+          policy: phone_mask
+      policies:
+        phone_mask:
+          udf: mask_phone
+          arguments: [3, 4]
+      """;
+
   private final RewriteEngine engine = new RewriteEngine();
 
   private static String flat(String sql) {
@@ -85,5 +110,36 @@ class MultiDialectRewriteTest {
     String out = flat(engine.rewrite(TRINO_YAML, "SELECT PHONE FROM CUSTOMER", "trino")
         .get(0).rewrittenSql());
     assertTrue(out.startsWith("SELECT mask_phone(r.phone, 3, 4) AS phone FROM ("), out);
+  }
+
+  @Test
+  void mysqlWrapperAlwaysBacktickQuotes() {
+    String out = flat(engine.rewrite(MYSQL_YAML, "SELECT id, phone FROM customer", "mysql")
+        .get(0).rewrittenSql());
+    assertEquals("SELECT `r`.`id`, `mask_phone`(`r`.`phone`, 3, 4) AS `phone` FROM ( "
+        + "SELECT id, phone FROM customer ) AS `r`", out);
+  }
+
+  @Test
+  void mysqlTwoPartNamesResolve() {
+    String out = flat(engine.rewrite(MYSQL_YAML,
+        "SELECT phone FROM app.customer", "mysql").get(0).rewrittenSql());
+    assertTrue(out.contains("`mask_phone`"), out);
+  }
+
+  @Test
+  void mysqlWriteStatementsRecomposed() {
+    String ins = flat(engine.rewrite(MYSQL_YAML,
+        "INSERT INTO `app`.`archive` (`id`, `phone`) SELECT id, phone FROM customer",
+        "mysql").get(0).rewrittenSql());
+    assertTrue(ins.startsWith("INSERT INTO `app`.`archive` (`id`, `phone`) "
+        + "SELECT `r`.`id`, `mask_phone`(`r`.`phone`, 3, 4) AS `phone` FROM ("), ins);
+  }
+
+  @Test
+  void mysqlCaseInsensitiveReferenceHitsPolicy() {
+    String out = flat(engine.rewrite(MYSQL_YAML, "SELECT PHONE FROM Customer", "mysql")
+        .get(0).rewrittenSql());
+    assertTrue(out.contains("`mask_phone`"), out);
   }
 }

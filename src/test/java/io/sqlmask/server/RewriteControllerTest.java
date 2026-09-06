@@ -172,10 +172,11 @@ class RewriteControllerTest {
 
   @Test
   void unsupportedDialectReturnsBadRequest() throws Exception {
+    // mysql 是已注册方言（Task 5 起），改用真正未注册的 oracle 验证拒绝路径
     mvc.perform(post("/api/rewrite")
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(Map.of(
-                "metadataYaml", YAML, "sql", "SELECT 1", "dialect", "mysql"))))
+                "metadataYaml", YAML, "sql", "SELECT 1", "dialect", "oracle"))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("dialect")));

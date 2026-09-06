@@ -12,6 +12,7 @@ public final class DialectRegistry {
   static {
     ADAPTERS.put(PostgresqlDialectAdapter.NAME, PostgresqlDialectAdapter::new);
     ADAPTERS.put(TrinoDialectAdapter.NAME, TrinoDialectAdapter::new);
+    ADAPTERS.put(MysqlDialectAdapter.NAME, MysqlDialectAdapter::new);
   }
 
   public static DialectAdapter create(String name) {
