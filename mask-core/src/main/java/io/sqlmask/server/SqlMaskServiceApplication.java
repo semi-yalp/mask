@@ -21,7 +21,7 @@ import java.util.List;
  * delegate to {@link SqlMaskApplication} for one-shot command line use.</li>
  * </ul>
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "io.sqlmask")
 public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(

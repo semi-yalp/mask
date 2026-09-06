@@ -1,6 +1,7 @@
 package io.sqlmask.server;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
 import io.sqlmask.rewrite.RewriteEngine;
 import io.sqlmask.rewrite.RewriteEngine.StatementRewrite;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,7 +14,9 @@ import java.util.List;
 /**
  * SQL rewriting endpoint. The request carries its own YAML metadata and SQL
  * text; the whole input is processed atomically and any failure is reported
- * as a structured error.
+ * as a structured error. An optional Ranger-style {@code policyYaml} and
+ * query subject ({@code user}/{@code groups}) select subject-aware policies;
+ * when given, the metadata's own policy sections must be empty.
  */
 @RestController
 @RequestMapping("/api")
@@ -39,12 +42,15 @@ public class RewriteController {
     String dialect = request.dialect() == null || request.dialect().isBlank()
         ? "postgresql"
         : request.dialect();
-    List<StatementRewrite> statements = engine.rewrite(request.metadataYaml(), request.sql(), dialect);
+    List<StatementRewrite> statements = engine.rewrite(
+        request.metadataYaml(), request.policyYaml(), request.sql(), dialect,
+        Subject.of(request.user(), request.groups()));
     return new RewriteResponse(statements, RewriteEngine.join(statements));
   }
 
   /** Per-statement rewrite request. */
-  public record RewriteRequest(String metadataYaml, String sql, String dialect) {
+  public record RewriteRequest(String metadataYaml, String policyYaml, String sql,
+      String dialect, String user, List<String> groups) {
   }
 
   /** Per-statement rewrite response plus the combined script. */
