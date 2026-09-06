@@ -2,13 +2,12 @@ package io.sqlmask.config.source;
 
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.config.MaskingConfig;
+import io.sqlmask.config.MaskingPolicy;
 import io.sqlmask.dialect.DialectProfiles;
 import io.sqlmask.dialect.TypeResolver;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.policy.MaskingPolicy;
-import io.sqlmask.policy.PolicyRegistry;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,7 +75,7 @@ public final class EffectiveConfigAssembler {
     }
 
     MaskingConfig config = new MaskingConfig(tables, bindings, policies);
-    return new LoadedConfig(config, PolicyRegistry.of(config));
+    return new LoadedConfig(config);
   }
 
   private static String key(String catalog, String schema, String table) {

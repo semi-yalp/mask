@@ -2,7 +2,6 @@ package io.sqlmask.config;
 
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.policy.MaskingPolicy;
 import io.sqlmask.policy.model.DataMaskItem;
 import io.sqlmask.policy.model.Policy;
 import io.sqlmask.policy.model.PolicyResource;

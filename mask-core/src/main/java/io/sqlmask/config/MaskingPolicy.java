@@ -1,4 +1,4 @@
-package io.sqlmask.policy;
+package io.sqlmask.config;
 
 import java.util.List;
 

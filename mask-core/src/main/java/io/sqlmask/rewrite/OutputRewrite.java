@@ -1,6 +1,6 @@
 package io.sqlmask.rewrite;
 
-import io.sqlmask.policy.MaskingPolicy;
+import io.sqlmask.policy.model.MaskInstruction;
 
 import java.util.Optional;
 
@@ -9,7 +9,7 @@ import java.util.Optional;
  * name, so duplicate aliases stay addressable for future dialect-specific
  * mechanisms).
  */
-public record OutputRewrite(int ordinal, String outputName, Optional<MaskingPolicy> policy) {
+public record OutputRewrite(int ordinal, String outputName, Optional<MaskInstruction> policy) {
 
   public OutputRewrite {
     policy = policy == null ? Optional.empty() : policy;
@@ -23,7 +23,7 @@ public record OutputRewrite(int ordinal, String outputName, Optional<MaskingPoli
     return new OutputRewrite(ordinal, outputName, Optional.empty());
   }
 
-  public static OutputRewrite masked(int ordinal, String outputName, MaskingPolicy policy) {
+  public static OutputRewrite masked(int ordinal, String outputName, MaskInstruction policy) {
     return new OutputRewrite(ordinal, outputName, Optional.of(policy));
   }
 }

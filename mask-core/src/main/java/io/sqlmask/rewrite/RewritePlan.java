@@ -3,7 +3,6 @@ package io.sqlmask.rewrite;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.lineage.LineageStatus;
 import io.sqlmask.lineage.OutputLineage;
-import io.sqlmask.policy.PolicySelector;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,7 +27,7 @@ public record RewritePlan(List<OutputRewrite> outputs) {
    * {@link LineageStatus#UNKNOWN} lineage fail; constants and columns
    * without a matching policy pass through unchanged.
    */
-  public static RewritePlan of(List<OutputLineage> lineage, PolicySelector selector) {
+  public static RewritePlan of(List<OutputLineage> lineage, MaskSelector selector) {
     List<OutputRewrite> outputs = new ArrayList<>();
     for (OutputLineage output : lineage) {
       if (output.status() == LineageStatus.UNKNOWN) {

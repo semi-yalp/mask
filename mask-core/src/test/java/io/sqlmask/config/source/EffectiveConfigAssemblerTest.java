@@ -33,8 +33,12 @@ class EffectiveConfigAssemblerTest {
     assertEquals(1, loaded.tables().size());
     assertEquals("decimal(10,2)",
         loaded.tables().get(0).columns().get(1).typeDeclaration());
-    assertTrue(loaded.policyRegistry().find(
-        io.sqlmask.metadata.ColumnKey.of("CRM", "PUBLIC", "CUSTOMER", "PHONE")).isPresent());
+    // policy lookups go through the PDP over the converted legacy policies
+    var instruction = new io.sqlmask.policy.match.PolicyEngine(io.sqlmask.policy.match.PolicyIndex.of(
+        io.sqlmask.config.LegacyPolicyAdapter.convert(loaded.config())))
+        .maskFor("CRM", "PUBLIC", "CUSTOMER", "PHONE", io.sqlmask.policy.model.Subject.anonymous());
+    assertTrue(instruction.isPresent());
+    assertEquals("mask_phone", instruction.orElseThrow().udf());
   }
 
   @Test

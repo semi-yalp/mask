@@ -2,7 +2,6 @@ package io.sqlmask.config;
 
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.policy.MaskingPolicy;
 
 import java.util.List;
 import java.util.Map;
