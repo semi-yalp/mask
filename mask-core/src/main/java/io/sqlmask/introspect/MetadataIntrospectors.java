@@ -14,6 +14,7 @@ public final class MetadataIntrospectors {
     return switch (normalized) {
       case "postgresql" -> new PgMetadataIntrospector();
       case "mysql" -> new MysqlMetadataIntrospector();
+      case "trino" -> new TrinoMetadataIntrospector();
       default -> throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "unsupported engine '" + engine
               + "' (supported: postgresql, mysql, trino)");
