@@ -53,16 +53,20 @@ public record ConnectionSpec(String engine, String host, int port, String databa
           + "?sslmode=" + sslmode
           + "&connectTimeout=" + connectTimeoutSeconds
           + "&socketTimeout=60&readOnly=true";
-      case "mysql" -> "jdbc:mysql://" + host + ":" + port + "/" + database
-          + "?connectTimeout=" + connectTimeoutSeconds + "&socketTimeout=60"
-          + ("require".equalsIgnoreCase(sslmode)
-              ? "&sslMode=REQUIRED&verifyServerCertificate=false"
-              // caching_sha2_password (MySQL 8 default) needs the server RSA key
-              // when TLS is off; the password is already plaintext on a disabled
-              // -SSL wire so this adds no new exposure. With sslMode=REQUIRED
-              // the key exchange rides the TLS channel and the flag stays off.
-              : "&sslMode=DISABLED&allowPublicKeyRetrieval=true");
+      case "mysql" -> {
+        requireKnownSslmode();
+        yield "jdbc:mysql://" + host + ":" + port + "/" + database
+            + "?connectTimeout=" + connectTimeoutSeconds + "&socketTimeout=60"
+            + ("require".equalsIgnoreCase(sslmode)
+                ? "&sslMode=REQUIRED&verifyServerCertificate=false"
+                // caching_sha2_password (MySQL 8 default) needs the server RSA key
+                // when TLS is off; the password is already plaintext on a disabled
+                // -SSL wire so this adds no new exposure. With sslMode=REQUIRED
+                // the key exchange rides the TLS channel and the flag stays off.
+                : "&sslMode=DISABLED&allowPublicKeyRetrieval=true");
+      }
       case "trino" -> {
+        requireKnownSslmode();
         boolean require = "require".equalsIgnoreCase(sslmode);
         // trino-jdbc rejects unrecognized URL properties and has no
         // connectTimeout property; spec.connectTimeoutSeconds is not
@@ -72,5 +76,19 @@ public record ConnectionSpec(String engine, String host, int port, String databa
       }
       default -> throw new IllegalArgumentException("unsupported engine " + engine);
     };
+  }
+
+  /**
+   * MySQL and Trino branches only understand {@code disable} and {@code
+   * require}; anything else (notably {@code prefer}, {@code verify-full}) must
+   * fail loudly instead of being silently downgraded to plaintext, per spec.
+   * PostgreSQL keeps passing sslmode through to its driver.
+   */
+  private void requireKnownSslmode() {
+    String mode = sslmode.toLowerCase(Locale.ROOT);
+    if (!mode.equals("disable") && !mode.equals("require")) {
+      throw new IllegalArgumentException("unsupported sslmode '" + sslmode
+          + "' for " + engine + " (supported: disable, require)");
+    }
   }
 }

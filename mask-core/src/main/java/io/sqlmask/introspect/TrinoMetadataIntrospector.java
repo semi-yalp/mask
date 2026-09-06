@@ -83,8 +83,12 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
 
   private List<IntrospectionResult.TableInfo> queryTables(
       Connection connection, ConnectionSpec spec, String catalog) throws SQLException {
+    // excluding information_schema keeps pseudo-tables out of the default
+    // export (mirrors the PG side skipping system schemas); a user who
+    // explicitly passes --schema information_schema still gets it via the
+    // IN predicate below.
     String schemaPredicate = spec.schemas().isEmpty()
-        ? "1 = 1"
+        ? "c.TABLE_SCHEMA <> 'information_schema'"
         : "c.TABLE_SCHEMA IN (" + placeholders(spec.schemas().size()) + ")";
     String relKinds = spec.includeViews() ? "'BASE TABLE', 'VIEW'" : "'BASE TABLE'";
     String sql = TABLES_SQL.formatted(schemaPredicate, relKinds);

@@ -6,6 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConnectionSpecTest {
 
@@ -79,5 +80,23 @@ class ConnectionSpecTest {
   void postgresqlUrlUnchanged() {
     assertEquals("jdbc:postgresql://127.0.0.1:5432/crm"
         + "?sslmode=disable&connectTimeout=10&socketTimeout=60&readOnly=true", minimal().toJdbcUrl());
+  }
+
+  @Test
+  void rejectsUnsupportedSslmodeForMysqlAndTrino() {
+    // mysql/trino 只支持 disable/require；prefer/verify-full 必须报用法错误，
+    // 不能静默降级为明文（PG 分支透传驱动处理，不受影响）
+    IllegalArgumentException mysqlVerifyFull = assertThrows(IllegalArgumentException.class,
+        () -> new ConnectionSpec("mysql", "h", 3306, "shop", "u", "p",
+            List.of(), false, false, "verify-full", 10).toJdbcUrl());
+    assertTrue(mysqlVerifyFull.getMessage().contains("unsupported sslmode"));
+    IllegalArgumentException mysqlPrefer = assertThrows(IllegalArgumentException.class,
+        () -> new ConnectionSpec("mysql", "h", 3306, "shop", "u", "p",
+            List.of(), false, false, "prefer", 10).toJdbcUrl());
+    assertTrue(mysqlPrefer.getMessage().contains("unsupported sslmode"));
+    IllegalArgumentException trinoPrefer = assertThrows(IllegalArgumentException.class,
+        () -> new ConnectionSpec("trino", "h", 8080, "crm", "u", "p",
+            List.of(), false, false, "prefer", 10).toJdbcUrl());
+    assertTrue(trinoPrefer.getMessage().contains("unsupported sslmode"));
   }
 }

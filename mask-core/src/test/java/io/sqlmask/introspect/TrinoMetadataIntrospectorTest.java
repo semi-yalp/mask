@@ -2,6 +2,7 @@ package io.sqlmask.introspect;
 
 import io.sqlmask.error.SqlMaskException;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -44,7 +45,11 @@ class TrinoMetadataIntrospectorTest {
     IntrospectionResult result = introspector.introspect(
         new ConnectionSpec("trino", "h", 8080, "shop", "u", "p", List.of(), false, false, "disable", 10));
 
-    verify(conn, times(1)).prepareStatement(anyString());
+    // 缺省谓词必须排除 information_schema 伪表（与 PG 侧排除系统 schema 对称）；
+    // 显式传 --schema 时走 IN 谓词分支，仍可拉到 information_schema
+    ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+    verify(conn, times(1)).prepareStatement(sql.capture());
+    assertTrue(sql.getValue().contains("c.TABLE_SCHEMA <> 'information_schema'"));
     assertEquals("shop", result.catalog());
     assertEquals(1, result.tables().size());
     assertEquals("shop", result.tables().get(0).schema());
