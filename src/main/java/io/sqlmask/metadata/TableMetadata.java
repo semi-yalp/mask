@@ -33,10 +33,6 @@ public record TableMetadata(String catalog, String schema, String name, List<Col
     this(catalog, schema, name, columns, null);
   }
 
-  public ColumnKey tableKey() {
-    return ColumnKey.of(catalog, schema, name, "");
-  }
-
   public String qualifiedName() {
     return catalog + "." + schema + "." + name;
   }

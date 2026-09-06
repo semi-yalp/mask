@@ -101,6 +101,73 @@ java -jar target/sql-mask.jar
 - 重复输出别名是合法输入：无包装时原样输出；需要包装时，
   PostgreSQL 无法通过派生表列名可靠区分同名列，本版本直接失败。
 
+## 行过滤
+
+表声明支持可选的 `rowFilter` 字符串字段：该表的所有读取都会被静态附加一个行级
+条件——改写时每个引用该表的位置替换为
+`(SELECT * FROM <表> WHERE <rowFilter>) AS <别名>`，被过滤的行不进入聚合、去重、
+排序、分页与写入。字段为空或空白视为未配置。
+
+```yaml
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      rowFilter: "status = 'active'"
+      columns:
+        - name: id
+          type: bigint
+        - name: status
+          type: varchar
+
+policies: {}
+```
+
+`policies` 是必填的顶层键；只使用行过滤、不定义任何脱敏策略时，写成 `policies: {}`。
+
+条件白名单（registry 构建期逐节点检查，违反即 `CONFIG_ERROR`，消息带表名前缀）：
+
+- 允许：被过滤表自身声明列的单段名引用、字面量（字符串/数值/布尔/日期时间）、
+  布尔逻辑 `AND`/`OR`/`NOT`、比较 `=` `<>` `<` `<=` `>` `>=`、
+  `IS NULL`/`IS NOT NULL`、`IS [NOT] DISTINCT FROM`、常量值列表 `IN`、
+  算术 `+` `-` `*` `/` `%`；
+- 禁止：一切函数调用（含未知 UDF、`CAST`、聚合、窗口）、子查询（标量/`IN`/`EXISTS`）、
+  会话/用户/时间/随机函数（`CURRENT_USER`、`CURRENT_TIMESTAMP`、`random()` 等）、
+  动态参数、序列访问及其他任何运算；
+- 三值逻辑按 SQL 语义生效：`region = 'north'` 会排除 `region IS NULL` 的行，
+  需要「NULL 也保留」时用 `IS NOT DISTINCT FROM`。
+
+注入形态与覆盖范围：
+
+- 与列脱敏叠加时，行过滤在内层生效（先于聚合、去重、排序、分页和写入），脱敏
+  UDF 仍在最外层；过滤谓词始终使用底层明文列；
+- 覆盖所有基表引用位置：主查询 FROM、JOIN 两侧、逗号连接、用户派生表与子查询
+  内部、CTE 主体、嵌套 `UNION`/`INTERSECT`/`EXCEPT` 各分支、表达式位置子查询
+  内部，以及 `INSERT ... SELECT` / `CTAS` 的源查询（目标表永不过滤）；
+- 同一表被引用多次（含自连接）时，每个引用位置各自注入一份相同条件；
+- CTE 名优先于同名基表；配置中没有任何 `rowFilter` 时改写器恒等返回，
+  输出与不配置时逐字节一致。
+
+错误行为清单：
+
+- 条件解析失败、违反白名单、语义校验失败（未知列/类型/非布尔）：`CONFIG_ERROR`；
+- 一段名命中多个声明表：`VALIDATION_ERROR`（不依赖 YAML 声明顺序，请改用三段全名）；
+- 受控表以三段全名作列限定前缀（`crm.public.customer.id`）：`UNSUPPORTED_STATEMENT`
+  （注入后该写法不再绑定，请改用别名或单段限定）；
+- 未知 FROM 形态且子树引用受控表（`TABLESAMPLE`、`LATERAL`、`UNNEST` 等）：
+  `UNSUPPORTED_STATEMENT`（fail-closed，不静默放过）；
+- 根级集合操作：维持既有 `UNSUPPORTED_STATEMENT` 拒绝；嵌套在 CTE 体/子查询内的
+  集合操作不受影响；
+- 两段名 `schema.table`：不匹配、不注入，维持现状由校验器报错。
+
+API 与页面：`POST /api/rewrite` 的每条语句新增 `"rowFiltered": true|false`
+（true 表示该语句注入了行过滤条件，可与 `masked` 同时为 true）。页面结果卡片按
+`(masked, rowFiltered)` 组合展示标签：「原样输出」「已行过滤」「已脱敏（外层包装
+UDF）」「已脱敏（外层包装 UDF）+ 已行过滤」；表结构页签中每张表有独立的行过滤
+输入框；YAML 导出对未配置的表不输出 `rowFilter:` 字段，YAML ⇄ 表单往返不丢失
+配置、不残留空白字段。
+
 ## 输出格式
 
 输出是 Calcite 生成的 SQL（PostgreSQL 方言），不保留原始排版与注释：
