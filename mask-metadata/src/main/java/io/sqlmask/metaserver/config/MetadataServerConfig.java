@@ -17,4 +17,9 @@ public class MetadataServerConfig {
     registration.setOrder(1);
     return registration;
   }
+
+  @Bean
+  public io.sqlmask.metaserver.service.IntrospectorFactory introspectorFactory() {
+    return io.sqlmask.introspect.MetadataIntrospectors::byEngine;
+  }
 }

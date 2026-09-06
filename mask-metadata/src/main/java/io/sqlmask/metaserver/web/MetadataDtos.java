@@ -36,4 +36,8 @@ public final class MetadataDtos {
   public record ImportResponse(String name, int tableCount, int columnCount,
       long metadataVersion) {
   }
+
+  public record CollectResponse(int tableCount, int columnCount, List<String> warnings,
+      long metadataVersion) {
+  }
 }
