@@ -97,7 +97,7 @@ public final class SqlMaskApplication implements Callable<Integer> {
   private Path outputPath;
 
   @Option(names = "--dialect", defaultValue = "postgresql",
-      description = "Target dialect; only 'postgresql' is supported in this version.")
+      description = "Target dialect: postgresql, trino or mysql.")
   private String dialect;
 
   private PrintStream outStream = System.out;
@@ -156,9 +156,10 @@ public final class SqlMaskApplication implements Callable<Integer> {
       err.println("sql-mask: specify exactly one of --sql or --input");
       return 2;
     }
-    if (!"postgresql".equalsIgnoreCase(dialect)) {
-      err.println("sql-mask: unsupported dialect '" + dialect + "' "
-          + "(only 'postgresql' is supported in this version)");
+    try {
+      DialectRegistry.create(dialect);
+    } catch (SqlMaskException e) {
+      err.println("sql-mask: [" + e.getCode() + "] " + e.getMessage());
       return 2;
     }
 
