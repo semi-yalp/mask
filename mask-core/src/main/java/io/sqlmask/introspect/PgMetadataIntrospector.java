@@ -21,7 +21,7 @@ import java.util.Properties;
  * <p>Not {@code final}: tests override {@link #open(ConnectionSpec)} with an
  * anonymous subclass to supply a mocked connection.</p>
  */
-public class PgMetadataIntrospector {
+public class PgMetadataIntrospector implements MetadataIntrospector {
 
   private static final String CATALOG_SQL = "SELECT current_database()";
   private static final String TABLES_SQL = """
@@ -37,6 +37,7 @@ public class PgMetadataIntrospector {
 
   private final PgTypeMapper typeMapper = new PgTypeMapper();
 
+  @Override
   public IntrospectionResult introspect(ConnectionSpec spec) {
     try (Connection connection = open(spec)) {
       String catalog = queryCurrentDatabase(connection);
