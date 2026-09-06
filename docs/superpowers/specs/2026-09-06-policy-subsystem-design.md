@@ -28,15 +28,16 @@
 
 ### 2.1 独立形态
 
-- **A. 仓库内独立子系统 + PDP 接口（选定）**：`io.sqlmask.policy` 分层
-  （model / match / store），构建上仍是单 jar。真正决定"能否单独出去"的是边界与
-  接口，不是构建拓扑；拆 Maven 模块或拆服务可在接口稳定后随时做，属于机械改动。
-- B. 立即拆 Maven 多模块（`sqlmask-policy` + `sqlmask-engine`）：隔离最彻底，
-  但当前单 pom + shade fat jar，拆分牵动全部源码路径与打包配置，收益主要是
-  编译隔离，推迟。
-- C. 独立策略服务（独立进程，REST 决策接口）：Ranger Policy Admin + PDP 的完整
-  形态，需要持久化与部署，成本最高；作为远期形态，本设计保证决策接口可以原样
-  暴露为 HTTP。
+- **A. 仓库内独立 Maven 模块（选定，实施期落地）**：策略子系统独立为 `mask-policy`
+  模块（model / match / store + 管理 REST），引擎在 `mask-core` 模块。真正的约束是
+  依赖方向：改写引擎每次请求都要查询策略决策（PDP），Maven 禁止循环依赖，因此
+  **`mask-core` → `mask-policy`**，`mask-policy` 不依赖 `mask-core`。`mask-policy`
+  自带 spring-boot-starter-web：既被组合 jar（core 的 Spring 扫描到 policy 的
+  Controller）暴露，也可将来作为独立策略服务运行；决策接口按 1:1 映射 HTTP 设计。
+- B. 只做包边界不拆构建（原 v1 倾向）：实施期用户已直接完成模块拆分，包边界原则
+  （model/match/store 分层、最小依赖）不变。
+- C. 独立策略服务（独立进程，REST 决策接口）：远期形态；A 的模块与接口设计为其
+  铺路，PDP 两个决策方法可直接暴露为 HTTP。
 
 ### 2.2 引入主体维度
 
@@ -151,14 +152,20 @@ io.sqlmask.policy.store
   PolicyYamlLoader               // snakeyaml 解析 + 结构校验，路径化诊断
 ```
 
-依赖边界：`io.sqlmask.policy.**` 只依赖 `org.yaml:snakeyaml` 与
-`io.sqlmask.error.SqlMaskException`（后者已核实为纯 Java）。**不依赖** Calcite、
-Spring、picocli，也不依赖 `io.sqlmask.metadata`（`TableMetadata` 引用了 Calcite，
-旧格式转换因此放在引擎侧，见 §6.2）。
+依赖边界：`mask-policy` 模块只依赖 `org.yaml:snakeyaml`（测试用 junit；管理 REST
+用 spring-boot-starter-web），**不依赖 `mask-core`**。错误边界：`mask-policy` 定义
+自有 `PolicyException`（策略子系统全部错误都是配置错误，不设错误码字段），
+`mask-core` 在 PEP 边界将其适配为 `SqlMaskException(CONFIG_ERROR)`（消息原样透传），
+`ApiExceptionHandler` 增加 `PolicyException` 处理器（供 policy 模块自己的 Controller
+直接抛出）。资源标识符规范化在 `mask-policy` 内以 `PolicyNames.normalize` 复刻
+`ColumnKey.normalize` 的规则（`toLowerCase(Locale.ROOT)` + 非空校验），两侧约定
+一致；`io.sqlmask.metadata.TableMetadata` 引用了 Calcite，旧格式转换因此放在
+引擎侧（见 §6.2）。
 
-现有 `MaskingPolicy` / `PolicyRegistry` / `PolicySelector` 在适配完成后退役，
-掩码指令统一为 `MaskInstruction`（三字段同构，`OutputRewrite` / `RewritePlan`
-改用它）。
+现有 `PolicyRegistry` / `PolicySelector` 退役（引擎统一走 PDP）；`MaskingPolicy`
+保留为旧格式配置模型的值类型（仅 `YamlConfigLoader` / `ConfigController` 使用），
+掩码指令统一为 `MaskInstruction`（`OutputRewrite` / `RewritePlan` / 
+`SqlRewriteService` 改用它）。
 
 ## 5. 决策语义（确定性）
 
@@ -247,14 +254,18 @@ metadata.yaml（表结构） + policies.yaml（策略） + SQL + (user, groups)
 
 ## 7. API / CLI / 页面
 
-- **CLI**：新增 `--policies <path>`、`--user <name>`、`--groups g1,g2`
-  （逗号分隔，可重复出现，合并去重保序）；退出码约定不变（0 成功 / 1 处理失败 /
-  2 用法错误）；
+- **CLI**：新增 `--policies <path>`、`--groups g1,g2`（逗号分隔，可重复出现，合并
+  去重保序）；查询主体复用现有 `--user` 选项——`--pull-metadata` 模式下语义不变
+  （数据库用户），改写模式下表示查询主体用户（与 `--output` 的按模式复用惯例一致）；
+  `--groups` 与 `--pull-metadata` 同时给出为用法错误（退出码 2）；退出码约定不变
+  （0 成功 / 1 处理失败 / 2 用法错误）；
 - **REST `POST /api/rewrite`**：请求体新增可选字段 `policyYaml`、`user`、
   `groups`（字符串数组）；互斥规则见 §6.2；
-- **REST `POST /api/policies/parse`**：请求 `{ "policyYaml": "..." }`；成功返回
-  结构化策略清单（name / enabled / priority / type / resources / item 摘要），
-  失败返回 400 `CONFIG_ERROR`（路径化诊断），供页面校验回填；
+- **REST `POST /api/policies/parse`**：实现在 `mask-policy`（`PolicyController`），
+  组合 jar（core 组件扫描）与将来独立运行均可暴露；请求
+  `{ "policyYaml": "..." }`；成功返回结构化策略清单（name / enabled / priority /
+  type / resources / item 摘要），失败返回 400 `CONFIG_ERROR`（路径化诊断），
+  供页面校验回填；`ApiExceptionHandler` 增加 `PolicyException` 处理器；
 - **页面**：执行区新增主体输入（用户输入框 + 组列表输入，留空 = 匿名）；新增
   「策略」页签：编辑 `policies.yaml`，点「校验并应用」调用
   `/api/policies/parse` 回填错误或摘要；执行改写时若策略页签有内容则随请求发送
