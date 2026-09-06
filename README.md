@@ -452,3 +452,18 @@ policies:
   `text`、`date`、`timestamp[(p)]`、`timestamp with time zone`、`time[(p)]`、
   `time with time zone`；数组、JSON、复合类型和用户自定义类型暂不支持。
   （页面表单导入后，`text` 会规范化显示为 `varchar`，语义一致。）
+
+## 元数据微服务（mask-metadata，8082）
+
+引擎实例 + 表结构的唯一事实源：实例 CRUD、三引擎采集（复用 core introspect）、
+YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 JSON）。
+策略服务按版本轮询拉取；拉不到用上个 version（stale-but-available）。
+
+本地起套：`mvn -pl mask-metadata -am package && docker compose -f docker-compose.metadata.yml up`
+（需先 `mvn -pl mask-metadata -am package` 生成 fat jar）。
+
+- 鉴权：`X-Api-Key`（服务端 Key 来自 `METADATA_API_KEY`；未配置 = 全 401）
+- 密码：实例只登记环境变量名（`passwordRef`，推荐 `SQLMASK_DS_<INSTANCE>_PASSWORD`），
+  采集时服务端解析；密码不落库、不进日志、不进 URL
+- 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
+  字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略

@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mask_metadata
+    ports:
+      - "5432:5432"
+
+  metadata:
+    build:
+      context: .
+      dockerfile: docker/metadata.Dockerfile
+    environment:
+      METADATA_API_KEY: local-dev-key
+      METADATA_PG_URL: jdbc:postgresql://postgres:5432/mask_metadata
+      METADATA_PG_USER: postgres
+      METADATA_PG_PASSWORD: postgres
+      # password_ref 指向的环境变量由部署侧注入，例如：
+      # SQLMASK_DS_PG_PROD_PASSWORD: s3cret
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
