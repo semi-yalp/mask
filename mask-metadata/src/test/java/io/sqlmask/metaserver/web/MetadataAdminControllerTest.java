@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -113,5 +114,28 @@ class MetadataAdminControllerTest {
                 "metadata:\\n  tables:\\n    - catalog: crm\\n      schema: public\\n      name: customer\\n      columns:\\n        - { name: id, type: definitely-not-a-type }\\n"}
                 """))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void getAndDeleteByNameEndpoint() throws Exception {
+    mockMvc.perform(post("/api/instances")
+            .header("X-Api-Key", KEY)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name":"pg_prod","dialect":"postgresql",
+                 "connection":{"host":"127.0.0.1","port":5432,"database":"db",
+                               "dbUser":"user","passwordRef":"REF",
+                               "sslmode":"disable","connectTimeoutSeconds":10,
+                               "schemas":[],"includeViews":false}}
+                """))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(get("/api/instances/pg_prod").header("X-Api-Key", KEY))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("pg_prod"))
+        .andExpect(jsonPath("$.metadataVersion").value(1));
+
+    mockMvc.perform(delete("/api/instances/pg_prod").header("X-Api-Key", KEY))
+        .andExpect(status().isOk());
   }
 }

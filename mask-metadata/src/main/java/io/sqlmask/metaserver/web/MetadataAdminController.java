@@ -58,19 +58,19 @@ public class MetadataAdminController {
   }
 
   @GetMapping("/{name}")
-  public MetadataDtos.InstanceDetailResponse get(@PathVariable String name) {
+  public MetadataDtos.InstanceDetailResponse get(@PathVariable("name") String name) {
     return detail(instances.get(name));
   }
 
   @PutMapping("/{name}")
-  public MetadataDtos.InstanceDetailResponse update(@PathVariable String name,
+  public MetadataDtos.InstanceDetailResponse update(@PathVariable("name") String name,
       @RequestBody MetadataDtos.InstanceUpdateRequest request) {
     ConnectionInfo connection = ofNullable(request == null ? null : request.connection());
     return detail(instances.updateConnection(name, connection));
   }
 
   @DeleteMapping("/{name}")
-  public MetadataDtos.InstanceSummaryResponse delete(@PathVariable String name) {
+  public MetadataDtos.InstanceSummaryResponse delete(@PathVariable("name") String name) {
     InstanceRow row = instances.get(name);
     instances.delete(name);
     return new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
