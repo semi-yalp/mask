@@ -80,7 +80,7 @@ public final class RowFilterRewriter {
    */
   private static void rejectQualifiedColumnReferences(SqlNode parsed, Context context) {
     for (TableMetadata table : context.loaded.tables()) {
-      if (table.rowFilter() == null) {
+      if (!context.registry.isControlled(table.catalog(), table.schema(), table.name())) {
         continue;
       }
       if (hasQualifiedColumnReference(parsed, table)) {
@@ -291,7 +291,7 @@ public final class RowFilterRewriter {
    */
   private SqlNode failClosedOnUnknownFrom(SqlNode from, Context context) {
     for (TableMetadata table : context.loaded.tables()) {
-      if (table.rowFilter() == null) {
+      if (!context.registry.isControlled(table.catalog(), table.schema(), table.name())) {
         continue;
       }
       if (subtreeMentionsTable(from, table)) {
@@ -459,14 +459,13 @@ public final class RowFilterRewriter {
 
   private SqlNode injectIfFiltered(TableMetadata table, SqlIdentifier reference, Context context,
       boolean addAliasWrapper) {
-    if (table.rowFilter() == null) {
+    // the registry is the single source of truth for "controlled": in the
+    // new-format path the table itself never carries a rowFilter field
+    SqlNode template = context.registry.conditionTemplateOf(
+        table.catalog(), table.schema(), table.name()).orElse(null);
+    if (template == null) {
       return reference;
     }
-    SqlNode template = context.registry.conditionTemplateOf(
-        table.catalog(), table.schema(), table.name())
-        .orElseThrow(() -> new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-            "table '" + table.qualifiedName()
-                + "': row filter declared but not present in the registry"));
     // rebuild from text: the fresh parse owns every node, so injection sites
     // never share subtrees with each other or with the original statement
     String derived = "SELECT * FROM " + dialect.unparse(reference)
