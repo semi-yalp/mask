@@ -46,7 +46,10 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
   `--port` 缺省 5432；
 - `--database` 语义按引擎：PostgreSQL / MySQL 是库名，Trino 是 catalog 名；
 - Trino 无密码认证：`--password` 传任意非空占位值（如 `x`）即可，CLI 要求
-  密码非空；
+  密码非空；明文（`sslmode=disable`，缺省）连接不发送密码——占位密码不会进
+  JDBC Properties，被静默丢弃；Trino 真实启用密码认证时须加
+  `--sslmode require`（经 TLS 发送）。Web 请求体暂无 sslmode 字段，密码认证的
+  Trino 暂只能走 CLI；
 - `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema
   （PostgreSQL）、当前库（MySQL）或该 catalog 下全部 schema（Trino）；
 - `--include-views`：连同视图与物化视图一起导出；
@@ -94,7 +97,8 @@ mvn package
 
 依赖版本约定：`io.trino:trino-jdbc:446` 需与 test-scope 的
 `io.trino:trino-parser:446` 保持同一版本对齐（升级 JDBC 驱动时同步升级测试用
-parser，保证 golden 校验与驱动行为一致）。
+parser，保证 golden 校验与驱动行为一致）。另注：CLI 的 `--connect-timeout` 对
+Trino 无效（446 驱动不支持该 URL 属性，Trino 连接使用驱动默认超时）。
 
 ## Web 服务与页面
 
