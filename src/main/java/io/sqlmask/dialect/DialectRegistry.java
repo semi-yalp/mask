@@ -11,17 +11,16 @@ public final class DialectRegistry {
 
   static {
     ADAPTERS.put(PostgresqlDialectAdapter.NAME, PostgresqlDialectAdapter::new);
+    ADAPTERS.put(TrinoDialectAdapter.NAME, TrinoDialectAdapter::new);
   }
 
   public static DialectAdapter create(String name) {
-    return newAdapter(DialectProfiles.byName(name));
-  }
-
-  private static DialectAdapter newAdapter(DialectProfile profile) {
-    return switch (profile.name()) {
-      case PostgresqlDialectAdapter.NAME -> new PostgresqlDialectAdapter();
-      default -> throw new IllegalStateException("no adapter for " + profile.name());
-    };
+    DialectProfile profile = DialectProfiles.byName(name);
+    Supplier<DialectAdapter> factory = ADAPTERS.get(profile.name());
+    if (factory == null) {
+      throw new IllegalStateException("no adapter for " + profile.name());
+    }
+    return factory.get();
   }
 
   private DialectRegistry() {

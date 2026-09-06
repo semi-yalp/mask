@@ -11,7 +11,8 @@ import java.util.Map;
  */
 public record DialectCapabilities(boolean canWrapDuplicateOutputNames) {
 
-  public static final DialectCapabilities POSTGRESQL = new DialectCapabilities(false);
+  /** Refuses to wrap duplicate output names: the rewrite fails instead. */
+  public static final DialectCapabilities STRICT = new DialectCapabilities(false);
 
   public Map<String, Object> describe() {
     return ImmutableMap.of("canWrapDuplicateOutputNames", canWrapDuplicateOutputNames);

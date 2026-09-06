@@ -7,7 +7,7 @@ import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.babel.SqlBabelCreateTable;
 import org.apache.calcite.sql.babel.TableCollectionType;
-import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
+import org.apache.calcite.sql.dialect.TrinoSqlDialect;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
@@ -15,15 +15,17 @@ import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import java.util.List;
 
 /**
- * PostgreSQL dialect: babel parser factory (PostgreSQL syntax extensions),
- * PostgreSQL identifier semantics (unquoted identifiers fold to lower case,
- * double-quoted identifiers keep their case) and PostgreSQL SQL rendering.
+ * Trino: double-quote identifiers, unquoted fold to lower. Uses the babel
+ * parser factory because Calcite's standard parser carries no DDL grammar
+ * (plain CREATE TABLE AS SELECT could not parse); the babel-only CREATE
+ * TABLE variants (REPLACE / VOLATILE / SET / MULTISET) are refused via
+ * {@link #checkCreateTableVariant} so only plain CTAS reaches the composer.
  */
-public final class PostgresqlDialectAdapter extends AbstractCalciteDialectAdapter {
+public final class TrinoDialectAdapter extends AbstractCalciteDialectAdapter {
 
-  public static final String NAME = "postgresql";
+  public static final String NAME = "trino";
 
-  public PostgresqlDialectAdapter() {
+  public TrinoDialectAdapter() {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -35,10 +37,10 @@ public final class PostgresqlDialectAdapter extends AbstractCalciteDialectAdapte
             .withConformance(SqlConformanceEnum.DEFAULT),
         SqlConformanceEnum.DEFAULT,
         true,
-        PostgresqlFunctions.TABLE,
-        new PostgresqlTypeResolver(),
-        PostgresqlSqlDialect.DEFAULT,
-        new PostgresqlIdentifierPolicy(),
+        org.apache.calcite.sql.fun.SqlStdOperatorTable.instance(),
+        new TrinoTypeResolver(),
+        TrinoSqlDialect.DEFAULT,
+        new TrinoIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA,
         DialectCapabilities.STRICT));
   }

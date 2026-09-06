@@ -3,21 +3,14 @@ package io.sqlmask.dialect;
 import org.apache.calcite.sql.SqlBasicFunction;
 import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlFunctionCategory;
-import org.apache.calcite.sql.SqlIdentifier;
-import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlOperatorTable;
-import org.apache.calcite.sql.SqlSyntax;
 import org.apache.calcite.sql.fun.SqlLibrary;
-import org.apache.calcite.sql.fun.SqlLibraryOperatorTableFactory;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.InferTypes;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.type.SqlOperandCountRanges;
-import org.apache.calcite.sql.util.ListSqlOperatorTable;
 import org.apache.calcite.sql.util.SqlOperatorTables;
-import org.apache.calcite.sql.validate.SqlNameMatcher;
-import org.apache.calcite.sql.validate.SqlNameMatchers;
 
 import java.util.List;
 
@@ -42,29 +35,9 @@ public final class PostgresqlFunctions {
 
   public static final SqlOperatorTable TABLE = SqlOperatorTables.chain(
       SqlStdOperatorTable.instance(),
-      caseInsensitive(buildOperators()));
+      CaseInsensitiveOperatorTable.of(SqlLibrary.POSTGRESQL),
+      CaseInsensitiveOperatorTable.of(List.of(CONCAT)));
 
   private PostgresqlFunctions() {
-  }
-
-  private static List<SqlOperator> buildOperators() {
-    List<SqlOperator> operators = new java.util.ArrayList<>();
-    operators.addAll(SqlLibraryOperatorTableFactory.INSTANCE
-        .getOperatorTable(SqlLibrary.POSTGRESQL).getOperatorList());
-    operators.add(CONCAT);
-    return operators;
-  }
-
-  private static SqlOperatorTable caseInsensitive(List<SqlOperator> operators) {
-    return new ListSqlOperatorTable(operators) {
-      @Override
-      public void lookupOperatorOverloads(SqlIdentifier opName,
-          SqlFunctionCategory category, SqlSyntax syntax,
-          List<SqlOperator> operatorList,
-          SqlNameMatcher nameMatcher) {
-        super.lookupOperatorOverloads(opName, category, syntax, operatorList,
-            SqlNameMatchers.withCaseSensitive(false));
-      }
-    };
   }
 }

@@ -14,6 +14,8 @@ public final class DialectProfiles {
   static {
     PostgresqlDialectAdapter pg = new PostgresqlDialectAdapter();
     PROFILES.put(pg.name(), pg.profile());
+    TrinoDialectAdapter trino = new TrinoDialectAdapter();
+    PROFILES.put(trino.name(), trino.profile());
   }
 
   public static DialectProfile byName(String name) {
