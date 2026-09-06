@@ -13,7 +13,8 @@ public class SqlMaskException extends RuntimeException {
     UNSUPPORTED_STATEMENT,
     LINEAGE_UNKNOWN,
     REWRITE_ERROR,
-    IO_ERROR
+    IO_ERROR,
+    INTROSPECT_ERROR
   }
 
   private final Code code;
