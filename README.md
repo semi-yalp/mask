@@ -20,18 +20,35 @@ UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从�
 
 ## 元数据采集（--pull-metadata）
 
-`--pull-metadata` 连接一个 PostgreSQL 库，把库表结构拉取成 metadata 骨架 YAML：
-表、列、类型都已生成，列策略（`columns`）与行过滤（`rowFilter`）需要人工后补。
-采集只读 `pg_catalog`，JDBC 连接以只读模式打开，不执行任何业务 SQL。
+`--pull-metadata` 连接一个 PostgreSQL、MySQL 或 Trino 数据库，把库表结构拉取成
+metadata 骨架 YAML：表、列、类型都已生成，列策略（`columns`）与行过滤
+（`rowFilter`）需要人工后补。采集只读系统目录（PostgreSQL `pg_catalog`，
+MySQL / Trino `information_schema`），JDBC 连接以只读模式打开，不执行任何业务 SQL。
+
+引擎用 `--engine` 指定：`postgresql`（默认）、`mysql`、`trino`（CLI 侧大小写
+不敏感）：
 
 ```bash
+# PostgreSQL（缺省引擎，行为与历史版本一致）
 java -jar target/sql-mask.jar --pull-metadata --host 127.0.0.1 \
   --database crm --user postgres --password 'PgTest2026' --output crm.yaml
+
+# MySQL：--database 是库名，导出的 catalog/schema 都等于该库
+java -jar target/sql-mask.jar --pull-metadata --engine mysql --port 3306 \
+  --database shop --user root --password 'MyTest2026' --output mysql-shop.yaml
+
+# Trino：--database 是 catalog 名（即 jdbc:trino://host:port/<catalog>）
+java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
+  --database crm --user trino --password x --output trino-crm.yaml
 ```
 
 - `--database` / `--user` / `--output` 必填；`--host` 缺省 127.0.0.1，
   `--port` 缺省 5432；
-- `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema；
+- `--database` 语义按引擎：PostgreSQL / MySQL 是库名，Trino 是 catalog 名；
+- Trino 无密码认证：`--password` 传任意非空占位值（如 `x`）即可，CLI 要求
+  密码非空；
+- `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema
+  （PostgreSQL）、当前库（MySQL）或该 catalog 下全部 schema（Trino）；
 - `--include-views`：连同视图与物化视图一起导出；
 - `--strict`：只要有列类型降级为 varchar 就拒绝导出（退出码 1，
   错误码 `STRICT_DEGRADED`）；
@@ -45,10 +62,26 @@ java -jar target/sql-mask.jar --pull-metadata --host 127.0.0.1 \
   `text`、`date`、`timestamp[(p)]`、`timestamptz`、`time[(p)]`、`timetz`；
 - 不可映射的类型（`jsonb`、`uuid`、数组等）不报错、列不消失：降级为 `varchar`
   并在 stderr 输出一条警告（`... PG type jsonb is not representable, degraded to varchar`）；
+- MySQL：`unsigned` 后缀被剥离并告警（取值范围语义丢失，如 `int unsigned` →
+  `int`）；`json`、`enum`、`set` 等清单外类型同样降级为 `varchar` 并告警
+  （`... mysql type json is not representable, degraded to varchar`）；
+- Trino：`array` / `map` / `row` 等复杂类型与清单外类型（含 `json`）降级为
+  `varchar` 并告警（`... trino type json is not representable, degraded to varchar`）；
+- 无论哪个引擎，写进 YAML 的每个类型最终都通过对应方言的 TypeResolver
+  （mysql / trino 方言各一套）校验——生成的类型声明保证能被该引擎的改写
+  链路接受；
 - 库里没有可导出的表时输出空骨架 `tables: []`，退出码仍为 0；
 - 输出确定性：同一数据库重复导出逐字节一致（可直接 diff 提交审阅），成功时
   stdout 摘要 `introspected N tables / M columns / K warnings`；
 - 失败路径（连接失败、`--strict` 命中降级）不会创建或覆盖 `--output` 文件。
+
+已知行为（当前版本有意保留）：
+
+- Web 侧 `engine` 字段不做大小写归一化，建议按小写传入（CLI 侧 `--engine`
+  大小写不敏感）；
+- 改写模式下 `--engine` 被忽略，目标方言由 `--dialect` 决定；
+- 页面导入弹窗标题仍写「连接 PostgreSQL 拉取元数据」，但通过弹窗顶部的引擎
+  下拉框三引擎均可用。
 
 ## 构建
 
@@ -58,6 +91,10 @@ mvn package
 ```
 
 `mvn package` 产出可执行 fat jar：`target/sql-mask.jar`（已内置全部依赖）。
+
+依赖版本约定：`io.trino:trino-jdbc:446` 需与 test-scope 的
+`io.trino:trino-parser:446` 保持同一版本对齐（升级 JDBC 驱动时同步升级测试用
+parser，保证 golden 校验与驱动行为一致）。
 
 ## Web 服务与页面
 
@@ -69,9 +106,9 @@ java -jar target/sql-mask.jar
 打开 `http://localhost:8080`，页面提供结构化配置编辑器与改写结果展示：
 
 - **表结构**：可增删改表（catalog / schema / 表名）及其列（列名 + 类型，含常用类型提示）；
-- **从数据库导入**：在「表结构」页签填写连接信息（主机/端口/库/用户/密码，
-  可选 schema 过滤与包含视图），调用 `POST /api/metadata/pull` 拉取表结构骨架
-  合并进表单，类型降级警告逐条展示；
+- **从数据库导入**：在「表结构」页签填写连接信息（引擎下拉框
+  PostgreSQL/MySQL/Trino、主机/端口/库/用户/密码，可选 schema 过滤与包含视图），
+  调用 `POST /api/metadata/pull` 拉取表结构骨架合并进表单，类型降级警告逐条展示；
 - **列策略**：为「表结构」中声明的列绑定「策略定义」中的策略（下拉选择，重命名自动联动）；
 - **策略定义**：策略名、UDF 名、有序标量参数（逗号分隔）均可编辑；
 - **YAML 源码**：从表单实时生成；也可直接编辑后点「校验并应用到表单」，
@@ -123,11 +160,12 @@ java -jar target/sql-mask.jar
 
 ### POST /api/metadata/pull
 
-连接一个 PostgreSQL 库做只读元数据采集，返回骨架 YAML（与 CLI 的
-`--pull-metadata` 同一实现，表结构导入页面也走这个接口）：
+连接一个 PostgreSQL、MySQL 或 Trino 数据库做只读元数据采集，返回骨架 YAML
+（与 CLI 的 `--pull-metadata` 同一实现，表结构导入页面也走这个接口）：
 
 ```json
 {
+  "engine": "postgresql",
   "host": "127.0.0.1",
   "port": 5432,
   "database": "crm",
@@ -138,8 +176,14 @@ java -jar target/sql-mask.jar
 }
 ```
 
-`database`、`user`、`password` 必填；`host`/`port` 缺省 127.0.0.1:5432，
-`schemas` 缺省导出全部非系统 schema。成功返回 200：
+- `engine` 可选：`postgresql` / `mysql` / `trino`，缺省 `postgresql`；未知引擎
+  返回 `CONFIG_ERROR`（建议按小写传入，见上文「已知行为」）；
+- `database`、`user`、`password` 必填；`database` 语义按引擎：
+  PostgreSQL / MySQL 是库名，Trino 是 catalog 名；
+- `host`/`port` 缺省 127.0.0.1:5432，`schemas` 缺省导出全部非系统 schema
+  （PostgreSQL）、当前库（MySQL）或该 catalog 下全部 schema（Trino）。
+
+成功返回 200（`catalog` 对 MySQL / Trino 即请求的 `database`）：
 
 ```json
 {
