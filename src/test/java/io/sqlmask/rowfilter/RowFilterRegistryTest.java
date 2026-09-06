@@ -107,6 +107,16 @@ class RowFilterRegistryTest {
   }
 
   @Test
+  void validationFailureNamesTheTableOnce() {
+    // the message prefix already carries the declaring table, so the inner
+    // diagnostic must not repeat it
+    SqlMaskException e = assertConfigError(() -> build("'1 + 1'", ""));
+    assertTrue(e.getMessage().contains("row filter is not a valid condition:"),
+        () -> e.getMessage());
+    assertFalse(e.getMessage().contains("for table"), () -> e.getMessage());
+  }
+
+  @Test
   void rejectsNonBooleanCondition() {
     assertConfigError(() -> build("'1 + 1'", ""));
   }
@@ -140,6 +150,20 @@ class RowFilterRegistryTest {
       assertTrue(e.getMessage().contains("table 'crm.public.customer': row filter"),
           () -> condition + ": " + e.getMessage());
     }
+  }
+
+  @Test
+  void rejectsDynamicParameterVariants() {
+    // a filter carrying ? / $1 would only bind at execution time — it can
+    // never be a static, per-table condition. `?` surfaces as a dynamic
+    // parameter node and gets its dedicated rejection; `$1` lexes as a plain
+    // identifier and is rejected as an undeclared column — both CONFIG_ERROR
+    SqlMaskException questionMark = assertConfigError(() -> build("'status = ?'", ""));
+    assertTrue(questionMark.getMessage().contains("must not contain dynamic parameters"),
+        () -> questionMark.getMessage());
+    SqlMaskException dollar = assertConfigError(() -> build("'status = $1'", ""));
+    assertTrue(dollar.getMessage().contains("table 'crm.public.customer': row filter"),
+        () -> dollar.getMessage());
   }
 
   @Test

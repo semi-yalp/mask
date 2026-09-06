@@ -7,6 +7,7 @@ import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlCall;
+import org.apache.calcite.sql.SqlDynamicParam;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
@@ -110,8 +111,7 @@ public final class RowFilterRegistry {
       dialect.validate(validationTree, schema);
     } catch (SqlMaskException e) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          prefix + " is not a valid condition for table '"
-              + table.qualifiedName() + "': " + e.getMessage(), e);
+          prefix + " is not a valid condition: " + e.getMessage(), e);
     }
     templates.put(key(table.catalog(), table.schema(), table.name()), condition);
   }
@@ -157,6 +157,14 @@ public final class RowFilterRegistry {
           }
         }
         return null;
+      }
+
+      @Override
+      public Void visit(SqlDynamicParam param) {
+        // the validator would accept ? / $1 and defer binding to execution
+        // time — a row filter must be static, so it can never take parameters
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "must not contain dynamic parameters");
       }
 
       @Override

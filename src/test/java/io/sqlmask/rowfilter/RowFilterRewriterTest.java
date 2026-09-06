@@ -475,6 +475,36 @@ class RowFilterRewriterTest {
     adapter.validate(result.node(), f.schema());
   }
 
+  // --- top-level ORDER BY / LIMIT wrapper ---
+
+  @Test
+  void orderAndLimitOnFilteredTableRendersOnce() {
+    // a top-level ORDER BY/LIMIT wraps the query in a SqlOrderBy node whose
+    // operator cannot rebuild it through the generic createCall path — the
+    // rewritten wrapper must stay a real SqlOrderBy so unparse keeps working
+    Fixture f = fixture(TWO_TABLE_YAML);
+    RowFilterRewriter.Result result =
+        apply(f, "SELECT id FROM crm.public.customer ORDER BY id LIMIT 5");
+    assertEquals(1, result.injections());
+    String rendered = flat(adapter.unparse(result.node()));
+    assertTrue(rendered.contains(
+            "(SELECT * FROM crm.public.customer WHERE status = 'active') AS customer"),
+        () -> rendered);
+    assertEquals(1, countOccurrences(rendered, "ORDER BY id"), () -> rendered);
+    assertEquals(1, countOccurrences(rendered, "FETCH NEXT 5 ROWS ONLY"), () -> rendered);
+    adapter.validate(result.node(), f.schema());
+  }
+
+  private static int countOccurrences(String text, String needle) {
+    int count = 0;
+    int index = 0;
+    while ((index = text.indexOf(needle, index)) >= 0) {
+      count++;
+      index += needle.length();
+    }
+    return count;
+  }
+
   // --- fail-closed boundaries ---
 
   @Test

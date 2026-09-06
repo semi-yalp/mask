@@ -10,6 +10,7 @@ import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.SqlWith;
 import org.apache.calcite.sql.SqlWithItem;
@@ -153,8 +154,11 @@ public final class RowFilterRewriter {
             && newOffset == operands.get(2) && newFetch == operands.get(3)) {
           return orderBy;
         }
-        return orderBy.getOperator().createCall(orderBy.getFunctionQuantifier(),
-            orderBy.getParserPosition(), newQuery, newOrderList, newOffset, newFetch);
+        // rebuild explicitly: only the concrete SqlOrderBy node type unparses
+        // correctly (its operator's unparse casts the call to SqlOrderBy), so
+        // the wrapper must never go through the generic createCall path
+        return new SqlOrderBy(orderBy.getParserPosition(), newQuery,
+            (SqlNodeList) newOrderList, newOffset, newFetch);
       }
       case UNION:
       case INTERSECT:
@@ -440,14 +444,18 @@ public final class RowFilterRewriter {
   /**
    * PostgreSQL identifier semantics: unquoted references were folded to lower
    * case at parse time, so a reference spelling that is not all-lowercase
-   * was quoted and must match the declaration exactly (case-sensitive).
+   * was quoted and must match the declaration exactly (case-sensitive) — a
+   * quoted {@code "Customer"} is a different table from declared
+   * {@code customer}.
+   *
+   * <p>Strictness consequence for row filters: they are only usable on
+   * lowercase-declared (or exactly lowercase-spelled) table names — a
+   * non-lowercase declared name cannot carry a filter, because the
+   * registry's own wrapped parse folds unquoted names to lower case and such
+   * a table therefore fails registry build before any reference comparison.
    */
   private static boolean nameMatches(String reference, String declared) {
-    if (reference.equals(declared)) {
-      return true;
-    }
-    return reference.equals(reference.toLowerCase(java.util.Locale.ROOT))
-        && reference.equalsIgnoreCase(declared);
+    return reference.equals(declared);
   }
 
   private SqlNode injectIfFiltered(TableMetadata table, SqlIdentifier reference, Context context,
