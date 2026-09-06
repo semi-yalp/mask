@@ -7,7 +7,6 @@ import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.babel.SqlBabelCreateTable;
 import org.apache.calcite.sql.babel.TableCollectionType;
-import org.apache.calcite.sql.dialect.MysqlSqlDialect;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
@@ -41,7 +40,7 @@ public final class MysqlDialectAdapter extends AbstractCalciteDialectAdapter {
         false,
         MysqlFunctions.TABLE,
         new MysqlTypeResolver(),
-        MysqlSqlDialect.DEFAULT,
+        new MysqlUnparseDialect(),
         new MysqlIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
         new DialectCapabilities(false)));

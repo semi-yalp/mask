@@ -5,7 +5,7 @@ FROM store_sales,
 date_dim,
 store AS s,
 household_demographics
-WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk AND store_sales.ss_store_sk = s.s_store_sk AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk AND (date_dim.d_dom BETWEEN ASYMMETRIC 1 AND 15 OR date_dim.d_moy BETWEEN ASYMMETRIC 1 AND 3) AND date_dim.d_year IN (2000, 2001, 2002) AND s.s_state IN ('SD', 'TN') AND household_demographics.hd_dep_count = 4
+WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk AND store_sales.ss_store_sk = s.s_store_sk AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk AND (date_dim.d_dom BETWEEN 1 AND 15 OR date_dim.d_moy BETWEEN 1 AND 3) AND date_dim.d_year IN (2000, 2001, 2002) AND s.s_state IN ('SD', 'TN') AND household_demographics.hd_dep_count = 4
 GROUP BY ss_ticket_number, ss_customer_sk, s.s_city) AS dj,
 customer
 WHERE dj.ss_customer_sk = customer.c_customer_sk
@@ -43,7 +43,7 @@ customer_demographics AS cd
 WHERE c.c_current_addr_sk = ca.ca_address_sk AND ca.ca_county IN ('Rush County', 'Toole County', 'Jefferson County', 'Dona Ana County', 'Daviess County') AND cd.cd_demo_sk = c.c_current_cdemo_sk AND EXISTS (SELECT 1
 FROM store_sales,
 date_dim
-WHERE c.c_customer_sk = ss_customer_sk AND ss_sold_date_sk = d_date_sk AND d_year = 2001 AND d_moy BETWEEN ASYMMETRIC 4 AND 7)
+WHERE c.c_customer_sk = ss_customer_sk AND ss_sold_date_sk = d_date_sk AND d_year = 2001 AND d_moy BETWEEN 4 AND 7)
 GROUP BY cd_gender, cd_marital_status, cd_education_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
 ORDER BY cd_gender, cd_marital_status, cd_education_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
 LIMIT 100;
@@ -65,7 +65,7 @@ SELECT c_email_address, c_phone, c_first_name, COUNT(*) AS order_cnt
 FROM store_sales,
 date_dim,
 customer
-WHERE ss_customer_sk = c_customer_sk AND ss_sold_date_sk = d_date_sk AND d_year = 2002 AND c_birth_year BETWEEN ASYMMETRIC 1970 AND 1980
+WHERE ss_customer_sk = c_customer_sk AND ss_sold_date_sk = d_date_sk AND d_year = 2002 AND c_birth_year BETWEEN 1970 AND 1980
 GROUP BY c_email_address, c_phone, c_first_name
 ORDER BY order_cnt DESC
 LIMIT 20

@@ -306,6 +306,22 @@ class MultiDialectRewriteTest {
   }
 
   @Test
+  void mysqlBetweenFormsRenderFaithfully() throws Exception {
+    // Calcite 的 SqlBetweenOperator 渲染时总是带 flag 关键字（getName() 返回
+    // "BETWEEN ASYMMETRIC"），真实 MySQL 的 BETWEEN 后面没有 ASYMMETRIC——
+    // MysqlUnparseDialect 按原义渲染 plain/NOT BETWEEN（丢掉 NOT 会静默反转
+    // 谓词）；两种形式都必须能通过 MySQL 配置的 Calcite round-trip 再解析兜底
+    String between = flat(engine.rewrite(MYSQL_YAML,
+        "SELECT id FROM customer WHERE id BETWEEN 1 AND 5", "mysql").get(0).rewrittenSql());
+    assertTrue(between.contains(" id BETWEEN 1 AND 5"), between);
+    String notBetween = flat(engine.rewrite(MYSQL_YAML,
+        "SELECT id FROM customer WHERE id NOT BETWEEN 1 AND 5", "mysql").get(0).rewrittenSql());
+    assertTrue(notBetween.contains(" id NOT BETWEEN 1 AND 5"), notBetween);
+    new MysqlDialectAdapter().parse(between, 0);
+    new MysqlDialectAdapter().parse(notBetween, 0);
+  }
+
+  @Test
   void postgresqlCteNameShadowsBaseTableName() {
     // spec §10.2 item 7: PG 是 CteExpander 的参考语义——CTE 名遮蔽同名基础表，
     // 与 trino/mysql 用例共同钉死三方言的 CteExpander 等价性。crm.public 元数据
