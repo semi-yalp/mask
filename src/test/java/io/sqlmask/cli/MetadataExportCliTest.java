@@ -51,6 +51,16 @@ class MetadataExportCliTest {
   }
 
   @Test
+  void blankDatabaseIsUsageError() {
+    SqlMaskApplication app = new SqlMaskApplication();
+    StringBuilder out = new StringBuilder(), err = new StringBuilder();
+    int code = run(app, new String[]{"--pull-metadata", "--database", " ",
+        "--user", "postgres", "--password", "x", "--output", "o.yaml"}, out, err);
+    assertEquals(2, code);
+    assertTrue(err.toString().contains("database"), () -> err.toString());
+  }
+
+  @Test
   void rewriteModeWithoutMetadataIsUsageError() {
     SqlMaskApplication app = new SqlMaskApplication();
     StringBuilder out = new StringBuilder(), err = new StringBuilder();

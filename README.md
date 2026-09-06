@@ -33,7 +33,7 @@ java -jar target/sql-mask.jar --pull-metadata --host 127.0.0.1 \
 
 行为要点：
 
-- 类型映射清单见 spec 第 3 节（`docs/superpowers/plans/2026-09-06-metadata-introspection.md`），
+- 类型映射清单见 spec 第 3 节（`docs/superpowers/specs/2026-09-06-metadata-introspection-design.md`），
   与「metadata.yaml 示例」一节的支持类型一致：`boolean`、`smallint`、`integer`、
   `bigint`、`real`、`double precision`、`numeric(p,s)`、`char(n)`、`varchar(n)`、
   `text`、`date`、`timestamp[(p)]`、`timestamptz`、`time[(p)]`、`timetz`；
@@ -104,8 +104,7 @@ java -jar target/sql-mask.jar
 
 错误码：`CONFIG_ERROR`（YAML/参数）、`PARSE_ERROR`、`VALIDATION_ERROR`、
 `UNSUPPORTED_STATEMENT`（DML/DDL/递归 CTE）、`LINEAGE_UNKNOWN`（来源无法追踪）、
-`REWRITE_ERROR`（如重复输出列名需包装）、`IO_ERROR`、`INTERNAL_ERROR`、
-`INTROSPECT_ERROR`（元数据采集失败）、`STRICT_DEGRADED`（`--strict` 命中降级）。
+`REWRITE_ERROR`（如重复输出列名需包装）、`IO_ERROR`、`INTERNAL_ERROR`。
 
 ### POST /api/metadata/pull
 

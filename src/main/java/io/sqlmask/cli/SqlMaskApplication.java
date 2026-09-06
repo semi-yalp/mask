@@ -184,7 +184,7 @@ public final class SqlMaskApplication implements Callable<Integer> {
    * create or overwrite the output.
    */
   private int executePullMetadata(PrintStream out, PrintStream err) throws IOException {
-    if (database == null || user == null) {
+    if (database == null || database.isBlank() || user == null || user.isBlank()) {
       err.println("sql-mask: --pull-metadata requires --database and --user");
       return 2;
     }
