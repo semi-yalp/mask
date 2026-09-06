@@ -1,5 +1,7 @@
 package io.sqlmask.config;
 
+import io.sqlmask.dialect.DialectProfiles;
+import io.sqlmask.dialect.TypeResolver;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
@@ -31,11 +33,20 @@ import java.util.Set;
 public final class YamlConfigLoader {
 
   /**
-   * Loads and validates the YAML file at {@code path}.
+   * Loads and validates the YAML file at {@code path}, resolving column type
+   * declarations with the PostgreSQL type resolver.
    */
   public LoadedConfig load(Path path) {
+    return load(path, "postgresql");
+  }
+
+  /**
+   * Loads and validates the YAML file at {@code path}, resolving column type
+   * declarations with the named dialect's type resolver.
+   */
+  public LoadedConfig load(Path path, String dialect) {
     try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-      return load(reader, path.toString());
+      return load(reader, path.toString(), dialect);
     } catch (IOException e) {
       throw new SqlMaskException(SqlMaskException.Code.IO_ERROR,
           "cannot read metadata file '" + path + "': " + e.getMessage(), e);
@@ -44,18 +55,28 @@ public final class YamlConfigLoader {
 
   /**
    * Parses YAML content from a string; {@code sourceName} is used in error
-   * messages. Mainly useful for tests.
+   * messages. Mainly useful for tests. Column types resolve per the
+   * PostgreSQL type resolver.
    */
   public LoadedConfig loadContent(String yamlContent, String sourceName) {
-    return load(new java.io.StringReader(yamlContent), sourceName);
+    return loadContent(yamlContent, sourceName, "postgresql");
   }
 
-  private LoadedConfig load(Reader reader, String sourceName) {
+  /**
+   * Parses YAML content from a string, resolving column type declarations
+   * with the named dialect's type resolver.
+   */
+  public LoadedConfig loadContent(String yamlContent, String sourceName, String dialect) {
+    return load(new java.io.StringReader(yamlContent), sourceName, dialect);
+  }
+
+  private LoadedConfig load(Reader reader, String sourceName, String dialect) {
+    TypeResolver typeResolver = DialectProfiles.byName(dialect).typeResolver();
     Object root = parse(reader, sourceName);
     requireMapping(root, sourceName + ": root must be a mapping");
     Map<?, ?> rootMap = (Map<?, ?>) root;
 
-    List<TableMetadata> tables = loadTables(rootMap, sourceName);
+    List<TableMetadata> tables = loadTables(rootMap, sourceName, typeResolver);
     Map<String, MaskingPolicy> policies = loadPolicies(rootMap, sourceName);
     List<MaskingConfig.ColumnPolicyBinding> bindings = loadColumnBindings(rootMap, policies, sourceName);
 
@@ -76,7 +97,8 @@ public final class YamlConfigLoader {
     }
   }
 
-  private List<TableMetadata> loadTables(Map<?, ?> root, String sourceName) {
+  private List<TableMetadata> loadTables(Map<?, ?> root, String sourceName,
+      TypeResolver typeResolver) {
     Object metadata = root.get("metadata");
     requireMapping(metadata, sourceName + ": 'metadata' must be a mapping");
     Map<?, ?> metadataMap = (Map<?, ?>) metadata;
@@ -122,7 +144,7 @@ public final class YamlConfigLoader {
               columnPath + ": duplicate column name '" + columnName + "'");
         }
         try {
-          columns.add(TableMetadata.parseColumn(columnName, columnType));
+          columns.add(typeResolver.parseColumn(columnName, columnType));
         } catch (SqlMaskException e) {
           throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
               columnPath + ".type: " + e.getMessage(), e);

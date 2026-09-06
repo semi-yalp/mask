@@ -28,7 +28,10 @@ public class ConfigController {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "metadataYaml is required");
     }
-    LoadedConfig loaded = loader.loadContent(request.metadataYaml(), "metadata.yaml");
+    String dialect = request.dialect() == null || request.dialect().isBlank()
+        ? "postgresql"
+        : request.dialect();
+    LoadedConfig loaded = loader.loadContent(request.metadataYaml(), "metadata.yaml", dialect);
     return toResponse(loaded);
   }
 
@@ -50,7 +53,8 @@ public class ConfigController {
     return new ConfigResponse(tables, bindings, policies);
   }
 
-  public record ConfigParseRequest(String metadataYaml) {
+  /** {@code dialect} is optional; blank or absent means PostgreSQL. */
+  public record ConfigParseRequest(String metadataYaml, String dialect) {
   }
 
   public record ConfigResponse(List<TableDto> tables, List<BindingDto> columnPolicies,

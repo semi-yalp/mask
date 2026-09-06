@@ -59,7 +59,8 @@ public final class RewriteEngine {
    * @param dialectName  dialect name; only 'postgresql' in this version
    */
   public List<StatementRewrite> rewrite(String metadataYaml, String sqlText, String dialectName) {
-    LoadedConfig loaded = new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml");
+    LoadedConfig loaded =
+        new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml", dialectName);
     SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
     DialectAdapter dialect = createDialect(dialectName);
     // an invalid row-filter condition fails the whole run before any

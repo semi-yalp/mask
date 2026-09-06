@@ -2,6 +2,8 @@ package io.sqlmask.config;
 
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -316,5 +318,67 @@ class YamlConfigLoaderTest {
         """, "test.yaml"));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
     assertTrue(e.getMessage().contains("policies"), () -> e.getMessage());
+  }
+
+  @Test
+  @Disabled("mysql dialect profile is registered in Task 5; enable this there")
+  void mysqlTypeNamesParseUnderMysqlDialect() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: shop
+              schema: app
+              name: orders
+              columns:
+                - name: id
+                  type: bigint
+                - name: taken_at
+                  type: datetime
+                - name: memo
+                  type: text
+        policies: {}
+        """;
+    LoadedConfig loaded = new YamlConfigLoader().loadContent(yaml, "m.yaml", "mysql");
+    assertEquals(SqlTypeName.TIMESTAMP,
+        loaded.tables().get(0).columns().get(1).sqlTypeName());
+    assertEquals("datetime", loaded.tables().get(0).columns().get(1).typeDeclaration());
+  }
+
+  @Test
+  void mysqlTypeNameUnderPostgresDialectFails() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: shop
+              schema: app
+              name: orders
+              columns:
+                - name: taken_at
+                  type: datetime
+        policies: {}
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new YamlConfigLoader().loadContent(yaml, "m.yaml", "postgresql"));
+    assertTrue(e.getMessage().contains("datetime"), () -> e.getMessage());
+  }
+
+  @Test
+  void unknownDialectInLoaderFailsWithList() {
+    // an empty tables list would trip the unrelated 'policies' validation
+    // first, so use the minimal single-table document and assert on the
+    // dialect name alone
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new YamlConfigLoader().loadContent("""
+            metadata:
+              tables:
+                - catalog: shop
+                  schema: app
+                  name: orders
+                  columns:
+                    - name: id
+                      type: bigint
+            policies: {}
+            """, "m.yaml", "oracle"));
+    assertTrue(e.getMessage().contains("unsupported dialect"), () -> e.getMessage());
   }
 }
