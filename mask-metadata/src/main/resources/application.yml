@@ -11,6 +11,7 @@ spring:
   sql:
     init:
       mode: always
+      schema-locations: classpath:metadata-schema.sql
 
 metadata:
   api-key: ${METADATA_API_KEY:}
