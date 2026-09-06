@@ -9,8 +9,7 @@ import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
 import io.sqlmask.metadata.YamlCalciteSchemaFactory;
-import io.sqlmask.policy.MaskingPolicy;
-import io.sqlmask.policy.PolicyRegistry;
+import io.sqlmask.config.MaskingPolicy;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -142,7 +141,7 @@ public final class PolicyValidator {
       tables.add(new TableMetadata(t.catalog(), t.schema(), t.name(), columns, rowFilter));
     });
     MaskingConfig config = new MaskingConfig(tables, List.of(), Map.of());
-    LoadedConfig loaded = new LoadedConfig(config, PolicyRegistry.of(config));
+    LoadedConfig loaded = new LoadedConfig(config);
     SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
     try {
       RowFilterRegistry.build(loaded, DialectRegistry.create(instance.dialect()), schema);

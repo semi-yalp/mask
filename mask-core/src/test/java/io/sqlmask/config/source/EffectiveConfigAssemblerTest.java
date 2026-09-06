@@ -228,10 +228,12 @@ class EffectiveConfigAssemblerTest {
         java.util.Collections.singletonMap("phone_mask",
             new EffectiveConfigResponse.UdfDefinition("mask_phone", null)));
     LoadedConfig loaded = new EffectiveConfigAssembler().assemble(response(config));
-    assertEquals(List.of(), loaded.policyRegistry()
-        .find(io.sqlmask.metadata.ColumnKey.of("crm", "public", "customer", "phone"))
-        .orElseThrow()
-        .arguments());
+    var instruction = new io.sqlmask.policy.match.PolicyEngine(io.sqlmask.policy.match.PolicyIndex.of(
+        io.sqlmask.config.LegacyPolicyAdapter.convert(loaded.config())))
+        .maskFor("crm", "public", "customer", "phone",
+            io.sqlmask.policy.model.Subject.anonymous())
+        .orElseThrow();
+    assertEquals(List.of(), instruction.arguments());
   }
 
   @Test
