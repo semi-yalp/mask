@@ -38,7 +38,7 @@ public class MetadataController {
     if (request.password() == null || request.password().isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "password is required");
     }
-    ConnectionSpec spec = new ConnectionSpec(
+    ConnectionSpec spec = new ConnectionSpec("postgresql",
         request.host() == null || request.host().isBlank() ? "127.0.0.1" : request.host(),
         request.port() == null ? 5432 : request.port(),
         request.database(), request.user(), request.password(),

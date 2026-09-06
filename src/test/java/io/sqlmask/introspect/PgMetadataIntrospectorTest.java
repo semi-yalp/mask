@@ -54,7 +54,7 @@ class PgMetadataIntrospectorTest {
     };
 
     IntrospectionResult result = introspector.introspect(
-        new ConnectionSpec("h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10));
+        new ConnectionSpec("postgresql", "h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10));
 
     assertEquals("crm", result.catalog());
     assertEquals(2, result.tables().size());
@@ -77,7 +77,7 @@ class PgMetadataIntrospectorTest {
       @Override protected Connection open(ConnectionSpec spec) { return conn; }
     };
     IntrospectionResult result = introspector.introspect(
-        new ConnectionSpec("h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10));
+        new ConnectionSpec("postgresql", "h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10));
     assertTrue(result.tables().isEmpty());
     assertTrue(result.warnings().stream()
         .anyMatch(w -> w.contains("未找到任何表")));
@@ -91,7 +91,7 @@ class PgMetadataIntrospectorTest {
       }
     };
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> introspector.introspect(
-        new ConnectionSpec("h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10)));
+        new ConnectionSpec("postgresql", "h", 5432, "crm", "u", "p", List.of(), false, false, "disable", 10)));
     assertEquals(SqlMaskException.Code.INTROSPECT_ERROR, e.getCode());
     assertTrue(e.getMessage().contains("password authentication failed"));
   }

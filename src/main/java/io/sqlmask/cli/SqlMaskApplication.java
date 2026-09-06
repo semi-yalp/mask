@@ -197,7 +197,7 @@ public final class SqlMaskApplication implements Callable<Integer> {
       err.println("sql-mask: provide --password or set PGPASSWORD");
       return 2;
     }
-    ConnectionSpec spec = new ConnectionSpec(host, port, database, user, resolvedPassword,
+    ConnectionSpec spec = new ConnectionSpec("postgresql", host, port, database, user, resolvedPassword,
         schemas == null ? List.of() : schemas, includeViews, strict, sslmode, connectTimeout);
     IntrospectionResult result;
     try {
