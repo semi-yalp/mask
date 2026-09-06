@@ -14,6 +14,8 @@ public class SqlMaskException extends RuntimeException {
     LINEAGE_UNKNOWN,
     REWRITE_ERROR,
     IO_ERROR,
+    POLICY_SERVICE_UNAVAILABLE,
+    POLICY_INSTANCE_NOT_FOUND,
     INTROSPECT_ERROR
   }
 

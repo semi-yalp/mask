@@ -13,6 +13,7 @@ public final class MetadataIntrospectors {
     String normalized = engine == null ? "" : engine.trim().toLowerCase(Locale.ROOT);
     return switch (normalized) {
       case "postgresql" -> new PgMetadataIntrospector();
+      case "mysql" -> new MysqlMetadataIntrospector();
       default -> throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "unsupported engine '" + engine
               + "' (supported: postgresql, mysql, trino)");
