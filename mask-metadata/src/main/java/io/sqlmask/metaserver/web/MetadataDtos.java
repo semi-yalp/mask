@@ -40,4 +40,18 @@ public final class MetadataDtos {
   public record CollectResponse(int tableCount, int columnCount, List<String> warnings,
       long metadataVersion) {
   }
+
+  public record MetadataResponse(String instance, String dialect, long metadataVersion,
+      List<TablePayload> tables) {
+  }
+
+  public record TablePayload(String catalog, String schema, String name,
+      List<ColumnPayload> columns) {
+  }
+
+  public record ColumnPayload(String name, String type) {
+  }
+
+  public record VersionResponse(String instance, long metadataVersion) {
+  }
 }
