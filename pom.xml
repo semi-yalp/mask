@@ -79,6 +79,12 @@
       <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-parser</artifactId>
+      <version>446</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

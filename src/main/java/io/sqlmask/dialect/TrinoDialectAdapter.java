@@ -7,7 +7,6 @@ import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.babel.SqlBabelCreateTable;
 import org.apache.calcite.sql.babel.TableCollectionType;
-import org.apache.calcite.sql.dialect.TrinoSqlDialect;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
@@ -39,7 +38,7 @@ public final class TrinoDialectAdapter extends AbstractCalciteDialectAdapter {
         true,
         org.apache.calcite.sql.fun.SqlStdOperatorTable.instance(),
         new TrinoTypeResolver(),
-        TrinoSqlDialect.DEFAULT,
+        new TrinoUnparseDialect(),
         new TrinoIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA,
         DialectCapabilities.STRICT));
