@@ -1,6 +1,7 @@
 package io.sqlmask.cli;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
 import io.sqlmask.rewrite.RewriteEngine;
 import io.sqlmask.rewrite.RewriteEngine.StatementRewrite;
 
@@ -26,11 +27,15 @@ public final class SqlMaskRunner {
    */
   public String run(CliOptions options) {
     String metadataYaml = readUtf8(options.metadataPath(), "metadata file");
+    String policyYaml = options.policiesPath() == null
+        ? null
+        : readUtf8(options.policiesPath(), "policies file");
     String sqlText = options.sql() != null
         ? options.sql()
         : readUtf8(options.inputPath(), "SQL input file");
-    List<StatementRewrite> statements =
-        new RewriteEngine().rewrite(metadataYaml, sqlText, options.dialect());
+    List<StatementRewrite> statements = new RewriteEngine().rewrite(
+        metadataYaml, policyYaml, sqlText, options.dialect(),
+        Subject.of(options.user(), options.groups()));
     return RewriteEngine.join(statements);
   }
 

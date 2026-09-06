@@ -56,8 +56,19 @@ public final class SqlMaskApplication implements Callable<Integer> {
   private String database;
 
   @Option(names = "--user", paramLabel = "<user>",
-      description = "PostgreSQL user for --pull-metadata.")
+      description = "PostgreSQL user for --pull-metadata; the query subject user for "
+          + "policy matching in rewrite mode.")
   private String user;
+
+  @Option(names = "--policies", paramLabel = "<path>",
+      description = "Path to a Ranger-style policies.yaml. When given, the metadata file "
+          + "must not declare policies/columns/rowFilter.")
+  private Path policiesPath;
+
+  @Option(names = "--groups", paramLabel = "<g1,g2>", split = ",",
+      description = "Query subject groups for policy matching; repeatable and/or "
+          + "comma-separated. Rewrite mode only.")
+  private List<String> groups;
 
   @Option(names = "--password", paramLabel = "<pw>",
       description = "Password for --pull-metadata; falls back to $PGPASSWORD.")
@@ -142,6 +153,10 @@ public final class SqlMaskApplication implements Callable<Integer> {
 
   private int execute(PrintStream out, PrintStream err) throws IOException {
     if (pullMetadata) {
+      if (groups != null && !groups.isEmpty()) {
+        err.println("sql-mask: --groups cannot be combined with --pull-metadata");
+        return 2;
+      }
       if (sql != null || inputPath != null) {
         err.println("sql-mask: --pull-metadata cannot be combined with --sql/--input");
         return 2;
@@ -162,7 +177,8 @@ public final class SqlMaskApplication implements Callable<Integer> {
       return 2;
     }
 
-    CliOptions options = new CliOptions(metadataPath, sql, inputPath, outputPath, dialect);
+    CliOptions options = new CliOptions(metadataPath, policiesPath, user, groups,
+        sql, inputPath, outputPath, dialect);
     // the runner aborts on the first failing statement, so this returns only
     // when the entire input succeeded; output happens after that point
     String result = new SqlMaskRunner().run(options);
