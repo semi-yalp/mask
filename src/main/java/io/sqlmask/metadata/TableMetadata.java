@@ -10,17 +10,27 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Complete qualified table identity with its ordered column list. Column
- * types are parsed once at configuration load time into Calcite
- * {@link SqlTypeName} descriptors so downstream schema construction never
- * re-parses strings.
+ * Complete qualified table identity with its ordered column list and optional
+ * row filter condition. Column types are parsed once at configuration load
+ * time into Calcite {@link SqlTypeName} descriptors so downstream schema
+ * construction never re-parses strings.
+ *
+ * @param rowFilter static boolean condition applied to every read of this
+ *                  table (see the row-filter design); blank means unconfigured
  */
-public record TableMetadata(String catalog, String schema, String name, List<Column> columns) {
+public record TableMetadata(String catalog, String schema, String name, List<Column> columns,
+    String rowFilter) {
 
   private static final Pattern TYPED = Pattern.compile("^(.+?)\\s*\\(\\s*(\\d+)\\s*(?:,\\s*(\\d+)\\s*)?\\)$");
 
   public TableMetadata {
     columns = List.copyOf(columns);
+    rowFilter = rowFilter == null || rowFilter.isBlank() ? null : rowFilter;
+  }
+
+  /** Convenience constructor for tables without a row filter. */
+  public TableMetadata(String catalog, String schema, String name, List<Column> columns) {
+    this(catalog, schema, name, columns, null);
   }
 
   public ColumnKey tableKey() {

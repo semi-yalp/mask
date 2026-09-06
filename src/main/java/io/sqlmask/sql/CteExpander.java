@@ -8,6 +8,7 @@ import org.apache.calcite.sql.SqlJoin;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.SqlWith;
 import org.apache.calcite.sql.SqlWithItem;
@@ -19,11 +20,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Inlines non-recursive common table expressions into their referencing
@@ -35,15 +34,18 @@ import java.util.Set;
  * fully self-contained (every reference becomes a plain derived table) while
  * the original parse tree stays untouched for SQL output.
  *
- * <p>Scoping follows PostgreSQL: a CTE name shadows base tables of the same
- * name and an inner {@code WITH} shadows outer CTE names; each item may
- * reference items declared before it. A reference to a CTE that is still
- * being expanded (a self/cycle reference) fails with a recursive-CTE
+ * <p>Scoping follows PostgreSQL: each {@code WITH} clause introduces a
+ * lexical scope that shadows outer scopes, an inner {@code WITH} shadows
+ * outer CTE names, and each item may reference items declared before it in
+ * the same clause. A reference to the item currently being expanded (a
+ * self/cycle reference through the scope chain) fails with a recursive-CTE
  * diagnostic instead of recursing forever.
  *
  * <p>The expander never mutates the input tree: subtrees are rebuilt as
  * clones with the rewritten operands, or returned unchanged when nothing
- * below them changed.
+ * below them changed. Every CTE reference receives its own deep copy of the
+ * expanded body, so downstream in-place processing (validation) cannot leak
+ * changes between reference sites.
  */
 public final class CteExpander {
 
@@ -60,46 +62,53 @@ public final class CteExpander {
   private record Cte(String name, SqlNode body, List<String> columnNames) {
   }
 
-  public SqlNode expand(SqlNode parsed) {
-    return expand(parsed, new ArrayDeque<>(), new HashSet<>());
+  /**
+   * One WITH clause's lexical scope. {@code inFlight} holds the name of the
+   * item currently being expanded (items expand in order, so at most one is
+   * in flight per scope); referencing it from anywhere inside means a cycle.
+   */
+  private static final class Scope {
+    final Map<String, Cte> completed = new HashMap<>();
+    String inFlight;
   }
 
-  private SqlNode expand(SqlNode node, Deque<Map<String, Cte>> scopes, Set<String> inProgress) {
+  public SqlNode expand(SqlNode parsed) {
+    return expand(parsed, new ArrayDeque<>());
+  }
+
+  private SqlNode expand(SqlNode node, Deque<Scope> scopes) {
     if (node == null) {
       return null;
     }
     switch (node.getKind()) {
       case WITH:
-        return expandWith((SqlWith) node, scopes, inProgress);
+        return expandWith((SqlWith) node, scopes);
       case SELECT:
-        return expandSelect((SqlSelect) node, scopes, inProgress);
+        return expandSelect((SqlSelect) node, scopes);
       default:
         if (node instanceof SqlCall call) {
-          return rewriteCall(call, scopes, inProgress);
+          return rewriteCall(call, scopes);
         }
         return node;
     }
   }
 
-  private SqlNode expandWith(SqlWith with, Deque<Map<String, Cte>> scopes, Set<String> inProgress) {
-    Map<String, Cte> scope = new HashMap<>();
+  private SqlNode expandWith(SqlWith with, Deque<Scope> scopes) {
+    Scope scope = new Scope();
     scopes.push(scope);
     try {
       for (SqlNode itemNode : with.withList) {
         SqlWithItem item = (SqlWithItem) itemNode;
         String name = item.name.getSimple();
-        boolean added = inProgress.add(name);
-        if (!added) {
-          throw recursiveCte(name);
-        }
+        scope.inFlight = name;
         try {
-          SqlNode expandedBody = expand(item.query, scopes, inProgress);
-          scope.put(name, new Cte(name, expandedBody, columnNames(item)));
+          SqlNode expandedBody = expand(item.query, scopes);
+          scope.completed.put(name, new Cte(name, expandedBody, columnNames(item)));
         } finally {
-          inProgress.remove(name);
+          scope.inFlight = null;
         }
       }
-      return expand(with.body, scopes, inProgress);
+      return expand(with.body, scopes);
     } finally {
       scopes.pop();
     }
@@ -116,15 +125,14 @@ public final class CteExpander {
     return names;
   }
 
-  private SqlNode expandSelect(SqlSelect select, Deque<Map<String, Cte>> scopes,
-      Set<String> inProgress) {
+  private SqlNode expandSelect(SqlSelect select, Deque<Scope> scopes) {
     SqlNode from = select.getFrom();
-    SqlNode newFrom = from == null ? null : rewriteFrom(from, scopes, inProgress);
-    SqlNode newWhere = expand(select.getWhere(), scopes, inProgress);
-    SqlNodeList newSelectList = expandList(select.getSelectList(), scopes, inProgress);
-    SqlNode newHaving = expand(select.getHaving(), scopes, inProgress);
-    SqlNodeList newGroupBy = expandList(select.getGroup(), scopes, inProgress);
-    SqlNodeList newOrderBy = expandList(select.getOrderList(), scopes, inProgress);
+    SqlNode newFrom = from == null ? null : rewriteFrom(from, scopes);
+    SqlNode newWhere = expand(select.getWhere(), scopes);
+    SqlNodeList newSelectList = expandList(select.getSelectList(), scopes);
+    SqlNode newHaving = expand(select.getHaving(), scopes);
+    SqlNodeList newGroupBy = expandList(select.getGroup(), scopes);
+    SqlNodeList newOrderBy = expandList(select.getOrderList(), scopes);
     if (newFrom == from && newWhere == select.getWhere()
         && newSelectList == select.getSelectList()
         && newHaving == select.getHaving()
@@ -154,15 +162,14 @@ public final class CteExpander {
     return copy;
   }
 
-  private SqlNode rewriteFrom(SqlNode from, Deque<Map<String, Cte>> scopes,
-      Set<String> inProgress) {
+  private SqlNode rewriteFrom(SqlNode from, Deque<Scope> scopes) {
     switch (from.getKind()) {
       case IDENTIFIER: {
         SqlIdentifier id = (SqlIdentifier) from;
         if (!id.isSimple()) {
           return from;
         }
-        Cte cte = lookup(id.getSimple(), scopes, inProgress);
+        Cte cte = lookup(id.getSimple(), scopes);
         return cte == null ? from : derivedTable(cte, id);
       }
       case AS: {
@@ -171,7 +178,7 @@ public final class CteExpander {
         // (column aliases elsewhere are never routed here)
         SqlCall as = (SqlCall) from;
         List<SqlNode> operands = as.getOperandList();
-        SqlNode newTable = rewriteFrom(operands.get(0), scopes, inProgress);
+        SqlNode newTable = rewriteFrom(operands.get(0), scopes);
         if (newTable == operands.get(0)) {
           return as;
         }
@@ -182,8 +189,8 @@ public final class CteExpander {
       }
       case JOIN: {
         SqlJoin join = (SqlJoin) from;
-        SqlNode newLeft = rewriteFrom(join.getLeft(), scopes, inProgress);
-        SqlNode newRight = rewriteFrom(join.getRight(), scopes, inProgress);
+        SqlNode newLeft = rewriteFrom(join.getLeft(), scopes);
+        SqlNode newRight = rewriteFrom(join.getRight(), scopes);
         if (newLeft == join.getLeft() && newRight == join.getRight()) {
           return join;
         }
@@ -196,12 +203,12 @@ public final class CteExpander {
             rewritten.toArray(new SqlNode[0]));
       }
       case WITH:
-        return expandWith((SqlWith) from, scopes, inProgress);
+        return expandWith((SqlWith) from, scopes);
       case SELECT:
-        return expandSelect((SqlSelect) from, scopes, inProgress);
+        return expandSelect((SqlSelect) from, scopes);
       default:
         if (from instanceof SqlCall call) {
-          return rewriteCall(call, scopes, inProgress);
+          return rewriteCall(call, scopes);
         }
         return from;
     }
@@ -210,11 +217,12 @@ public final class CteExpander {
   /**
    * Renders a CTE reference as a derived table {@code <body> AS <alias>
    * [<column aliases>]}; the alias keeps the original spelling so qualified
-   * column references continue to resolve.
+   * column references continue to resolve. The body is deep-copied per
+   * reference so no two sites share mutable nodes.
    */
   private SqlNode derivedTable(Cte cte, SqlIdentifier reference) {
     List<SqlNode> operands = new ArrayList<>();
-    operands.add(cte.body());
+    operands.add(SqlNodeCopier.copy(cte.body()));
     operands.add(new SqlIdentifier(reference.getSimple(), SqlParserPos.ZERO));
     if (cte.columnNames() != null) {
       for (String column : cte.columnNames()) {
@@ -225,14 +233,13 @@ public final class CteExpander {
   }
 
   /** Rewrites the operands of a generic call (joins, IN/EXISTS subqueries, ...). */
-  private SqlNode rewriteCall(SqlCall call, Deque<Map<String, Cte>> scopes,
-      Set<String> inProgress) {
+  private SqlNode rewriteCall(SqlCall call, Deque<Scope> scopes) {
     List<SqlNode> operands = call.getOperandList();
     int changedIndex = -1;
     SqlNode[] rewritten = new SqlNode[operands.size()];
     for (int i = 0; i < operands.size(); i++) {
       SqlNode operand = operands.get(i);
-      SqlNode newOperand = operand == null ? null : expand(operand, scopes, inProgress);
+      SqlNode newOperand = operand == null ? null : expand(operand, scopes);
       rewritten[i] = newOperand;
       if (newOperand != operand) {
         changedIndex = i;
@@ -250,8 +257,7 @@ public final class CteExpander {
         rewritten);
   }
 
-  private SqlNodeList expandList(SqlNodeList list, Deque<Map<String, Cte>> scopes,
-      Set<String> inProgress) {
+  private SqlNodeList expandList(SqlNodeList list, Deque<Scope> scopes) {
     if (list == null) {
       return null;
     }
@@ -259,7 +265,7 @@ public final class CteExpander {
     boolean changed = false;
     for (int i = 0; i < list.size(); i++) {
       SqlNode item = list.get(i);
-      SqlNode newItem = expand(item, scopes, inProgress);
+      SqlNode newItem = expand(item, scopes);
       rewritten[i] = newItem;
       changed |= newItem != item;
     }
@@ -267,20 +273,21 @@ public final class CteExpander {
   }
 
   /**
-   * Resolves a simple name against the scope stack (innermost first). If no
-   * scope declares the name but it is currently being expanded, the CTE
-   * references itself (directly or through a cycle).
+   * Resolves a simple name against the scope stack, innermost scope first.
+   * A name still being expanded in its own scope (directly or through an
+   * intermediate scope) is a self/cycle reference and fails.
    */
-  private Cte lookup(String name, Deque<Map<String, Cte>> scopes, Set<String> inProgress) {
-    Iterator<Map<String, Cte>> innermostFirst = scopes.descendingIterator();
+  private Cte lookup(String name, Deque<Scope> scopes) {
+    Iterator<Scope> innermostFirst = scopes.iterator();
     while (innermostFirst.hasNext()) {
-      Cte cte = innermostFirst.next().get(name);
+      Scope scope = innermostFirst.next();
+      Cte cte = scope.completed.get(name);
       if (cte != null) {
         return cte;
       }
-    }
-    if (inProgress.contains(name)) {
-      throw recursiveCte(name);
+      if (name.equals(scope.inFlight)) {
+        throw recursiveCte(name);
+      }
     }
     return null;
   }

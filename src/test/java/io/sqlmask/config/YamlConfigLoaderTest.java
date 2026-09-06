@@ -200,4 +200,121 @@ class YamlConfigLoaderTest {
     assertTrue(e.getMessage().contains("policies.mask"), () -> e.getMessage());
     assertTrue(e.getMessage().contains("scalar"), () -> e.getMessage());
   }
+
+  @Test
+  void loadsRowFilter() {
+    LoadedConfig loaded = loader.loadContent("""
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              rowFilter: "status = 'active'"
+              columns:
+                - name: id
+                  type: bigint
+        policies: {}
+        """, "test.yaml");
+    var table = loaded.findTable("crm", "public", "customer").orElseThrow();
+    assertEquals("status = 'active'", table.rowFilter());
+  }
+
+  @Test
+  void blankRowFilterMeansUnconfigured() {
+    for (String rowFilter : new String[] {"", "   "}) {
+      LoadedConfig loaded = loader.loadContent("""
+          metadata:
+            tables:
+              - catalog: crm
+                schema: public
+                name: customer
+                rowFilter: "%s"
+                columns:
+                  - name: id
+                    type: bigint
+          policies: {}
+          """.formatted(rowFilter), "test.yaml");
+      var table = loaded.findTable("crm", "public", "customer").orElseThrow();
+      assertEquals(null, table.rowFilter(),
+          () -> "blank rowFilter '" + rowFilter + "' must mean unconfigured");
+    }
+  }
+
+  @Test
+  void absentRowFilterMeansUnconfigured() {
+    LoadedConfig loaded = loader.load(VALID);
+    var table = loaded.findTable("crm", "public", "customer").orElseThrow();
+    assertEquals(null, table.rowFilter());
+  }
+
+  @Test
+  void rejectsNonStringRowFilter() {
+    for (String rowFilter : new String[] {"[1, 2]", "123", "true"}) {
+      String yaml = """
+          metadata:
+            tables:
+              - catalog: crm
+                schema: public
+                name: customer
+                rowFilter: %s
+                columns:
+                  - name: id
+                    type: bigint
+          policies: {}
+          """.formatted(rowFilter);
+      SqlMaskException e =
+          assertThrows(SqlMaskException.class, () -> loader.loadContent(yaml, "test.yaml"),
+              () -> "rowFilter " + rowFilter + " must be rejected");
+      assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+      assertTrue(e.getMessage().contains("metadata.tables[0].rowFilter"),
+          () -> "diagnostic should point at tables[0].rowFilter but was: " + e.getMessage());
+    }
+  }
+
+  @Test
+  void loadsIndependentRowFiltersPerTable() {
+    LoadedConfig loaded = loader.loadContent("""
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              rowFilter: "status = 'active'"
+              columns:
+                - name: id
+                  type: bigint
+            - catalog: crm
+              schema: public
+              name: orders
+              rowFilter: "region = 'north'"
+              columns:
+                - name: id
+                  type: bigint
+        policies: {}
+        """, "test.yaml");
+    assertEquals("status = 'active'",
+        loaded.findTable("crm", "public", "customer").orElseThrow().rowFilter());
+    assertEquals("region = 'north'",
+        loaded.findTable("crm", "public", "orders").orElseThrow().rowFilter());
+  }
+
+  @Test
+  void policiesRemainRequiredEvenWithoutRowFilters() {
+    // current-contract lock: a row-filter-only YAML must still declare the
+    // (possibly empty) policies mapping; revisiting this is a deliberate
+    // loader change, not an accident
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> loader.loadContent("""
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              rowFilter: "status = 'active'"
+              columns:
+                - name: id
+                  type: bigint
+        """, "test.yaml"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("policies"), () -> e.getMessage());
+  }
 }
