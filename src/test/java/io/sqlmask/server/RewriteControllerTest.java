@@ -51,6 +51,32 @@ class RewriteControllerTest {
           arguments: [3, 4]
       """;
 
+  private static final String ROW_FILTER_YAML = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            rowFilter: "status = 'active'"
+            columns:
+              - name: id
+                type: bigint
+              - name: phone
+                type: varchar
+              - name: status
+                type: varchar
+      columns:
+        - catalog: crm
+          schema: public
+          table: customer
+          column: phone
+          policy: mask_phone
+      policies:
+        mask_phone:
+          udf: mask_phone
+          arguments: [3, 4]
+      """;
+
   @Autowired
   private MockMvc mvc;
 
@@ -153,6 +179,23 @@ class RewriteControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("dialect")));
+  }
+
+  @Test
+  void rewriteResponseCarriesRowFilteredFlag() throws Exception {
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", ROW_FILTER_YAML,
+                "sql", "SELECT 1 AS constant; SELECT id, phone FROM customer;"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].rowFiltered").value(false))
+        .andExpect(jsonPath("$.statements[0].unchanged").value(true))
+        .andExpect(jsonPath("$.statements[1].rowFiltered").value(true))
+        .andExpect(jsonPath("$.statements[1].masked").value(true))
+        .andExpect(jsonPath("$.statements[1].unchanged").value(false))
+        .andExpect(jsonPath("$.statements[1].rewrittenSql")
+            .value(org.hamcrest.Matchers.containsString("WHERE status = 'active'")));
   }
 
   @Test

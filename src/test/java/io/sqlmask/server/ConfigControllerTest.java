@@ -74,6 +74,35 @@ class ConfigControllerTest {
         .andExpect(jsonPath("$.policies[0].arguments[1]").value(4));
   }
 
+  private static final String ROW_FILTER_YAML = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            rowFilter: "status = 'active'"
+            columns:
+              - name: id
+                type: bigint
+          - catalog: crm
+            schema: public
+            name: orders
+            columns:
+              - name: id
+                type: bigint
+      policies: {}
+      """;
+
+  @Test
+  void configParseReturnsRowFilterDeclarations() throws Exception {
+    mvc.perform(post("/api/config/parse")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("metadataYaml", ROW_FILTER_YAML))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tables[0].rowFilter").value("status = 'active'"))
+        .andExpect(jsonPath("$.tables[1].rowFilter").value(""));
+  }
+
   @Test
   void invalidYamlReturnsStructuredBadRequest() throws Exception {
     mvc.perform(post("/api/config/parse")

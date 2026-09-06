@@ -93,6 +93,7 @@ public final class YamlConfigLoader {
       String catalog = requiredString(tableMap, "catalog", tablePath);
       String schema = requiredString(tableMap, "schema", tablePath);
       String name = requiredString(tableMap, "name", tablePath);
+      String rowFilter = optionalRowFilter(tableMap, tablePath);
       String tableKey = ColumnKey.normalize(catalog, "catalog") + "."
           + ColumnKey.normalize(schema, "schema") + "."
           + ColumnKey.normalize(name, "table");
@@ -130,9 +131,27 @@ public final class YamlConfigLoader {
               columnPath + ": " + e.getMessage(), e);
         }
       }
-      tables.add(new TableMetadata(catalog, schema, name, columns));
+      tables.add(new TableMetadata(catalog, schema, name, columns, rowFilter));
     }
     return tables;
+  }
+
+  /**
+   * Reads the optional row filter declaration: absent or blank means
+   * unconfigured, any non-string type is a configuration error pointing at
+   * the offending YAML path.
+   */
+  private String optionalRowFilter(Map<?, ?> tableMap, String tablePath) {
+    Object node = tableMap.get("rowFilter");
+    if (node == null) {
+      return null;
+    }
+    if (!(node instanceof String s)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          tablePath + ".rowFilter must be a string, but was "
+              + node.getClass().getSimpleName());
+    }
+    return s;
   }
 
   private Map<String, MaskingPolicy> loadPolicies(Map<?, ?> root, String sourceName) {
