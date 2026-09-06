@@ -57,7 +57,7 @@ class ConnectionSpecTest {
 
   @Test
   void mysqlUrl() {
-    assertEquals("jdbc:mysql://127.0.0.1:3306/shop?connectTimeout=10&socketTimeout=60&sslMode=DISABLED",
+    assertEquals("jdbc:mysql://127.0.0.1:3306/shop?connectTimeout=10&socketTimeout=60&sslMode=DISABLED&allowPublicKeyRetrieval=true",
         new ConnectionSpec("mysql", "127.0.0.1", 3306, "shop", "u", "p",
             List.of(), false, false, "disable", 10).toJdbcUrl());
     assertEquals("jdbc:mysql://h:3306/shop?connectTimeout=10&socketTimeout=60&sslMode=REQUIRED&verifyServerCertificate=false",
@@ -67,10 +67,10 @@ class ConnectionSpecTest {
 
   @Test
   void trinoUrl() {
-    assertEquals("jdbc:trino://127.0.0.1:8080/crm?SSL=false&connectTimeout=10s",
+    assertEquals("jdbc:trino://127.0.0.1:8080/crm?SSL=false",
         new ConnectionSpec("trino", "127.0.0.1", 8080, "crm", "u", "p",
             List.of(), false, false, "disable", 10).toJdbcUrl());
-    assertEquals("jdbc:trino://h:8080/crm?connectTimeout=10s",
+    assertEquals("jdbc:trino://h:8080/crm",
         new ConnectionSpec("trino", "h", 8080, "crm", "u", "p",
             List.of(), false, false, "require", 10).toJdbcUrl());
   }

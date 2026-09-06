@@ -63,10 +63,22 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
 
   /** Overridable so tests can supply a mocked connection. */
   protected Connection open(ConnectionSpec spec) throws SQLException {
+    return DriverManager.getConnection(spec.toJdbcUrl(), connectionProperties(spec));
+  }
+
+  /**
+   * Trino JDBC refuses to transmit a password over plain HTTP ("TLS/SSL is
+   * required for authentication with username and password"), so with TLS off
+   * the connection is passwordless regardless of the CLI placeholder password;
+   * with {@code sslmode=require} the password rides the TLS channel as usual.
+   */
+  Properties connectionProperties(ConnectionSpec spec) {
     Properties props = new Properties();
     props.setProperty("user", spec.user());
-    props.setProperty("password", spec.password() == null ? "" : spec.password());
-    return DriverManager.getConnection(spec.toJdbcUrl(), props);
+    if ("require".equalsIgnoreCase(spec.sslmode())) {
+      props.setProperty("password", spec.password() == null ? "" : spec.password());
+    }
+    return props;
   }
 
   private List<IntrospectionResult.TableInfo> queryTables(

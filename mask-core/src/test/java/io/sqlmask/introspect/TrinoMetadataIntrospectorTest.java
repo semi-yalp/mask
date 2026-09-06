@@ -92,4 +92,20 @@ class TrinoMetadataIntrospectorTest {
     assertEquals(SqlMaskException.Code.INTROSPECT_ERROR, e.getCode());
     assertTrue(e.getMessage().contains("Authentication failed"));
   }
+
+  @Test
+  void passwordOnlySentOverTls() {
+    TrinoMetadataIntrospector introspector = new TrinoMetadataIntrospector();
+    // sslmode=disable：trino-jdbc 拒绝在明文 HTTP 上传密码，连接必须无密码
+    // （CLI --password 仅是占位值，不进 JDBC Properties）
+    var plaintext = introspector.connectionProperties(
+        new ConnectionSpec("trino", "h", 8080, "crm", "trino", "x", List.of(), false, false, "disable", 10));
+    assertEquals("trino", plaintext.getProperty("user"));
+    assertFalse(plaintext.containsKey("password"));
+    // sslmode=require：密码走 TLS 通道照常发送
+    var tls = introspector.connectionProperties(
+        new ConnectionSpec("trino", "h", 8080, "crm", "trino", "s3cret", List.of(), false, false, "require", 10));
+    assertEquals("trino", tls.getProperty("user"));
+    assertEquals("s3cret", tls.getProperty("password"));
+  }
 }

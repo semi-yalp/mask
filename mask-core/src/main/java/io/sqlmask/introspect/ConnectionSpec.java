@@ -57,12 +57,18 @@ public record ConnectionSpec(String engine, String host, int port, String databa
           + "?connectTimeout=" + connectTimeoutSeconds + "&socketTimeout=60"
           + ("require".equalsIgnoreCase(sslmode)
               ? "&sslMode=REQUIRED&verifyServerCertificate=false"
-              : "&sslMode=DISABLED");
+              // caching_sha2_password (MySQL 8 default) needs the server RSA key
+              // when TLS is off; the password is already plaintext on a disabled
+              // -SSL wire so this adds no new exposure. With sslMode=REQUIRED
+              // the key exchange rides the TLS channel and the flag stays off.
+              : "&sslMode=DISABLED&allowPublicKeyRetrieval=true");
       case "trino" -> {
         boolean require = "require".equalsIgnoreCase(sslmode);
+        // trino-jdbc rejects unrecognized URL properties and has no
+        // connectTimeout property; spec.connectTimeoutSeconds is not
+        // representable in the Trino URL.
         yield "jdbc:trino://" + host + ":" + port + "/" + database
-            + (require ? "" : "?SSL=false")
-            + (require ? "?" : "&") + "connectTimeout=" + connectTimeoutSeconds + "s";
+            + (require ? "" : "?SSL=false");
       }
       default -> throw new IllegalArgumentException("unsupported engine " + engine);
     };
