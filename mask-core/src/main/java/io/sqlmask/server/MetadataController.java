@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * Pulls table/column metadata from a live PostgreSQL, MySQL or Trino database
@@ -37,11 +36,12 @@ public class MetadataController {
     }
     String resolvedEngine = request.engine() == null || request.engine().isBlank()
         ? "postgresql" : request.engine();
-    if (!Set.of("postgresql", "mysql", "trino").contains(resolvedEngine)) {
-      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          "unsupported engine '" + request.engine()
-              + "' (supported: postgresql, mysql, trino)");
-    }
+    // the engine registry (mirroring DialectProfiles) rejects unknown engines
+    // with CONFIG_ERROR; postgresql keeps the injected bean (Spring wiring +
+    // test stubs)
+    MetadataIntrospector engineIntrospector = "postgresql".equals(resolvedEngine)
+        ? introspector
+        : MetadataIntrospectors.byEngine(resolvedEngine);
     if (request.database() == null || request.database().isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "database is required");
     }
@@ -57,11 +57,6 @@ public class MetadataController {
         request.database(), request.user(), request.password(),
         request.schemas() == null ? List.of() : request.schemas(),
         request.includeViews(), false, "disable", 10);
-    // postgresql keeps the injected bean (Spring wiring + test stubs); other
-    // engines are dispatched through the registry
-    MetadataIntrospector engineIntrospector = "postgresql".equals(resolvedEngine)
-        ? introspector
-        : MetadataIntrospectors.byEngine(resolvedEngine);
     IntrospectionResult result = engineIntrospector.introspect(spec);
     int columnCount = result.tables().stream().mapToInt(t -> t.columns().size()).sum();
     return new MetadataPullResponse(new MetadataYamlGenerator().generate(result),
