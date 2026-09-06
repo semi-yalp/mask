@@ -54,6 +54,16 @@ class SqlMaskRunnerTest {
   }
 
   @Test
+  void rowFilterFlowsIntoCliOutput() {
+    Path rowFilterMetadata = Path.of("src/test/resources/metadata/row-filter-cli.yaml");
+    String result = runner.run(new CliOptions(
+        rowFilterMetadata, "SELECT id FROM crm.public.customer", null, null, "postgresql"));
+    assertTrue(flat(result).contains("(SELECT * FROM crm.public.customer WHERE status = 'active')"),
+        () -> result);
+    assertTrue(result.endsWith(";"), () -> result);
+  }
+
+  @Test
   void failsAtomicallyOnUnsupportedStatement() {
     String sql = """
         SELECT phone FROM crm.public.customer;

@@ -1,0 +1,15 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      rowFilter: "status = 'active'"
+      columns:
+        - name: id
+          type: bigint
+        - name: phone
+          type: varchar
+        - name: status
+          type: varchar
+
+policies: {}

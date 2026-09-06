@@ -35,6 +35,7 @@ public class ConfigController {
   private ConfigResponse toResponse(LoadedConfig loaded) {
     List<TableDto> tables = loaded.config().tables().stream()
         .map(t -> new TableDto(t.catalog(), t.schema(), t.name(),
+            t.rowFilter() == null ? "" : t.rowFilter(),
             t.columns().stream()
                 .map(c -> new ColumnDto(c.name(), c.typeDeclaration()))
                 .toList()))
@@ -56,7 +57,8 @@ public class ConfigController {
       List<PolicyDto> policies) {
   }
 
-  public record TableDto(String catalog, String schema, String name, List<ColumnDto> columns) {
+  public record TableDto(String catalog, String schema, String name, String rowFilter,
+      List<ColumnDto> columns) {
   }
 
   public record ColumnDto(String name, String type) {
