@@ -9,9 +9,6 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.type.SqlTypeName;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Builds a Calcite {@link SchemaPlus} tree ({@code catalog.schema.table})
  * from the validated YAML configuration. Tables expose the declared column
@@ -32,22 +29,6 @@ public final class YamlCalciteSchemaFactory {
       schema.add(table.name(), new YamlTable(table));
     }
     return root;
-  }
-
-  /**
-   * Default search paths for unqualified table references: one path per
-   * declared {@code catalog.schema} pair, in declaration order. Unqualified
-   * names resolve if unique across the declared pairs.
-   */
-  public static List<List<String>> schemaPaths(LoadedConfig loaded) {
-    List<List<String>> paths = new ArrayList<>();
-    for (TableMetadata table : loaded.tables()) {
-      List<String> path = List.of(table.catalog(), table.schema());
-      if (!paths.contains(path)) {
-        paths.add(path);
-      }
-    }
-    return paths;
   }
 
   private static SchemaPlus subSchema(SchemaPlus parent, String name) {

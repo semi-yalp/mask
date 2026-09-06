@@ -3,7 +3,7 @@ package io.sqlmask.rewrite;
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.config.YamlConfigLoader;
 import io.sqlmask.dialect.DialectAdapter;
-import io.sqlmask.dialect.PostgresqlDialectAdapter;
+import io.sqlmask.dialect.DialectRegistry;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.lineage.LineageAnalyzer;
 import io.sqlmask.metadata.YamlCalciteSchemaFactory;
@@ -157,10 +157,6 @@ public final class RewriteEngine {
   }
 
   private DialectAdapter createDialect(String name) {
-    if (PostgresqlDialectAdapter.NAME.equalsIgnoreCase(name)) {
-      return new PostgresqlDialectAdapter();
-    }
-    throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-        "unsupported dialect '" + name + "'; only 'postgresql' is supported in this version");
+    return DialectRegistry.create(name);
   }
 }

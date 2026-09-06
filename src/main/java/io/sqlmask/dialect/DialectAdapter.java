@@ -48,6 +48,11 @@ public interface DialectAdapter {
   /** Renders a statement as SQL text in this dialect (no trailing ';'). */
   String unparse(SqlNode node);
 
+  /** The declarative profile backing this adapter. */
+  DialectProfile profile();
+
   /** What this dialect can safely express during rewriting. */
-  DialectCapabilities capabilities();
+  default DialectCapabilities capabilities() {
+    return profile().capabilities();
+  }
 }

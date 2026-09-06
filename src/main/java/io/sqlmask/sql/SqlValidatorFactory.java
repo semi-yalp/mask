@@ -12,7 +12,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlOperatorTable;
 import org.apache.calcite.sql.util.SqlOperatorTables;
-import org.apache.calcite.sql.validate.SqlConformanceEnum;
+import org.apache.calcite.sql.validate.SqlConformance;
 import org.apache.calcite.sql.validate.SqlNameMatchers;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
@@ -26,33 +26,41 @@ import java.util.List;
 
 /**
  * Wires the Calcite validator and SQL-to-relational converter against a
- * YAML-backed schema. Uses case-sensitive name matching (PostgreSQL
- * semantics: unquoted identifiers are folded to lower case at parse time,
- * quoted identifiers compare exactly) and resolves unqualified tables
- * against every declared {@code catalog.schema} search path.
+ * YAML-backed schema. Name matching, conformance and the engine-defined
+ * function table come from the caller (the dialect profile); unqualified
+ * tables resolve against every declared search path.
  */
 public final class SqlValidatorFactory {
 
   private final CalciteSchema rootSchema;
   private final List<List<String>> schemaPaths;
   private final RelDataTypeFactory typeFactory;
+  private final SqlConformance conformance;
+  private final boolean caseSensitiveNameMatching;
+  private final SqlOperatorTable functionTable;
 
-  public SqlValidatorFactory(SchemaPlus rootSchema, List<List<String>> schemaPaths) {
+  public SqlValidatorFactory(SchemaPlus rootSchema, List<List<String>> schemaPaths,
+      SqlConformance conformance,
+      boolean caseSensitiveNameMatching,
+      SqlOperatorTable functionTable) {
     this.rootSchema = CalciteSchema.from(rootSchema);
     this.schemaPaths = List.copyOf(schemaPaths);
     this.typeFactory = new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+    this.conformance = conformance;
+    this.caseSensitiveNameMatching = caseSensitiveNameMatching;
+    this.functionTable = functionTable;
   }
 
   public SqlValidator createValidator() {
     CalciteCatalogReader catalogReader = catalogReader();
     SqlOperatorTable operators = SqlOperatorTables.chain(
-        io.sqlmask.dialect.PostgresqlFunctions.TABLE,
+        functionTable,
         catalogReader,
         // engine-defined functions must not block validation: unknown names
         // resolve as opaque scalar UDFs (see UnknownFunctionTable)
-        new io.sqlmask.dialect.UnknownFunctionTable(io.sqlmask.dialect.PostgresqlFunctions.TABLE));
+        new io.sqlmask.dialect.UnknownFunctionTable(functionTable));
     SqlValidator.Config config = SqlValidator.Config.DEFAULT
-        .withSqlConformance(SqlConformanceEnum.DEFAULT);
+        .withSqlConformance(conformance);
     return SqlValidatorUtil.newValidator(operators, catalogReader, typeFactory, config);
   }
 
@@ -76,7 +84,8 @@ public final class SqlValidatorFactory {
   }
 
   private CalciteCatalogReader catalogReader() {
-    return new MultiSchemaPathCatalogReader(rootSchema, schemaPaths, typeFactory);
+    return new MultiSchemaPathCatalogReader(rootSchema, schemaPaths, typeFactory,
+        caseSensitiveNameMatching);
   }
 
   private interface RelOptTableNoViews
@@ -85,8 +94,8 @@ public final class SqlValidatorFactory {
 
   private static final class MultiSchemaPathCatalogReader extends CalciteCatalogReader {
     MultiSchemaPathCatalogReader(CalciteSchema rootSchema, List<List<String>> schemaPaths,
-        RelDataTypeFactory typeFactory) {
-      super(rootSchema, SqlNameMatchers.withCaseSensitive(true), dedupe(schemaPaths),
+        RelDataTypeFactory typeFactory, boolean caseSensitiveNameMatching) {
+      super(rootSchema, SqlNameMatchers.withCaseSensitive(caseSensitiveNameMatching), dedupe(schemaPaths),
           typeFactory, CalciteConnectionConfigImpl.DEFAULT);
     }
 
