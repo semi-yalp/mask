@@ -161,7 +161,9 @@ policies: {}
 - 只配置了行过滤、无策略时顶层为 `policies: {}`（YAML 必填键，恒输出）；
 - 顶层 `columns:`（策略绑定段）不输出；
 - `rowFilter` 不输出；
-- snakeyaml DumperOptions：block 风格、缩进 2、宽 100、UTF-8；
+- 输出文本手写确定性拼装（与前端 `generateYaml()` 同一形态、同一 `yamlScalar`
+  转义规则：`[A-Za-z0-9_.$-]+` 原样，其余双引号 JSON 转义），不依赖 snakeyaml
+  的 dump 风格参数——golden 逐字节锁定更容易；
 - 0 张表不算错误：输出 `metadata: {tables: []} + policies: {}`，并发出警告
   「未找到任何表，请检查 schema 过滤条件」——CLI 写 stderr，Web 追加进 warnings
   数组（该骨架导入改写器时会被校验器拒绝，属预期行为——文件用于人工修正）。
