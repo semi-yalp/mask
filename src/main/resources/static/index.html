@@ -243,6 +243,7 @@ let yamlDirtyByUser = false;
 const SAMPLE_STATE = () => ({
   tables: [{
     catalog: "crm", schema: "public", name: "customer",
+    rowFilter: "status = 'active'",
     columns: [
       { name: "id", type: "bigint" },
       { name: "phone", type: "varchar" },
@@ -304,6 +305,9 @@ function generateYaml() {
       L.push(`    - catalog: ${yamlScalar(t.catalog)}`);
       L.push(`      schema: ${yamlScalar(t.schema)}`);
       L.push(`      name: ${yamlScalar(t.name)}`);
+      if ((t.rowFilter || "").trim() !== "") {
+        L.push(`      rowFilter: ${yamlScalar(t.rowFilter)}`);
+      }
       if (!t.columns.length) {
         L.push("      columns: []");
       } else {
@@ -395,6 +399,10 @@ function renderTables() {
         <input data-edit="table" data-i="${ti}" data-field="catalog" value="${esc(t.catalog)}" placeholder="catalog">
         <input data-edit="table" data-i="${ti}" data-field="schema" value="${esc(t.schema)}" placeholder="schema">
         <input data-edit="table" data-i="${ti}" data-field="name" value="${esc(t.name)}" placeholder="表名">
+      </div>
+      <div class="row">
+        <input data-edit="table" data-i="${ti}" data-field="rowFilter" value="${esc(t.rowFilter || "")}"
+               placeholder="行过滤条件，如 status = 'active'" style="grid-column: 1 / -1">
       </div>
       ${t.columns.map((c, ci) => `
         <div class="row">
@@ -540,7 +548,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const a = btn.dataset.action;
-  if (a === "addTable") state.tables.push({ catalog: "", schema: "public", name: "", columns: [] });
+  if (a === "addTable") state.tables.push({ catalog: "", schema: "public", name: "", rowFilter: "", columns: [] });
   else if (a === "delTable") { state.tables.splice(+btn.dataset.i, 1); renderBindings(); }
   else if (a === "addColumn") state.tables[+btn.dataset.t].columns.push({ name: "", type: "varchar" });
   else if (a === "delColumn") state.tables[+btn.dataset.t].columns.splice(+btn.dataset.c, 1);
@@ -580,6 +588,7 @@ function fromServerConfig(d) {
   return {
     tables: (d.tables || []).map((t) => ({
       catalog: t.catalog, schema: t.schema, name: t.name,
+      rowFilter: t.rowFilter || "",
       columns: (t.columns || []).map((c) => ({ name: c.name, type: c.type }))
     })),
     bindings: (d.columnPolicies || []).map((b) => ({
@@ -609,11 +618,16 @@ function render(data) {
     copyBtn.hidden = true;
     return;
   }
-  resultsEl.innerHTML = statements.map((s) => `
+  resultsEl.innerHTML = statements.map((s) => {
+    const tags = [];
+    if (s.masked) tags.push("已脱敏（外层包装 UDF）");
+    if (s.rowFiltered) tags.push("已行过滤");
+    const tag = tags.length ? tags.join(" + ") : "原样输出";
+    return `
     <div class="stmt ${s.masked ? "masked" : ""}">
       <div class="stmt-head">
         <span>语句 ${s.ordinal}</span>
-        <span class="tag">${s.masked ? "已脱敏（外层包装 UDF）" : "原样输出"}</span>
+        <span class="tag">${tag}</span>
       </div>
       <pre>${esc(s.rewrittenSql)}</pre>
       ${s.unchanged ? "" : `
@@ -621,7 +635,8 @@ function render(data) {
         <summary>查看原始语句</summary>
         <pre>${esc(s.originalSql)}</pre>
       </details>`}
-    </div>`).join("");
+    </div>`;
+  }).join("");
   copyBtn.hidden = !data.rewrittenSql;
   statusEl.textContent = "完成，共 " + statements.length + " 条语句";
 }
