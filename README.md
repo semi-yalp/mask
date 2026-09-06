@@ -7,10 +7,16 @@ UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从�
 
 同一个 jar 提供两种使用方式：
 
-- **Web 服务（默认）**：`java -jar target/sql-mask.jar` 启动 Spring Boot 服务，
+- **Web 服务（默认）**：`java -jar mask-core/target/sql-mask.jar` 启动 Spring Boot 服务，
   浏览器打开 `http://localhost:8080` 使用内置页面；
-- **CLI**：`java -jar target/sql-mask.jar --metadata ... --sql/--input ...`，
+- **CLI**：`java -jar mask-core/target/sql-mask.jar --metadata ... --sql/--input ...`，
   带命令行参数时自动走命令行模式，结果输出到 stdout 或文件。
+
+策略有两个可选来源（二选一，同时非空会显式报错）：旧格式 `metadata.yaml` 内嵌的
+`policies` / `columns` / `rowFilter`（对所有人无条件生效，行为与历史版本逐字节一致），
+或独立的 Ranger 式 `policies.yaml`（见「策略文件」章节：主体 `users`/`groups` 维度、
+资源通配与 `priority`），后者通过 `--policies` / 请求字段 `policyYaml` 提供并携带
+查询主体（`--user`/`--groups` 或请求字段 `user`/`groups`）。
 
 ## 元数据采集（--pull-metadata）
 
@@ -80,10 +86,19 @@ java -jar target/sql-mask.jar
 ```json
 {
   "metadataYaml": "metadata:\n  tables:\n    - ...",
+  "policyYaml": "policies:\n  - name: mask-phone\n    ...",
   "sql": "SELECT phone FROM customer;",
-  "dialect": "postgresql"
+  "dialect": "postgresql",
+  "user": "alice",
+  "groups": ["devs", "ops"]
 }
 ```
+
+- `metadataYaml`、`sql` 必填；`policyYaml`、`user`、`groups` 可选；
+- 给出 `policyYaml` 时 metadata 的 `policies` / `columns` / `rowFilter` 必须为空，
+  否则 `CONFIG_ERROR`（策略来源必须唯一）；
+- `user`/`groups` 是查询主体：仅 `policies.yaml` 中匹配该主体的策略项生效，
+  缺省视为匿名主体（只有 `*` 通配项命中）。
 
 成功返回 200：
 
@@ -144,6 +159,24 @@ java -jar target/sql-mask.jar
 请求 `{ "metadataYaml": "..." }`；服务端解析并校验 YAML，返回结构化配置
 （tables / columnPolicies / policies），供编辑器导入使用。
 
+### POST /api/policies/parse
+
+请求 `{ "policyYaml": "..." }`；解析并校验 Ranger 式策略文件，成功返回 200：
+
+```json
+{
+  "policies": [
+    { "name": "mask-phone", "enabled": true, "priority": 0, "type": "data_mask",
+      "resources": [{ "catalog": "crm", "schema": "public", "table": "customer", "column": "phone" }],
+      "itemCount": 1 }
+  ]
+}
+```
+
+失败返回 400 `{ "code": "CONFIG_ERROR", "message": "..." }`，消息以 YAML 路径定位
+（如 `policies.yaml: policies[0].dataMaskItems[1]`）。供页面「策略文件」页签校验回填，
+也是将来独立策略服务与引擎共用的契约。
+
 ## 改写语义
 
 - 接受 `SELECT`、`WITH ... SELECT`、`INSERT INTO ... SELECT`、
@@ -169,6 +202,51 @@ java -jar target/sql-mask.jar
 - `WITH RECURSIVE`（自引用/环）直接失败，不无限展开；
 - 重复输出别名是合法输入：无包装时原样输出；需要包装时，
   PostgreSQL 无法通过派生表列名可靠区分同名列，本版本直接失败。
+
+## 策略文件（policies.yaml）
+
+Ranger 式策略文件把「谁（users/groups）对什么资源（catalog.schema.table.column）受
+什么策略影响」声明为独立文件，与 metadata.yaml 分离：
+
+```yaml
+policies:
+  - name: mask-customer-phone
+    enabled: true
+    priority: 0
+    resources:
+      - catalog: crm
+        schema: public
+        table: customer
+        column: [phone, email]     # 标量、列表或 "*"
+    dataMaskItems:
+      - groups: ["*"]              # 或 users: [...]；至少一个非空
+        udf: mask_phone
+        arguments: [3, 4]
+
+  - name: filter-archived-orders
+    resources:
+      - catalog: crm
+        schema: public
+        table: orders
+    rowFilterItems:
+      - groups: ["*"]
+        filterExpr: "status <> 'archived'"
+```
+
+规则要点：
+
+- 一个策略只能声明 `dataMaskItems` 或 `rowFilterItems` 之一；dataMask 资源必须到
+  column 级（可为 `*`），rowFilter 资源到 table 级且不得带 column；
+- 主体选择器 `users` / `groups` 至少一个非空，`*` 是唯一通配符（要表达"所有人"
+  显式写 `groups: ["*"]`）；匹配特异性：user 精确 > group 精确 > `*`；请求未带
+  主体时视为匿名（只有 `*` 项命中）；
+- 多策略命中同一资源：`enabled: false` 跳过 → `priority` 高者优先 → 同优先级按
+  声明顺序；掩码每列只取唯一命中，行过滤命中项按决策顺序 AND 叠加；
+- 策略资源必须命中至少一张声明表/列，否则 `CONFIG_ERROR`（fail-closed，防手误
+  静默失效）；`filterExpr` 复用行过滤白名单，错误消息带 `policy '<名>': filterExpr` 前缀；
+- 与 metadata 内嵌策略互斥：两套来源同时非空即 `CONFIG_ERROR`；
+- 页面「策略文件」页签发送的是「校验并应用」通过后的内容——应用后再编辑、
+  未重新校验的内容不会随改写请求发送。
 
 ## 行过滤
 
@@ -251,11 +329,19 @@ CTE 在血缘分析时会被内联为派生表（Calcite 的 CTE 引用不携带
 ## CLI 用法
 
 ```bash
-java -jar target/sql-mask.jar --metadata metadata.yaml --sql "SELECT phone FROM customer;"
-java -jar target/sql-mask.jar --metadata metadata.yaml --input query.sql --output masked.sql
+java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --sql "SELECT phone FROM customer;"
+java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --input query.sql --output masked.sql
+java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies policies.yaml \
+  --user alice --groups devs,ops --sql "SELECT phone FROM customer;"
 ```
 
-- `--metadata`（必填）：YAML 表结构与策略配置路径；
+- `--metadata`（必填）：YAML 表结构配置路径；
+- `--policies`：可选，Ranger 式 policies.yaml 路径；给出时 metadata 不得再声明
+  `policies`/`columns`/`rowFilter`（互斥，违反报 `CONFIG_ERROR`，退出码 1）；
+- `--user`：按模式复用——`--pull-metadata` 模式下为数据库用户，改写模式下为查询
+  主体用户（Ranger 式策略匹配）；
+- `--groups g1,g2`：查询主体组，逗号分隔、可重复出现（合并去重保序）；仅改写模式
+  可用，与 `--pull-metadata` 同用报用法错误（退出码 2）；
 - `--sql` / `--input`：二选一（同时给出直接失败），输入内容可包含多条 SQL；
 - `--output`：可选，未指定时改写结果输出到 stdout，UTF-8 写入；
 - `--dialect`：可选，默认 `postgresql`（第一版唯一支持的方言）。

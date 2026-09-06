@@ -159,6 +159,7 @@
       <button data-tab="bindings">列策略</button>
       <button data-tab="policies">策略定义</button>
       <button data-tab="yaml">YAML 源码</button>
+      <button data-tab="policyfile">策略文件</button>
     </div>
 
     <div class="tab-panel" id="panel-tables">
@@ -194,6 +195,19 @@
         <span id="yaml-dirty" class="yaml-dirty" hidden>修改尚未应用</span>
       </div>
     </div>
+
+    <div class="tab-panel" id="panel-policyfile" hidden>
+      <p class="hint">Ranger 式策略文件（policies.yaml）：按主体（users/groups）声明的列脱敏与行过滤。
+        给出内容时，YAML 源码中的 policies / columns / rowFilter 必须为空。</p>
+      <textarea id="policy-yaml" rows="20" spellcheck="false"
+        placeholder="policies:&#10;  - name: mask-phone&#10;    resources:&#10;      - {catalog: crm, schema: public, table: customer, column: phone}&#10;    dataMaskItems:&#10;      - {groups: [&quot;*&quot;], udf: mask_phone, arguments: [3, 4]}"></textarea>
+      <div class="yaml-actions">
+        <button class="btn primary" id="policy-apply">校验并应用</button>
+        <button class="btn" id="policy-clear">清空</button>
+        <span id="policy-applied" class="yaml-dirty" hidden>已应用到改写请求</span>
+      </div>
+      <pre id="policy-result" class="hint" style="white-space:pre-wrap"></pre>
+    </div>
   </section>
 
   <section class="pane">
@@ -204,6 +218,10 @@
       <button id="sample" class="btn">载入示例</button>
       <span class="badge">dialect: postgresql</span>
       <span id="status"></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="run-user" placeholder="主体用户（可选，Ranger 式策略匹配）" style="flex:1">
+      <input id="run-groups" placeholder="组，逗号分隔（可选）" style="flex:1">
     </div>
 
     <div class="out-head" style="margin-top:16px">
@@ -260,7 +278,7 @@
 "use strict";
 
 // ---------- state ----------
-let state = { tables: [], bindings: [], policies: [] };
+let state = { tables: [], bindings: [], policies: [], policyYaml: "" };
 let activeTab = "tables";
 let yamlDirtyByUser = false;
 
@@ -520,6 +538,7 @@ function switchTab(tab) {
   $("panel-bindings").hidden = tab !== "bindings";
   $("panel-policies").hidden = tab !== "policies";
   $("panel-yaml").hidden = tab !== "yaml";
+  $("panel-policyfile").hidden = tab !== "policyfile";
   if (tab === "yaml") syncYamlView();
 }
 $("tabs").addEventListener("click", (e) => {
@@ -778,7 +797,14 @@ async function run() {
     const response = await fetch("/api/rewrite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ metadataYaml: generateYaml(), sql: sqlEl.value, dialect: "postgresql" })
+      body: JSON.stringify({
+        metadataYaml: generateYaml(),
+        policyYaml: state.policyYaml || undefined,
+        sql: sqlEl.value,
+        dialect: "postgresql",
+        user: $("run-user").value.trim() || undefined,
+        groups: $("run-groups").value.split(",").map((g) => g.trim()).filter(Boolean)
+      })
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
@@ -797,8 +823,52 @@ async function run() {
 }
 
 runBtn.addEventListener("click", run);
+
+// ---------- policy file (policies.yaml) ----------
+const policyResult = $("policy-result");
+const policyApplied = $("policy-applied");
+
+$("policy-apply").addEventListener("click", async () => {
+  const text = $("policy-yaml").value.trim();
+  if (!text) {
+    state.policyYaml = "";
+    policyApplied.hidden = true;
+    policyResult.textContent = "策略文件为空：改写仅使用 YAML 源码中的策略。";
+    return;
+  }
+  policyResult.textContent = "校验中…";
+  try {
+    const response = await fetch("/api/policies/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ policyYaml: text })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      policyResult.textContent = "校验失败：" + (payload && payload.code) + " — "
+          + (payload && payload.message || "HTTP " + response.status);
+      return;
+    }
+    state.policyYaml = text;
+    policyApplied.hidden = false;
+    policyResult.textContent = "已应用 " + payload.policies.length + " 条策略："
+        + payload.policies.map((p) => p.name + " (" + p.type + ")").join(", ");
+  } catch (err) {
+    policyResult.textContent = "无法访问服务：" + err.message;
+  }
+});
+
+$("policy-clear").addEventListener("click", () => {
+  $("policy-yaml").value = "";
+  state.policyYaml = "";
+  policyApplied.hidden = true;
+  policyResult.textContent = "";
+});
+
 $("sample").addEventListener("click", () => {
+  const policyYaml = state.policyYaml;
   state = SAMPLE_STATE();
+  state.policyYaml = policyYaml;
   sqlEl.value = SAMPLE_SQL;
   renderAll();
   statusEl.textContent = "";

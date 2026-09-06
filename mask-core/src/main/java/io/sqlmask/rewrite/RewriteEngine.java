@@ -1,13 +1,22 @@
 package io.sqlmask.rewrite;
 
+import io.sqlmask.config.LegacyPolicyAdapter;
 import io.sqlmask.config.LoadedConfig;
+import io.sqlmask.config.MaskingConfig;
+import io.sqlmask.config.PolicyResourceResolver;
 import io.sqlmask.config.YamlConfigLoader;
 import io.sqlmask.dialect.DialectAdapter;
 import io.sqlmask.dialect.DialectRegistry;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.lineage.LineageAnalyzer;
+import io.sqlmask.metadata.TableMetadata;
 import io.sqlmask.metadata.YamlCalciteSchemaFactory;
-import io.sqlmask.policy.PolicySelector;
+import io.sqlmask.policy.PolicyException;
+import io.sqlmask.policy.match.PolicyEngine;
+import io.sqlmask.policy.match.PolicyIndex;
+import io.sqlmask.policy.model.Policy;
+import io.sqlmask.policy.model.Subject;
+import io.sqlmask.policy.store.PolicyYamlLoader;
 import io.sqlmask.rowfilter.RowFilterRegistry;
 import io.sqlmask.rowfilter.RowFilterRewriter;
 import io.sqlmask.sql.SqlStatementSplitter;
@@ -53,34 +62,65 @@ public final class RewriteEngine {
 
   /**
    * Rewrites all statements in {@code sqlText} against {@code metadataYaml}.
+   * Legacy path: policies come from the metadata's own sections, the subject
+   * is anonymous.
    *
    * @param metadataYaml YAML configuration content (tables, columns, policies)
    * @param sqlText      one or more SQL statements separated by semicolons
-   * @param dialectName  dialect name; 'postgresql', 'trino' or 'mysql'
+   * @param dialectName  dialect name; see DialectRegistry for the registered dialects
    */
   public List<StatementRewrite> rewrite(String metadataYaml, String sqlText, String dialectName) {
     LoadedConfig loaded =
         new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml", dialectName);
-    return rewrite(loaded, sqlText, dialectName);
+    return rewrite(loaded, null, sqlText, dialectName, Subject.anonymous());
+  }
+
+  /**
+   * String-based variant of {@link #rewrite(LoadedConfig, String, String, String, Subject)}:
+   * the configuration is loaded from {@code metadataYaml} with the named dialect.
+   */
+  public List<StatementRewrite> rewrite(String metadataYaml, String policyYaml, String sqlText,
+      String dialectName, Subject subject) {
+    LoadedConfig loaded =
+        new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml", dialectName);
+    return rewrite(loaded, policyYaml, sqlText, dialectName, subject);
   }
 
   /**
    * Rewrites against an already-resolved configuration (inline YAML or policy
-   * service).
+   * service). Legacy path: policies are the converted policy sections of the
+   * configuration, the subject is anonymous.
    *
-   * @param loaded      validated configuration with its derived policy index
+   * @param loaded      validated configuration
    * @param sqlText     one or more SQL statements separated by semicolons
-   * @param dialectName dialect name; 'postgresql', 'trino' or 'mysql'
+   * @param dialectName dialect name; see DialectRegistry for the registered dialects
    */
   public List<StatementRewrite> rewrite(LoadedConfig loaded, String sqlText, String dialectName) {
+    return rewrite(loaded, null, sqlText, dialectName, Subject.anonymous());
+  }
+
+  /**
+   * Rewrites against a resolved configuration with an optional Ranger-style
+   * policy file and query subject. A blank {@code policyYaml} means the
+   * configuration's own legacy policy sections are the single policy source
+   * (converted internally, byte-identical to the old registry path); a
+   * non-blank one requires those sections to be empty.
+   */
+  public List<StatementRewrite> rewrite(LoadedConfig loaded, String policyYaml, String sqlText,
+      String dialectName, Subject subject) {
+    List<Policy> policies = buildPolicies(loaded, policyYaml);
+    PolicyEngine engine = new PolicyEngine(PolicyIndex.of(policies));
     SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
     DialectAdapter dialect = createDialect(dialectName);
     // an invalid row-filter condition fails the whole run before any
-    // statement is touched (CONFIG_ERROR straight from the registry build)
-    RowFilterRegistry rowFilters = RowFilterRegistry.build(loaded, dialect, schema);
+    // statement is touched (CONFIG_ERROR straight from the registry build);
+    // the legacy path keeps the table-prefixed messages byte-identical
+    RowFilterRegistry rowFilters = policyYaml == null || policyYaml.isBlank()
+        ? RowFilterRegistry.build(loaded, dialect, schema)
+        : RowFilterRegistry.buildFromPolicies(loaded.tables(), engine, subject, dialect, schema);
     RowFilterRewriter rowFilterRewriter = new RowFilterRewriter(dialect);
     LineageAnalyzer analyzer = new LineageAnalyzer();
-    PolicySelector selector = new PolicySelector(loaded.policyRegistry());
+    MaskSelector selector = new PdpMaskSelector(engine, subject);
     SqlRewriteService rewriteService = new SqlRewriteService();
 
     List<String> statements = new SqlStatementSplitter().split(sqlText == null ? "" : sqlText);
@@ -103,8 +143,50 @@ public final class RewriteEngine {
     return results;
   }
 
+  /**
+   * Policy source resolution: blank means the legacy sections of the
+   * configuration (converted to subject-"*" policies); otherwise the
+   * policyYaml must be the single source, with resources resolvable against
+   * the declared tables.
+   */
+  private List<Policy> buildPolicies(LoadedConfig loaded, String policyYaml) {
+    if (policyYaml == null || policyYaml.isBlank()) {
+      return LegacyPolicyAdapter.convert(loaded.config());
+    }
+    requireNoLegacyPolicies(loaded);
+    List<Policy> policies;
+    try {
+      policies = new PolicyYamlLoader().parse(policyYaml, "policies.yaml");
+    } catch (PolicyException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, e.getMessage(), e);
+    }
+    new PolicyResourceResolver(loaded).validate(policies);
+    return policies;
+  }
+
+  private static void requireNoLegacyPolicies(LoadedConfig loaded) {
+    MaskingConfig config = loaded.config();
+    if (!config.policies().isEmpty()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "policies must come from a single source: metadataYaml declares non-empty 'policies' "
+              + "but policyYaml was also given");
+    }
+    if (!config.columnPolicies().isEmpty()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "policies must come from a single source: metadataYaml declares 'columns' bindings "
+              + "but policyYaml was also given");
+    }
+    for (TableMetadata table : config.tables()) {
+      if (table.rowFilter() != null) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "policies must come from a single source: metadataYaml declares rowFilter for table '"
+                + table.qualifiedName() + "' but policyYaml was also given");
+      }
+    }
+  }
+
   private StatementRewrite rewriteOne(DialectAdapter dialect, LineageAnalyzer analyzer,
-      PolicySelector selector, SqlRewriteService rewriteService, SchemaPlus schema,
+      MaskSelector selector, SqlRewriteService rewriteService, SchemaPlus schema,
       LoadedConfig loaded, RowFilterRegistry rowFilters, RowFilterRewriter rowFilterRewriter,
       String statementText, int ordinal) {
     SqlNode parsed = dialect.parse(statementText, ordinal);

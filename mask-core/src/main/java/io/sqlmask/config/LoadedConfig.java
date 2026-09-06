@@ -2,7 +2,6 @@ package io.sqlmask.config;
 
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.policy.PolicyRegistry;
 
 import java.util.List;
 import java.util.Locale;
@@ -10,13 +9,13 @@ import java.util.Optional;
 
 /**
  * Result of loading and validating the YAML configuration: the validated
- * model plus the derived policy index.
+ * model. Policy decisions are made by the policy subsystem's decision engine
+ * over the converted policy set, not by an index stored on this record.
  */
-public record LoadedConfig(MaskingConfig config, PolicyRegistry policyRegistry) {
+public record LoadedConfig(MaskingConfig config) {
 
   public LoadedConfig {
     java.util.Objects.requireNonNull(config);
-    java.util.Objects.requireNonNull(policyRegistry);
   }
 
   public List<TableMetadata> tables() {

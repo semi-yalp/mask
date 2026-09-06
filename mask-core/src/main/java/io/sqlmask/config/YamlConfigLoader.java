@@ -5,8 +5,6 @@ import io.sqlmask.dialect.TypeResolver;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.policy.MaskingPolicy;
-import io.sqlmask.policy.PolicyRegistry;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -81,8 +79,7 @@ public final class YamlConfigLoader {
     List<MaskingConfig.ColumnPolicyBinding> bindings = loadColumnBindings(rootMap, policies, sourceName);
 
     MaskingConfig config = new MaskingConfig(tables, bindings, policies);
-    PolicyRegistry registry = buildRegistry(config);
-    return new LoadedConfig(config, registry);
+    return new LoadedConfig(config);
   }
 
   private Object parse(Reader reader, String sourceName) {
@@ -234,10 +231,6 @@ public final class YamlConfigLoader {
       bindings.add(new MaskingConfig.ColumnPolicyBinding(key, policyName));
     }
     return bindings;
-  }
-
-  private PolicyRegistry buildRegistry(MaskingConfig config) {
-    return PolicyRegistry.of(config);
   }
 
   private void requireMapping(Object node, String message) {

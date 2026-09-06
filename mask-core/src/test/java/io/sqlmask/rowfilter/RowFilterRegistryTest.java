@@ -201,4 +201,85 @@ class RowFilterRegistryTest {
     return YamlCalciteSchemaFactory.create(new YamlConfigLoader().loadContent(
         YAML_TEMPLATE.formatted(customerFilter, ordersFilter), "test.yaml"));
   }
+
+  // ---- PDP-driven registry (new-format policies.yaml path) ----
+
+  private static final String POLICY_METADATA = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            columns:
+              - {name: id, type: bigint}
+              - {name: phone, type: varchar}
+              - {name: status, type: varchar}
+              - {name: region, type: varchar}
+      policies: {}
+      """;
+
+  private RowFilterRegistry buildFromPolicies(String policyYaml) {
+    LoadedConfig loaded = new YamlConfigLoader().loadContent(POLICY_METADATA, "test.yaml");
+    SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
+    java.util.List<io.sqlmask.policy.model.Policy> policies =
+        new io.sqlmask.policy.store.PolicyYamlLoader().parse(policyYaml, "policies.yaml");
+    io.sqlmask.policy.match.PolicyEngine engine =
+        new io.sqlmask.policy.match.PolicyEngine(io.sqlmask.policy.match.PolicyIndex.of(policies));
+    return RowFilterRegistry.buildFromPolicies(
+        loaded.tables(), engine, io.sqlmask.policy.model.Subject.anonymous(), adapter, schema);
+  }
+
+  @org.junit.jupiter.api.Test
+  void buildFromPoliciesRegistersHitsWithPolicyPrefix() {
+    RowFilterRegistry registry = buildFromPolicies("""
+        policies:
+          - name: f
+            resources:
+              - {catalog: crm, schema: public, table: customer}
+            rowFilterItems:
+              - {groups: ["*"], filterExpr: "status = 'active'"}
+        """);
+    assertFalse(registry.isEmpty());
+    assertTrue(registry.conditionTemplateOf("crm", "public", "customer").isPresent());
+    assertTrue(registry.isControlled("crm", "public", "customer"));
+    assertFalse(registry.isControlled("crm", "public", "nowhere"));
+  }
+
+  @org.junit.jupiter.api.Test
+  void invalidPolicyExpressionFailsWithPolicyPrefixNotTableName() {
+    SqlMaskException e = assertConfigError(() -> buildFromPolicies("""
+        policies:
+          - name: f
+            resources:
+              - {catalog: crm, schema: public, table: customer}
+            rowFilterItems:
+              - {groups: ["*"], filterExpr: "lower(status) = 'active'"}
+        """));
+    assertTrue(e.getMessage().startsWith("policy 'f': filterExpr"), () -> e.getMessage());
+    assertFalse(e.getMessage().contains("table 'crm.public.customer'"), () -> e.getMessage());
+  }
+
+  @org.junit.jupiter.api.Test
+  void multipleHitsOnSameTableCombineIntoSingleAndTemplate() {
+    RowFilterRegistry registry = buildFromPolicies("""
+        policies:
+          - name: f1
+            priority: 1
+            resources:
+              - {catalog: crm, schema: public, table: customer}
+            rowFilterItems:
+              - {groups: ["*"], filterExpr: "status = 'active'"}
+          - name: f2
+            resources:
+              - {catalog: crm, schema: public, table: customer}
+            rowFilterItems:
+              - {groups: ["*"], filterExpr: "region = 'north'"}
+        """);
+    org.apache.calcite.sql.SqlNode template =
+        registry.conditionTemplateOf("crm", "public", "customer").orElseThrow();
+    assertEquals(org.apache.calcite.sql.SqlKind.AND, template.getKind());
+    String rendered = render(template);
+    assertTrue(rendered.contains("status = 'active'"), () -> rendered);
+    assertTrue(rendered.contains("region = 'north'"), () -> rendered);
+  }
 }

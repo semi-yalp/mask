@@ -3,7 +3,7 @@ package io.sqlmask.rewrite;
 import io.sqlmask.dialect.DialectAdapter;
 import io.sqlmask.dialect.IdentifierPolicy;
 import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.policy.MaskingPolicy;
+import io.sqlmask.policy.model.MaskInstruction;
 import io.sqlmask.sql.ValidatedSql;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlLiteral;
@@ -82,7 +82,7 @@ public final class SqlRewriteService {
   }
 
   /** Renders {@code udf(reference, arg1, arg2, ...)} with ordered scalar literals. */
-  private String renderUdfCall(MaskingPolicy policy, String reference,
+  private String renderUdfCall(MaskInstruction policy, String reference,
       IdentifierPolicy ids, SqlDialect sqlDialect) {
     List<String> arguments = new ArrayList<>();
     arguments.add(reference);
@@ -93,7 +93,7 @@ public final class SqlRewriteService {
   }
 
   /** Renders arguments through Calcite literal nodes, never string concatenation of raw values. */
-  private String renderLiteral(Object argument, MaskingPolicy policy, SqlDialect sqlDialect) {
+  private String renderLiteral(Object argument, MaskInstruction policy, SqlDialect sqlDialect) {
     SqlLiteral literal = toLiteral(argument, policy);
     return literal.toSqlString(config -> config
         .withDialect(sqlDialect)
@@ -102,7 +102,7 @@ public final class SqlRewriteService {
         .withIndentation(0)).getSql();
   }
 
-  private SqlLiteral toLiteral(Object argument, MaskingPolicy policy) {
+  private SqlLiteral toLiteral(Object argument, MaskInstruction policy) {
     if (argument instanceof Boolean b) {
       return SqlLiteral.createBoolean(b, SqlParserPos.ZERO);
     }
@@ -120,7 +120,7 @@ public final class SqlRewriteService {
       return SqlLiteral.createCharString(s, SqlParserPos.ZERO);
     }
     throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-        "policy '" + policy.name() + "' has an argument of unsupported type "
+        "policy '" + policy.policyName() + "' has an argument of unsupported type "
             + argument.getClass().getSimpleName() + ": " + argument);
   }
 

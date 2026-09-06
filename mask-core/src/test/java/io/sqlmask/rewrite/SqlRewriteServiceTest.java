@@ -1,12 +1,15 @@
 package io.sqlmask.rewrite;
 
+import io.sqlmask.config.LegacyPolicyAdapter;
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.config.YamlConfigLoader;
 import io.sqlmask.dialect.PostgresqlDialectAdapter;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.lineage.LineageAnalyzer;
 import io.sqlmask.metadata.YamlCalciteSchemaFactory;
-import io.sqlmask.policy.PolicySelector;
+import io.sqlmask.policy.match.PolicyEngine;
+import io.sqlmask.policy.match.PolicyIndex;
+import io.sqlmask.policy.model.Subject;
 import io.sqlmask.sql.ValidatedSql;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlNode;
@@ -26,13 +29,15 @@ class SqlRewriteServiceTest {
   private static final LineageAnalyzer analyzer = new LineageAnalyzer();
   private static final SqlRewriteService service = new SqlRewriteService();
   private static SchemaPlus schema;
-  private static PolicySelector selector;
+  private static MaskSelector selector;
 
   @BeforeAll
   static void setUp() {
     LoadedConfig loaded = new YamlConfigLoader().load(Path.of("src/test/resources/metadata/lineage.yaml"));
     schema = YamlCalciteSchemaFactory.create(loaded);
-    selector = new PolicySelector(loaded.policyRegistry());
+    selector = new PdpMaskSelector(
+        new PolicyEngine(PolicyIndex.of(LegacyPolicyAdapter.convert(loaded.config()))),
+        Subject.anonymous());
   }
 
   private ValidatedSql validate(String sql) {

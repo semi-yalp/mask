@@ -21,12 +21,21 @@ import java.util.List;
  * delegate to {@link SqlMaskApplication} for one-shot command line use.</li>
  * </ul>
  */
-@SpringBootApplication
+/**
+ * Spring Boot entry point.
+ *
+ * <p>{@code DataSourceAutoConfiguration} is excluded: the rewrite engine is
+ * DB-free by design (the only database access is the read-only metadata
+ * pull), and the JDBC policy store wires its own datasource when deployed —
+ * an auto-configured pool with no URL would only fail context startup.
+ */
+@SpringBootApplication(scanBasePackages = "io.sqlmask",
+    exclude = org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class)
 public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
-      "--metadata", "--sql", "--input", "--output", "--dialect", "--help", "--version",
-      "--pull-metadata");
+      "--metadata", "--policies", "--groups", "--sql", "--input", "--output", "--dialect",
+      "--help", "--version", "--pull-metadata");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {

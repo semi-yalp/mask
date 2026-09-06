@@ -24,9 +24,9 @@ class YamlConfigLoaderTest {
     LoadedConfig loaded = loader.load(VALID);
 
     var phoneKey = ColumnKey.of("crm", "public", "customer", "phone");
-    var policy = loaded.policyRegistry().find(phoneKey);
+    var policy = policyFor(loaded, phoneKey);
     assertTrue(policy.isPresent(), "phone should be bound to a policy");
-    assertEquals("phone_mask", policy.get().name());
+    assertTrue(policy.get().policyName().startsWith("phone_mask"), policy.get().policyName());
     assertEquals("mask_phone", policy.get().udf());
 
     var table = loaded.findTable("crm", "public", "customer");
@@ -78,9 +78,18 @@ class YamlConfigLoaderTest {
   @Test
   void preservesArgumentOrder() {
     LoadedConfig loaded = loader.load(VALID);
-    var policy = loaded.policyRegistry()
-        .find(ColumnKey.of("crm", "public", "customer", "phone")).orElseThrow();
+    var policy = policyFor(loaded,
+        ColumnKey.of("crm", "public", "customer", "phone")).orElseThrow();
     assertEquals(List.of(3, 4), policy.arguments());
+  }
+
+  /** Legacy-config policy lookups now go through the PDP over converted policies. */
+  private static java.util.Optional<io.sqlmask.policy.model.MaskInstruction> policyFor(
+      LoadedConfig loaded, ColumnKey key) {
+    io.sqlmask.policy.match.PolicyEngine engine = new io.sqlmask.policy.match.PolicyEngine(
+        io.sqlmask.policy.match.PolicyIndex.of(LegacyPolicyAdapter.convert(loaded.config())));
+    return engine.maskFor(key.catalog(), key.schema(), key.table(), key.column(),
+        io.sqlmask.policy.model.Subject.anonymous());
   }
 
   @Test

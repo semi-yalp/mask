@@ -22,6 +22,12 @@ public class ApiExceptionHandler {
     return ResponseEntity.badRequest().body(new ApiError(e.getCode().name(), e.getMessage()));
   }
 
+  /** Policy subsystem errors arrive as plain configuration errors. */
+  @ExceptionHandler(io.sqlmask.policy.PolicyException.class)
+  public ResponseEntity<ApiError> handlePolicy(io.sqlmask.policy.PolicyException e) {
+    return ResponseEntity.badRequest().body(new ApiError("CONFIG_ERROR", e.getMessage()));
+  }
+
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException e) {
     return ResponseEntity.badRequest().body(new ApiError("BAD_REQUEST",

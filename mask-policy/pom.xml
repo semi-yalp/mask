@@ -14,26 +14,17 @@
   <packaging>jar</packaging>
 
   <name>mask-policy</name>
-  <description>Masking policy microservice: Ranger-style policy store, compiler and REST API.</description>
+  <description>Masking policy microservice: Ranger-style policy model, decision engine and REST API.</description>
 
   <dependencies>
     <dependency>
-      <groupId>io.sqlmask</groupId>
-      <artifactId>mask-core</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-jdbc</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.postgresql</groupId>
-      <artifactId>postgresql</artifactId>
-      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

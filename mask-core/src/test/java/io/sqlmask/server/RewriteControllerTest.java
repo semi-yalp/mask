@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -206,5 +207,86 @@ class RewriteControllerTest {
         .andExpect(result -> assertThat(result.getResponse()
                 .getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
             .contains("执行改写"));
+  }
+
+  private static final String POLICY_METADATA = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            columns: [{name: phone, type: varchar}]
+      policies: {}
+      """;
+
+  private static final String POLICY_FILE = """
+      policies:
+        - name: mask-phone
+          resources:
+            - {catalog: crm, schema: public, table: customer, column: phone}
+          dataMaskItems:
+            - {users: ["alice"], udf: mask_phone}
+      """;
+
+  @Test
+  void rewriteAcceptsPolicyYamlAndSubject() throws Exception {
+    // alice → masked
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", POLICY_METADATA, "policyYaml", POLICY_FILE,
+                "sql", "SELECT phone FROM customer;", "user", "alice"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].masked").value(true));
+    // 匿名 → 原样
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", POLICY_METADATA, "policyYaml", POLICY_FILE,
+                "sql", "SELECT phone FROM customer;"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].masked").value(false));
+  }
+
+  private static final String GROUP_POLICY_FILE = """
+      policies:
+        - name: mask-phone-devs
+          resources:
+            - {catalog: crm, schema: public, table: customer, column: phone}
+          dataMaskItems:
+            - {groups: ["devs"], udf: mask_phone}
+      """;
+
+  @Test
+  void groupsSubjectPlumbsThroughToPolicyMatching() throws Exception {
+    // devs 组成员命中 groups 项 → 掩码
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", POLICY_METADATA, "policyYaml", GROUP_POLICY_FILE,
+                "sql", "SELECT phone FROM customer;", "groups", List.of("devs")))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].masked").value(true));
+    // 匿名（未带 groups）不命中 → 原样
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", POLICY_METADATA, "policyYaml", GROUP_POLICY_FILE,
+                "sql", "SELECT phone FROM customer;"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].masked").value(false));
+  }
+
+  @Test
+  void policyYamlConflictWithMetadataPoliciesReturnsBadRequest() throws Exception {
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", YAML, "policyYaml", POLICY_FILE,
+                "sql", "SELECT phone FROM customer;"))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
+        .andExpect(jsonPath("$.message")
+            .value(org.hamcrest.Matchers.containsString("single source")));
   }
 }

@@ -5,13 +5,13 @@ import io.sqlmask.lineage.ColumnOrigin;
 import io.sqlmask.lineage.LineageStatus;
 import io.sqlmask.lineage.OutputLineage;
 import io.sqlmask.metadata.ColumnKey;
-import io.sqlmask.policy.MaskingPolicy;
-import io.sqlmask.policy.PolicyRegistry;
-import io.sqlmask.policy.PolicySelector;
+import io.sqlmask.policy.model.MaskInstruction;
+import io.sqlmask.policy.model.Subject;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,16 +21,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RewritePlanTest {
 
-  private final PolicySelector selector = selectorForPhoneAndEmail();
+  private final MaskSelector selector = selectorForPhoneAndEmail();
 
-  private static PolicySelector selectorForPhoneAndEmail() {
-    MaskingPolicy phoneMask = new MaskingPolicy("phone_mask", "mask_phone", List.of(3, 4));
-    MaskingPolicy emailMask = new MaskingPolicy("email_mask", "mask_email", List.of());
-    Map<ColumnKey, MaskingPolicy> bindings = Map.of(
+  private static MaskSelector selectorForPhoneAndEmail() {
+    MaskInstruction phoneMask = new MaskInstruction("phone_mask", "mask_phone", List.of(3, 4));
+    MaskInstruction emailMask = new MaskInstruction("email_mask", "mask_email", List.of());
+    Map<ColumnKey, MaskInstruction> bindings = Map.of(
         ColumnKey.of("crm", "public", "customer", "phone"), phoneMask,
         ColumnKey.of("crm", "public", "customer", "email"), emailMask);
-    return new PolicySelector(new PolicyRegistry(
-        Map.of("phone_mask", phoneMask, "email_mask", emailMask), bindings));
+    return origins -> {
+      MaskInstruction best = null;
+      ColumnKey bestKey = null;
+      for (ColumnOrigin origin : origins) {
+        ColumnKey key = origin.key();
+        MaskInstruction instruction = bindings.get(key);
+        if (instruction == null) {
+          continue;
+        }
+        if (bestKey == null || ColumnKey.ORDER.compare(key, bestKey) < 0) {
+          bestKey = key;
+          best = instruction;
+        }
+      }
+      return Optional.ofNullable(best);
+    };
   }
 
   private static OutputLineage lineage(int ordinal, String name, LineageStatus status,
@@ -62,7 +76,7 @@ class RewritePlanTest {
     assertTrue(plan.requiresWrapper());
     assertFalse(plan.outputs().get(0).isMasked());
     assertTrue(plan.outputs().get(1).isMasked());
-    assertEquals("phone_mask", plan.outputs().get(1).policy().get().name());
+    assertEquals("phone_mask", plan.outputs().get(1).policy().get().policyName());
     assertEquals(3, plan.outputs().get(1).policy().get().arguments().get(0));
   }
 

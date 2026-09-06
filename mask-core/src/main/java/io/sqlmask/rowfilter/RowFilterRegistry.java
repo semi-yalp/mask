@@ -6,6 +6,7 @@ import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlDynamicParam;
 import org.apache.calcite.sql.SqlIdentifier;
@@ -83,9 +84,38 @@ public final class RowFilterRegistry {
     return Optional.ofNullable(templates.get(key(catalog, schema, table)));
   }
 
+  /** Registry-driven "controlled table" check: the single source of truth for the rewriter. */
+  public boolean isControlled(String catalog, String schema, String table) {
+    return templates.containsKey(key(catalog, schema, table));
+  }
+
+  /**
+   * Registers the PDP's row-filter decisions for a subject: every declared
+   * table is asked for hits; each hit is validated with a policy-name prefix
+   * and multiple hits on one table combine into a single AND template.
+   */
+  public static RowFilterRegistry buildFromPolicies(java.util.List<TableMetadata> tables,
+      io.sqlmask.policy.match.PolicyEngine engine, io.sqlmask.policy.model.Subject subject,
+      DialectAdapter dialect, SchemaPlus schema) {
+    RowFilterRegistry registry = new RowFilterRegistry();
+    for (TableMetadata table : tables) {
+      for (io.sqlmask.policy.model.RowFilterHit hit : engine.rowFiltersFor(
+          table.catalog(), table.schema(), table.name(), subject)) {
+        registry.registerCondition(table, hit.expr(),
+            "policy '" + hit.policyName() + "': filterExpr", dialect, schema);
+      }
+    }
+    return registry;
+  }
+
   private void register(TableMetadata table, DialectAdapter dialect, SchemaPlus schema) {
-    String prefix = "table '" + table.qualifiedName() + "': row filter";
-    String wrapped = "SELECT * FROM " + table.qualifiedName() + " WHERE " + table.rowFilter();
+    registerCondition(table, table.rowFilter(),
+        "table '" + table.qualifiedName() + "': row filter", dialect, schema);
+  }
+
+  private void registerCondition(TableMetadata table, String expr, String prefix,
+      DialectAdapter dialect, SchemaPlus schema) {
+    String wrapped = "SELECT * FROM " + table.qualifiedName() + " WHERE " + expr;
     Set<String> columnNames = table.columns().stream()
         .map(column -> column.name().toLowerCase(Locale.ROOT))
         .collect(java.util.stream.Collectors.toSet());
@@ -113,7 +143,12 @@ public final class RowFilterRegistry {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           prefix + " is not a valid condition: " + e.getMessage(), e);
     }
-    templates.put(key(table.catalog(), table.schema(), table.name()), condition);
+    String tableKey = key(table.catalog(), table.schema(), table.name());
+    SqlNode existing = templates.get(tableKey);
+    templates.put(tableKey, existing == null ? condition
+        : new SqlBasicCall(org.apache.calcite.sql.fun.SqlStdOperatorTable.AND,
+            java.util.List.of(existing, condition),
+            org.apache.calcite.sql.parser.SqlParserPos.ZERO));
   }
 
   private static SqlVisitor<Void> whitelistVisitor(Set<String> columnNames) {
