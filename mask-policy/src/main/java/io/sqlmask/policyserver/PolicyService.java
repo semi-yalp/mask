@@ -81,10 +81,11 @@ public class PolicyService {
 
   public EffectiveConfigResponse effective(String name) {
     EngineInstance instance = requireInstance(name);
+    long configVersion = store.currentVersion(name);
     EffectiveConfigResponse compiled =
         EffectiveConfigCompiler.compile(instance, store.listPolicies(name));
     return new EffectiveConfigResponse(instance.name(), instance.dialect(),
-        store.currentVersion(name), compiled.policySummary(), compiled.config());
+        configVersion, compiled.policySummary(), compiled.config());
   }
 
   /**

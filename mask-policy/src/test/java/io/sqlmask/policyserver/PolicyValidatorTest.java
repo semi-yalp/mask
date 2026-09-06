@@ -97,4 +97,12 @@ class PolicyValidatorTest {
         new EngineInstance("x", "trino", List.of(
             new TableDef("c", "s", "t", List.of(new ColumnDef("a", "datetime")))))));
   }
+
+  @Test
+  void rejectsZeroColumnTable() {
+    assertTrue(assertThrows(SqlMaskException.class, () -> validator.validateInstance(
+            new EngineInstance("x", "postgresql", List.of(
+                new TableDef("c", "s", "t", List.of())))))
+        .getMessage().contains("must declare at least one column"));
+  }
 }

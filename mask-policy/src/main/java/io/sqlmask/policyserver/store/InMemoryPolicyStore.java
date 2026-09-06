@@ -83,6 +83,10 @@ public class InMemoryPolicyStore implements PolicyStore {
   public synchronized PolicyEntity updatePolicy(String instanceName, String policyName,
       PolicyEntity policy) {
     requireInstance(instanceName);
+    if (!policy.name().equals(policyName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "policy name mismatch: '"
+          + policyName + "' cannot be renamed to '" + policy.name() + "'");
+    }
     Map<String, PolicyEntity> policies = policiesByInstance.get(instanceName);
     if (!policies.containsKey(policyName)) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,

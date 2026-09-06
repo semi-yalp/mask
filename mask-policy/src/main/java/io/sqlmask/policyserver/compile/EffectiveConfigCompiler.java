@@ -23,7 +23,7 @@ import java.util.Set;
  * tables and summarizes enablement. Raw declaration text is preserved
  * verbatim; identifiers are only normalized for matching and deduplication.
  * {@code configVersion} is deliberately left at 0 — the caller fills it from
- * the store so the read is part of the same externally synchronized version.
+ * the store.
  */
 public final class EffectiveConfigCompiler {
 

@@ -54,4 +54,15 @@ class InMemoryPolicyStoreTest {
     assertEquals(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
         assertThrows(SqlMaskException.class, () -> store.currentVersion("pg_prod")).getCode());
   }
+
+  @Test
+  void updatePolicyRejectsRenaming() {
+    store.createInstance(INSTANCE);
+    store.createPolicy("pg_prod", datamask("p1"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR,
+        assertThrows(SqlMaskException.class,
+            () -> store.updatePolicy("pg_prod", "p1", datamask("p2"))).getCode());
+    assertEquals("p1", store.findPolicy("pg_prod", "p1").orElseThrow().name());
+    assertEquals(2, store.currentVersion("pg_prod"));
+  }
 }

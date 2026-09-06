@@ -49,6 +49,10 @@ public final class PolicyValidator {
       if (!seenTables.add(tableKey)) {
         throw error("instance '" + instance.name() + "': duplicate table '" + tableKey + "'");
       }
+      if (table.columns().isEmpty()) {
+        throw error("instance '" + instance.name() + "': table '" + tableKey
+            + "' columns must declare at least one column");
+      }
       Set<String> seenColumns = new LinkedHashSet<>();
       for (ColumnDef column : table.columns()) {
         String normalized = ColumnKey.normalize(column.name(), "column");
