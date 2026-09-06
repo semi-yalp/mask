@@ -1,0 +1,27 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+        - name: phone
+          type: varchar(20)
+        - name: created_at
+          type: timestamp
+    - catalog: crm
+      schema: public
+      name: orders
+      columns:
+        - name: id
+          type: bigint
+        - name: amount
+          type: numeric(10,2)
+    - catalog: crm
+      schema: sales
+      name: region
+      columns:
+        - name: id
+          type: integer
+policies: {}
