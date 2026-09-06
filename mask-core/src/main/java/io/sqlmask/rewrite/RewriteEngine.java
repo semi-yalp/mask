@@ -61,6 +61,18 @@ public final class RewriteEngine {
   public List<StatementRewrite> rewrite(String metadataYaml, String sqlText, String dialectName) {
     LoadedConfig loaded =
         new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml", dialectName);
+    return rewrite(loaded, sqlText, dialectName);
+  }
+
+  /**
+   * Rewrites against an already-resolved configuration (inline YAML or policy
+   * service).
+   *
+   * @param loaded      validated configuration with its derived policy index
+   * @param sqlText     one or more SQL statements separated by semicolons
+   * @param dialectName dialect name; 'postgresql', 'trino' or 'mysql'
+   */
+  public List<StatementRewrite> rewrite(LoadedConfig loaded, String sqlText, String dialectName) {
     SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
     DialectAdapter dialect = createDialect(dialectName);
     // an invalid row-filter condition fails the whole run before any

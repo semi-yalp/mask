@@ -81,7 +81,7 @@ public final class YamlConfigLoader {
     List<MaskingConfig.ColumnPolicyBinding> bindings = loadColumnBindings(rootMap, policies, sourceName);
 
     MaskingConfig config = new MaskingConfig(tables, bindings, policies);
-    PolicyRegistry registry = buildRegistry(config, sourceName);
+    PolicyRegistry registry = buildRegistry(config);
     return new LoadedConfig(config, registry);
   }
 
@@ -236,13 +236,8 @@ public final class YamlConfigLoader {
     return bindings;
   }
 
-  private PolicyRegistry buildRegistry(MaskingConfig config, String sourceName) {
-    Map<ColumnKey, MaskingPolicy> byColumn = new LinkedHashMap<>();
-    for (MaskingConfig.ColumnPolicyBinding binding : config.columnPolicies()) {
-      MaskingPolicy policy = config.policies().get(binding.policyName());
-      byColumn.put(binding.key(), policy);
-    }
-    return new PolicyRegistry(config.policies(), byColumn);
+  private PolicyRegistry buildRegistry(MaskingConfig config) {
+    return PolicyRegistry.of(config);
   }
 
   private void requireMapping(Object node, String message) {

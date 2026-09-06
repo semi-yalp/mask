@@ -1,7 +1,9 @@
 package io.sqlmask.policy;
 
+import io.sqlmask.config.MaskingConfig;
 import io.sqlmask.metadata.ColumnKey;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -19,6 +21,15 @@ public final class PolicyRegistry {
       Map<ColumnKey, MaskingPolicy> policiesByColumn) {
     this.policiesByName = Map.copyOf(policiesByName);
     this.policiesByColumn = Map.copyOf(policiesByColumn);
+  }
+
+  /** Derives the column-binding index from a validated configuration. */
+  public static PolicyRegistry of(MaskingConfig config) {
+    Map<ColumnKey, MaskingPolicy> byColumn = new LinkedHashMap<>();
+    for (MaskingConfig.ColumnPolicyBinding binding : config.columnPolicies()) {
+      byColumn.put(binding.key(), config.policies().get(binding.policyName()));
+    }
+    return new PolicyRegistry(config.policies(), byColumn);
   }
 
   /** Exact lookup on the normalized column key. */
