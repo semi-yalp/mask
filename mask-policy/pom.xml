@@ -14,7 +14,7 @@
   <packaging>jar</packaging>
 
   <name>mask-policy</name>
-  <description>Masking policy microservice: Ranger-style policy store, compiler and REST API.</description>
+  <description>Masking policy microservice: Ranger-style policy model, decision engine and REST API.</description>
 
   <dependencies>
     <dependency>

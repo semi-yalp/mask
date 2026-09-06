@@ -244,7 +244,9 @@ policies:
   声明顺序；掩码每列只取唯一命中，行过滤命中项按决策顺序 AND 叠加；
 - 策略资源必须命中至少一张声明表/列，否则 `CONFIG_ERROR`（fail-closed，防手误
   静默失效）；`filterExpr` 复用行过滤白名单，错误消息带 `policy '<名>': filterExpr` 前缀；
-- 与 metadata 内嵌策略互斥：两套来源同时非空即 `CONFIG_ERROR`。
+- 与 metadata 内嵌策略互斥：两套来源同时非空即 `CONFIG_ERROR`；
+- 页面「策略文件」页签发送的是「校验并应用」通过后的内容——应用后再编辑、
+  未重新校验的内容不会随改写请求发送。
 
 ## 行过滤
 

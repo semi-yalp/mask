@@ -1,10 +1,16 @@
 package io.sqlmask.rewrite;
 
+import io.sqlmask.config.LoadedConfig;
+import io.sqlmask.config.MaskingConfig;
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.metadata.ColumnKey;
+import io.sqlmask.metadata.TableMetadata;
 import io.sqlmask.policy.model.Subject;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -98,6 +104,26 @@ class RewriteEnginePolicyTest {
             "postgresql", Subject.anonymous()));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
     assertTrue(e.getMessage().contains("single source"));
+  }
+
+  @Test
+  void policyYamlConflictingWithLegacyColumnBindingsOnlyIsRejected() {
+    // requireNoLegacyPolicies 的中间分支：顶层 policies 为空但 columns 绑定非空。
+    // YAML 加载器会先拒绝"绑定引用未声明策略"，该状态只能直接构造模型到达
+    // （防御性校验，拦截绕过加载器的 LoadedConfig 使用方式）。
+    MaskingConfig config = new MaskingConfig(
+        List.of(new TableMetadata("crm", "public", "customer",
+            List.of(new TableMetadata.Column("phone", SqlTypeName.VARCHAR, null, null)))),
+        List.of(new MaskingConfig.ColumnPolicyBinding(
+            ColumnKey.of("crm", "public", "customer", "phone"), "p")),
+        Map.of());
+    LoadedConfig loaded = new LoadedConfig(config);
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new RewriteEngine().rewrite(loaded, MASK_POLICIES, SQL, "postgresql",
+            Subject.anonymous()));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("single source"));
+    assertTrue(e.getMessage().contains("columns"));
   }
 
   @Test

@@ -67,7 +67,7 @@ public final class RewriteEngine {
    *
    * @param metadataYaml YAML configuration content (tables, columns, policies)
    * @param sqlText      one or more SQL statements separated by semicolons
-   * @param dialectName  dialect name; 'postgresql', 'trino' or 'mysql'
+   * @param dialectName  dialect name; see DialectRegistry for the registered dialects
    */
   public List<StatementRewrite> rewrite(String metadataYaml, String sqlText, String dialectName) {
     LoadedConfig loaded =
@@ -93,7 +93,7 @@ public final class RewriteEngine {
    *
    * @param loaded      validated configuration
    * @param sqlText     one or more SQL statements separated by semicolons
-   * @param dialectName dialect name; 'postgresql', 'trino' or 'mysql'
+   * @param dialectName dialect name; see DialectRegistry for the registered dialects
    */
   public List<StatementRewrite> rewrite(LoadedConfig loaded, String sqlText, String dialectName) {
     return rewrite(loaded, null, sqlText, dialectName, Subject.anonymous());

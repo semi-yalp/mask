@@ -31,7 +31,7 @@ public final class LegacyPolicyAdapter {
       ColumnKey key = binding.key();
       MaskingPolicy policy = config.policies().get(binding.policyName());
       policies.add(new Policy(
-          binding.policyName() + ":" + key,
+          binding.policyName(),
           true, 0, PolicyType.DATA_MASK,
           List.of(PolicyResource.column(key.catalog(), key.schema(), key.table(), key.column())),
           List.of(new DataMaskItem(everyone, policy.udf(), policy.arguments())),

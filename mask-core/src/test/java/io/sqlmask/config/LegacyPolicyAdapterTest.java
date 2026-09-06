@@ -60,7 +60,7 @@ class LegacyPolicyAdapterTest {
     assertTrue(engine.rowFiltersFor("crm", "public", "orders", anonymous).isEmpty());
 
     // 策略名约定（错误消息前缀用）
-    assertEquals("phone_mask:crm.public.customer.phone", mask.policyName());
+    assertEquals("phone_mask", mask.policyName());
   }
 
   @Test
