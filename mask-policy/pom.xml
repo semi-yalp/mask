@@ -18,9 +18,9 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.sqlmask</groupId>
-      <artifactId>mask-core</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

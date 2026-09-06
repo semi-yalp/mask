@@ -18,6 +18,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>io.sqlmask</groupId>
+      <artifactId>mask-policy</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.calcite</groupId>
       <artifactId>calcite-core</artifactId>
       <version>${calcite.version}</version>
