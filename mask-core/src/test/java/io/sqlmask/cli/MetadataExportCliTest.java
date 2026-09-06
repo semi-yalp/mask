@@ -61,6 +61,18 @@ class MetadataExportCliTest {
   }
 
   @Test
+  void unknownEngineIsUsageError() {
+    SqlMaskApplication app = new SqlMaskApplication();
+    StringBuilder out = new StringBuilder(), err = new StringBuilder();
+    int code = run(app, new String[]{"--pull-metadata", "--engine", "oracle",
+        "--database", "d", "--user", "u", "--password", "x", "--output", "o.yaml"}, out, err);
+    assertEquals(2, code);
+    // "engine" alone also matches picocli's pre-implementation
+    // "Unknown option: --engine", so assert the implemented wording
+    assertTrue(err.toString().contains("unsupported engine"), () -> err.toString());
+  }
+
+  @Test
   void rewriteModeWithoutMetadataIsUsageError() {
     SqlMaskApplication app = new SqlMaskApplication();
     StringBuilder out = new StringBuilder(), err = new StringBuilder();

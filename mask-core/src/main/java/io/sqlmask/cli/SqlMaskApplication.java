@@ -4,8 +4,8 @@ import io.sqlmask.dialect.DialectRegistry;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.introspect.ConnectionSpec;
 import io.sqlmask.introspect.IntrospectionResult;
+import io.sqlmask.introspect.MetadataIntrospectors;
 import io.sqlmask.introspect.MetadataYamlGenerator;
-import io.sqlmask.introspect.PgMetadataIntrospector;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -43,6 +44,10 @@ public final class SqlMaskApplication implements Callable<Integer> {
       description = "Pull table/column metadata from PostgreSQL and emit a metadata "
           + "YAML skeleton to --output instead of rewriting SQL.")
   private boolean pullMetadata;
+
+  @Option(names = "--engine", defaultValue = "postgresql",
+      description = "Engine for --pull-metadata: postgresql|mysql|trino (default postgresql).")
+  private String engine;
 
   @Option(names = "--host", defaultValue = "127.0.0.1",
       description = "PostgreSQL host for --pull-metadata (default 127.0.0.1).")
@@ -195,13 +200,19 @@ public final class SqlMaskApplication implements Callable<Integer> {
   }
 
   /**
-   * Export mode: introspect one PostgreSQL database and write the metadata
-   * YAML skeleton to {@code --output}. Mutual exclusion with --sql/--input was
-   * already enforced in {@link #execute}; the file is written only after
-   * introspection and the strict check succeed, so failure paths never
-   * create or overwrite the output.
+   * Export mode: introspect one PostgreSQL, MySQL or Trino database and write
+   * the metadata YAML skeleton to {@code --output}. Mutual exclusion with
+   * --sql/--input was already enforced in {@link #execute}; the file is written
+   * only after introspection and the strict check succeed, so failure paths
+   * never create or overwrite the output.
    */
   private int executePullMetadata(PrintStream out, PrintStream err) throws IOException {
+    if (!Set.of("postgresql", "mysql", "trino")
+        .contains(engine == null ? "" : engine.toLowerCase(java.util.Locale.ROOT))) {
+      err.println("sql-mask: unsupported engine '" + engine
+          + "' (supported: postgresql, mysql, trino)");
+      return 2;
+    }
     if (database == null || database.isBlank() || user == null || user.isBlank()) {
       err.println("sql-mask: --pull-metadata requires --database and --user");
       return 2;
@@ -215,11 +226,11 @@ public final class SqlMaskApplication implements Callable<Integer> {
       err.println("sql-mask: provide --password or set PGPASSWORD");
       return 2;
     }
-    ConnectionSpec spec = new ConnectionSpec("postgresql", host, port, database, user, resolvedPassword,
+    ConnectionSpec spec = new ConnectionSpec(engine, host, port, database, user, resolvedPassword,
         schemas == null ? List.of() : schemas, includeViews, strict, sslmode, connectTimeout);
     IntrospectionResult result;
     try {
-      result = new PgMetadataIntrospector().introspect(spec);
+      result = MetadataIntrospectors.byEngine(engine).introspect(spec);
     } catch (SqlMaskException e) {
       err.println("sql-mask: [" + e.getCode() + "] " + e.getMessage());
       return 1;
