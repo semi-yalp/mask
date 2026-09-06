@@ -1,6 +1,7 @@
 package io.sqlmask.server;
 
 import io.sqlmask.cli.SqlMaskApplication;
+import io.sqlmask.introspect.PgMetadataIntrospector;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -15,7 +16,8 @@ import java.util.List;
  * <ul>
  * <li>no CLI arguments ({@code java -jar sql-mask.jar}) starts the web
  * service with the bundled UI;</li>
- * <li>CLI arguments ({@code java -jar sql-mask.jar --metadata ... --sql ...})
+ * <li>CLI arguments ({@code java -jar sql-mask.jar --metadata ... --sql ...},
+ * or {@code --pull-metadata ...} for metadata export mode)
  * delegate to {@link SqlMaskApplication} for one-shot command line use.</li>
  * </ul>
  */
@@ -23,7 +25,8 @@ import java.util.List;
 public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
-      "--metadata", "--sql", "--input", "--output", "--dialect", "--help", "--version");
+      "--metadata", "--sql", "--input", "--output", "--dialect", "--help", "--version",
+      "--pull-metadata");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {
@@ -45,5 +48,10 @@ public class SqlMaskServiceApplication {
   @Bean
   RewriteEngine rewriteEngine() {
     return new RewriteEngine();
+  }
+
+  @Bean
+  PgMetadataIntrospector pgMetadataIntrospector() {
+    return new PgMetadataIntrospector();
   }
 }
