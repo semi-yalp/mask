@@ -17,9 +17,10 @@ import java.util.Map;
 @Service
 public class MetadataYamlImporter {
 
-  private final Yaml yaml = new Yaml();
-
   public List<TableStructure> parse(String source, String sourceName) {
+    // SnakeYAML 的 Yaml 非线程安全：单例 @Service 里共享实例会在并发导入时
+    // 静默误析或抛异常，因此每次解析都在方法内创建独立实例。
+    Yaml yaml = new Yaml();
     Object root = yaml.load(source);
     if (!(root instanceof Map<?, ?> rootMap)) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
@@ -44,7 +45,7 @@ public class MetadataYamlImporter {
     if (!(node instanceof Map<?, ?> tableMap)) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, path + " must be a mapping");
     }
-    if (tableMap.get("rowFilter") != null) {
+    if (tableMap.containsKey("rowFilter")) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           path + ".rowFilter is not accepted here: row filters are policies now; "
               + "configure a row_filter policy on the policy service");
