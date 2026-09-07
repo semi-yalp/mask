@@ -424,7 +424,8 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
 特殊字符），MySQL 一律反引号。`BETWEEN` / `NOT BETWEEN` 在 Trino 与 MySQL 输出
 中保留原义（Calcite 默认渲染成引擎不支持的 `BETWEEN ASYMMETRIC`，两方言各自
 覆盖了该渲染；PostgreSQL 原生支持 ASYMMETRIC，无需处理）；`BETWEEN SYMMETRIC`
-在三方言下均显式失败（PostgreSQL 除外——其输出保留 Calcite 原渲染且 PG 支持）。
+不做特殊处理，按 Calcite 原渲染输出——PostgreSQL 可执行；Trino / MySQL 会在
+引擎侧报错。
 
 ### 各引擎类型集（metadata.yaml 的 `type:`）
 
@@ -437,7 +438,7 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
   `timestamp[(p)] [with time zone]`（`json`、`hyperloglog` 等不支持）；
 - **MySQL**：`boolean`、`tinyint/smallint/mediumint/int/integer/bigint[(n)]`、
   `decimal(p,s)`、`float`、`double`、`char[(n)]`、`varchar(n)`、
-  `tinytext/mediumint/text/longtext`（→ varchar）、`binary[(n)]`、`varbinary(n)`、
+  `tinytext/mediumtext/text/longtext`（→ varchar）、`binary[(n)]`、`varbinary(n)`、
   `date`、`datetime[(p)]`、`timestamp[(p)]`、`time[(p)]`
   （`json`、`year`、`enum`、`set`、`bit`、`geometry` 不支持）。
 

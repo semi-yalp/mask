@@ -366,6 +366,23 @@ class MultiDialectRewriteTest {
   }
 
   @Test
+  void createTableVariantGuardFailsClosedOnEveryDialect() {
+    // 三方言适配器的 checkCreateTableVariant 防止写语句重组器静默丢弃 babel-only
+    // 关键字（OR REPLACE / VOLATILE / MULTISET，Calcite 升级也可能翻转其操作数
+    // 下标）：解析必须先成功（babel 接受 CREATE OR REPLACE TABLE），失败发生在
+    // 守护层而非解析层，报 UNSUPPORTED_STATEMENT 且消息点名变体不受支持
+    String sql = "CREATE OR REPLACE TABLE %s AS SELECT phone FROM customer";
+    for (String dialect : List.of("postgresql", "trino", "mysql")) {
+      String target = "mysql".equals(dialect) ? "app.masked" : "crm.public.masked";
+      SqlMaskException e = assertThrows(SqlMaskException.class,
+          () -> engine.rewrite(yamlFor(dialect), String.format(sql, target), dialect), dialect);
+      assertEquals(SqlMaskException.Code.UNSUPPORTED_STATEMENT, e.getCode(), dialect);
+      assertTrue(e.getMessage().contains("unsupported CREATE TABLE variant"),
+          () -> dialect + ": " + e.getMessage());
+    }
+  }
+
+  @Test
   void cteBodySelfReferenceFailsClosedOnEveryDialect() {
     // spec §10.2 item 7 的另一结论（2026-09-06 观察）：CteExpander 对 CTE 体内
     // 的裸自引用一律按"递归 CTE"拒绝（真实 PostgreSQL/MySQL 的非递归 WITH 语义

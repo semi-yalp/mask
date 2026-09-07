@@ -291,8 +291,9 @@ VARCHAR（无界）；`binary[(n)]`|`varbinary(n)`→BINARY/VARBINARY；`date`�
 - 10.2.3 SqlDialect 行为：trino/mysql 各自验证——发现并修复两处真实缺陷：
   Calcite 把 `SqlBetweenOperator` 渲染为 `BETWEEN ASYMMETRIC`（真 Trino 与
   真 MySQL 均拒绝；`NOT BETWEEN` 更会被静默反转），`TrinoUnparseDialect` /
-  `MysqlUnparseDialect` 保留 `BETWEEN`/`NOT BETWEEN` 原义（SYMMETRIC 仍显式
-  失败）；MySQL 字符串参数反斜杠不双写（fail-open 边界，README 已注明）。
+  `MysqlUnparseDialect` 保留 `BETWEEN`/`NOT BETWEEN` 原义；`BETWEEN SYMMETRIC`
+  不做特殊处理，按 Calcite 原渲染输出——PostgreSQL 可执行，Trino / MySQL 会在
+  引擎侧报错；MySQL 字符串参数反斜杠不双写（fail-open 边界，README 已注明）。
 - 10.2.4 MySQL CTAS 列定义：可解析且重组成功（`MultiDialectRewriteTest`
   钉定成功分支，列定义重渲染为 Calcite 规范形式，round-trip 可解析）。
 - 10.2.5 MYSQL_5 回归：全量测试通过（含 HAVING 别名等 MYSQL_5 特性测试）。

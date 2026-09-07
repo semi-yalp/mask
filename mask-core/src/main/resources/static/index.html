@@ -149,7 +149,7 @@
 <body>
 <header>
   <h1>sql-mask · SQL 脱敏改写</h1>
-  <p>基于 Apache Calcite 的 PostgreSQL SQL 脱敏改写 —— 表结构、列策略、策略定义均可在线编辑，<code>元数据只读采集、不执行业务 SQL</code></p>
+  <p>基于 Apache Calcite 的多引擎 SQL 脱敏改写（PostgreSQL / Trino / MySQL）—— 表结构、列策略、策略定义均可在线编辑，<code>元数据只读采集、不执行业务 SQL</code></p>
 </header>
 
 <main>
@@ -268,21 +268,8 @@
   · 任意语句失败时整体失败，不输出部分结果
 </footer>
 
-<datalist id="type-options">
-  <option value="boolean"></option>
-  <option value="smallint"></option>
-  <option value="integer"></option>
-  <option value="bigint"></option>
-  <option value="real"></option>
-  <option value="double precision"></option>
-  <option value="decimal(10,2)"></option>
-  <option value="char(10)"></option>
-  <option value="varchar(50)"></option>
-  <option value="text"></option>
-  <option value="date"></option>
-  <option value="timestamp"></option>
-  <option value="timestamptz"></option>
-</datalist>
+<!-- 选项由 JS 按目标方言重建（见 DIALECT_TYPES / refreshDialectHint） -->
+<datalist id="type-options"></datalist>
 
 <script>
 "use strict";
@@ -336,8 +323,29 @@ const DIALECT_HINTS = {
   trino: "双引号是标识符，字符串用单引号",
   mysql: "反引号是标识符，双引号是字符串"
 };
+// 类型建议随目标方言切换（与 README「各引擎类型集」对应）
+const DIALECT_TYPES = {
+  postgresql: [
+    "boolean", "smallint", "integer", "bigint", "real", "double precision",
+    "decimal(10,2)", "char(10)", "varchar(50)", "text", "date", "timestamp",
+    "timestamptz"
+  ],
+  trino: [
+    "boolean", "tinyint", "smallint", "integer", "bigint", "real", "double",
+    "decimal(10,2)", "char(10)", "varchar(50)", "varbinary", "date", "time(3)",
+    "timestamp(3)", "timestamp(3) with time zone"
+  ],
+  mysql: [
+    "boolean", "tinyint", "smallint", "mediumint", "int", "bigint",
+    "decimal(10,2)", "float", "double", "char(10)", "varchar(50)", "text",
+    "binary(16)", "varbinary(255)", "date", "datetime", "timestamp", "time"
+  ]
+};
+const typeOptionsEl = $("type-options");
 function refreshDialectHint() {
   dialectHintEl.textContent = DIALECT_HINTS[dialectEl.value] || "";
+  typeOptionsEl.innerHTML = (DIALECT_TYPES[dialectEl.value] || DIALECT_TYPES.postgresql)
+      .map((t) => `<option value="${t}"></option>`).join("");
 }
 dialectEl.addEventListener("change", refreshDialectHint);
 refreshDialectHint();
