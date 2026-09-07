@@ -70,4 +70,17 @@ class MetadataServiceTest {
     assertEquals(SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND,
         assertThrows(SqlMaskException.class, () -> service.get("pg_prod")).getCode());
   }
+
+  @Test
+  void nameIsTrimmedOnCreateAndGet() {
+    service.create("  pg_prod  ", "postgresql", conn());
+    assertEquals("pg_prod", service.get(" pg_prod ").name());
+  }
+
+  @Test
+  void updateConnectionUnknownInstanceNotFound() {
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> service.updateConnection("ghost", conn()));
+    assertEquals(SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND, e.getCode());
+  }
 }

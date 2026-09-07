@@ -104,6 +104,27 @@ class SqlRewriteServiceTest {
     assertEquals(1, out.split("ORDER BY c.phone", -1).length - 1, () -> out);
   }
 
+  /**
+   * ORDER BY referencing a column outside the SELECT projection: the converter
+   * appends the sort key to the relational output, which used to trip the
+   * converted-vs-validated shape guard and reject a legal query. The wrapper
+   * must still be produced and the ORDER BY must survive inside it.
+   */
+  @Test
+  void orderByNonProjectedColumnStillWraps() {
+    String sql = """
+        SELECT c.id, c.phone
+        FROM crm.public.customer c
+        ORDER BY c.address
+        FETCH FIRST 3 ROWS ONLY
+        """;
+    ValidatedSql validated = validate(sql);
+    String out = flat(rewrite(sql));
+    assertTrue(out.startsWith("SELECT r.id, mask_phone(r.phone, 3, 4) AS phone FROM ("), out);
+    assertTrue(out.contains("ORDER BY c.address"), out);
+    assertTrue(out.endsWith(") AS r"), out);
+  }
+
   @Test
   void keepsJoinInsideWrapper() {
     String sql = """

@@ -122,6 +122,18 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
           "query conversion failed: " + e.getMessage(), e);
     }
     if (root.rel.getRowType().getFieldCount() != root.validatedRowType.getFieldCount()) {
+      // ORDER BY referencing a column outside the SELECT projection: the
+      // converter appends the sort keys to the relational output. Project them
+      // away (root.fields maps the relational output onto the validated shape)
+      // so lineage sees one column per validated field; the Sort's collation
+      // sits below the added Project and stays intact.
+      List<Integer> projection = new ArrayList<>();
+      for (java.util.Map.Entry<Integer, String> field : root.fields) {
+        projection.add(field.getKey());
+      }
+      root = root.withRel(org.apache.calcite.plan.RelOptUtil.createProject(root.rel, projection));
+    }
+    if (root.rel.getRowType().getFieldCount() != root.validatedRowType.getFieldCount()) {
       throw new SqlMaskException(SqlMaskException.Code.VALIDATION_ERROR,
           "converted query does not match the validated output shape");
     }

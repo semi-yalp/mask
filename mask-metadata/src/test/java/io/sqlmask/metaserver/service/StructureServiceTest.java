@@ -69,4 +69,33 @@ class StructureServiceTest {
   void unknownInstanceRejected() {
     assertThrows(SqlMaskException.class, () -> service.replace("ghost", List.of()));
   }
+
+  @Test
+  void zeroColumnTableRejected() {
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> service.replace("pg_prod", List.of(table("customer", new String[][]{}))));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertEquals(true, e.getMessage().contains("must declare at least one column"));
+  }
+
+  @Test
+  void failedReplaceKeepsPreviousStructureAndVersion() {
+    // 校验发生在原子覆盖之前：批次里第二张表非法时，第一张表与存量结构都不落库
+    service.replace("pg_prod", List.of(table("customer", new String[][]{{"id", "bigint"}})));
+    long versionBefore = store.findInstance("pg_prod").orElseThrow().metadataVersion();
+    assertThrows(SqlMaskException.class, () -> service.replace("pg_prod", List.of(
+        table("customer", new String[][]{{"id", "bigint"}}),
+        table("orders", new String[][]{{"id", "definitely-not-a-type"}}))));
+    assertEquals(versionBefore, store.findInstance("pg_prod").orElseThrow().metadataVersion());
+    assertEquals(1, store.loadStructure("pg_prod").size());
+  }
+
+  @Test
+  void dialectExclusiveTypeRejectedOnWrongDialect() {
+    // timestamptz 只在 PostgreSQL 类型清单内：写入 mysql 实例时必须被该方言的 TypeResolver 拒绝
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> service.replace("my_prod",
+        List.of(table("orders", new String[][]{{"created_at", "timestamptz"}}))));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertEquals(true, e.getMessage().contains("crm.public.orders.created_at"));
+  }
 }

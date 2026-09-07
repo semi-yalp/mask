@@ -83,4 +83,21 @@ class CollectServiceTest {
     assertEquals(false, spec.strict());
     assertEquals(List.of("public"), spec.schemas());
   }
+
+  @Test
+  void credentialFailureLeavesStoredStructureUntouched() {
+    service.collect("pg_prod");
+    long versionBefore = store.findInstance("pg_prod").orElseThrow().metadataVersion();
+    CollectService noCredentials = new CollectService(instances, structures,
+        ref -> {
+          throw new SqlMaskException(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE,
+              "referenced environment variable '" + ref + "' is not set; collection aborted");
+        },
+        engine -> spec -> result);
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> noCredentials.collect("pg_prod"));
+    assertEquals(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE, e.getCode());
+    assertEquals(versionBefore, store.findInstance("pg_prod").orElseThrow().metadataVersion());
+    assertEquals(1, store.loadStructure("pg_prod").size());
+  }
 }

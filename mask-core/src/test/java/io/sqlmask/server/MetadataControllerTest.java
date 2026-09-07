@@ -103,6 +103,18 @@ class MetadataControllerTest {
         .andExpect(jsonPath("$.code").value("INTROSPECT_ERROR"));
   }
 
+  @Test
+  void mixedCaseEnginePassesRegistryAndReachesConnection() throws Exception {
+    // 引擎名经注册表 trim+小写归一化（与 CLI 一致）后分发到 mysql 采集器：
+    // 本机不可达端口上连接被拒表现为 INTROSPECT_ERROR；若归一化回归，
+    // 则会在注册表处提前报 CONFIG_ERROR
+    mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
+        {"engine":" MySQL ","host":"127.0.0.1","port":1,"database":"d","user":"u","password":"p"}
+        """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INTROSPECT_ERROR"));
+  }
+
   private PgMetadataIntrospector stubReturning(IntrospectionResult result) {
     return new PgMetadataIntrospector() {
       @Override protected Connection open(io.sqlmask.introspect.ConnectionSpec spec) {
