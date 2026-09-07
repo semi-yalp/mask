@@ -277,3 +277,33 @@ VARCHAR（无界）；`binary[(n)]`|`varbinary(n)`→BINARY/VARBINARY；`date`�
 11. **内层 SQL 的引擎语义说明**：用户原始 SQL 内层保留原文，其中的反斜杠转义、
     双引号字符串等由目标引擎按自身语义解释；Calcite 校验期的解释可能不同，但
     只影响校验不影响脱敏正确性（内层字节不变）。此限制写入 README。
+
+### §10 状态回写（2026-09-07 实现完成后）
+
+- 10.1.1 MySQL 搜索路径：**结论与本文假设不同**——Calcite 按
+  `path + 前导段` 拼接解析（`SqlValidatorUtil.getTableEntry` 字节码证实），
+  `[schema]` 路径永远无法命中两段名；实现改为生成 `[catalog]` 路径
+  （两段名 = 声明 catalog 下的 `schema.table`），pinning 测试
+  `MysqlSchemaPathPinningTest` 钉死：两段名可解析、非限定名唯一可解析、
+  跨 schema 同名**静默首匹配**（按 schema 名字母序，非声明序，非报错）。
+- 10.1.2 Trino 保留字：按保守超集实现（引用非保留字也只多一层合法引号），
+  `TrinoIdentifierPolicy` javadoc 注明需对照官方清单裁剪。
+- 10.2.3 SqlDialect 行为：trino/mysql 各自验证——发现并修复两处真实缺陷：
+  Calcite 把 `SqlBetweenOperator` 渲染为 `BETWEEN ASYMMETRIC`（真 Trino 与
+  真 MySQL 均拒绝；`NOT BETWEEN` 更会被静默反转），`TrinoUnparseDialect` /
+  `MysqlUnparseDialect` 保留 `BETWEEN`/`NOT BETWEEN` 原义（SYMMETRIC 仍显式
+  失败）；MySQL 字符串参数反斜杠不双写（fail-open 边界，README 已注明）。
+- 10.2.4 MySQL CTAS 列定义：可解析且重组成功（`MultiDialectRewriteTest`
+  钉定成功分支，列定义重渲染为 Calcite 规范形式，round-trip 可解析）。
+- 10.2.5 MYSQL_5 回归：全量测试通过（含 HAVING 别名等 MYSQL_5 特性测试）。
+- 10.2.6 trino-parser：实际用 446（456+ 需 Java 22，运行时 JDK 21），
+  guava 无冲突。
+- 10.2.7 CteExpander：三方言 CTE 血缘/遮蔽测试通过；**发现边界**——CTE 主体
+  内引用同名 CTE 按递归拒绝（fail-closed），真实引擎可能按基础表解析
+  （README 已注明）。
+- 10.2.8 schemaPaths 统一：收口到 `AbstractCalciteDialectAdapter`，死代码已删。
+- 10.3.9 集成测试：方言变体集实现（PG `::` 等用方言等价写法）。
+- 10.3.10 TPC-DS：`tpcds/metadata.yaml` 三方言通用（integer/bigint/char/
+  varchar/date），trino/mysql golden 已入库；`tpcds_common_cases.sql` 因含
+  双引号标识符在 mysql 下解析失败，移出 mysql 可移植清单（trino 保留）。
+- 10.4.11 内层语义说明：已写入 README「方言支持」。

@@ -1,6 +1,7 @@
 # sql-mask
 
-基于 Apache Calcite 的 PostgreSQL SQL 脱敏改写服务。读取 YAML 中声明的表结构、
+基于 Apache Calcite 的多引擎 SQL 脱敏改写服务，支持 **PostgreSQL / Trino / MySQL**
+三种方言（输入与输出同为该方言，不做跨引擎转写）。读取 YAML 中声明的表结构、
 列脱敏策略和 UDF 参数，把查询改写为「原始查询作为内层、最外层对结果列调用脱敏
 UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从不执行业务 SQL；唯一的
 数据库访问是 `--pull-metadata` 的只读元数据采集。
@@ -205,8 +206,10 @@ java -jar target/sql-mask.jar
 
 ### POST /api/config/parse
 
-请求 `{ "metadataYaml": "..." }`；服务端解析并校验 YAML，返回结构化配置
-（tables / columnPolicies / policies），供编辑器导入使用。
+请求 `{ "metadataYaml": "...", "dialect": "postgresql" }`；`dialect` 可选
+（`postgresql`/`trino`/`mysql`，缺省 `postgresql`），类型按该方言解析校验。
+服务端解析并校验 YAML，返回结构化配置（tables / columnPolicies / policies），
+供编辑器导入使用。
 
 ### POST /api/policies/parse
 
@@ -366,11 +369,12 @@ UDF）」「已脱敏（外层包装 UDF） + 已行过滤」；表结构页签�
 
 ## 输出格式
 
-输出是 Calcite 生成的 SQL（PostgreSQL 方言），不保留原始排版与注释：
-标识符按 PostgreSQL 规则加引号（保留大小写、转义保留字），`LIMIT n`
-渲染为 PostgreSQL 同样支持的 `FETCH NEXT n ROWS ONLY`，函数名输出为
-Calcite 的规范形式（如 `COUNT(*)`）。CLI 输出中语句之间以空行分隔，
-每条语句以 `;` 结尾。
+输出是 Calcite 生成的 SQL（按 `--dialect`/请求 `dialect` 选择方言），不保留原始
+排版与注释。以 PostgreSQL 为例：标识符按需加引号（保留大小写、转义保留字），
+`LIMIT n` 渲染为 PostgreSQL 同样支持的 `FETCH NEXT n ROWS ONLY`，函数名输出为
+Calcite 的规范形式（如 `COUNT(*)`）；Trino/MySQL 的引号风格与关键字渲染见
+「方言支持」。内层查询是校验前的原文渲染快照（POSTGRESQL 例外地原样支持
+`ASYMMETRIC`）。CLI 输出中语句之间以空行分隔，每条语句以 `;` 结尾。
 
 CTE 在血缘分析时会被内联为派生表（Calcite 的 CTE 引用不携带原始关系表达式），
 这不影响改写结果：输出中的 CTE 保持原样在内层。
@@ -393,7 +397,62 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
   可用，与 `--pull-metadata` 同用报用法错误（退出码 2）；
 - `--sql` / `--input`：二选一（同时给出直接失败），输入内容可包含多条 SQL；
 - `--output`：可选，未指定时改写结果输出到 stdout，UTF-8 写入；
-- `--dialect`：可选，默认 `postgresql`（第一版唯一支持的方言）。
+- `--dialect`：可选，`postgresql`（默认）/ `trino` / `mysql`，未知名报用法错误
+  （退出码 2）并列出支持列表；输入 SQL 必须落在「Calcite 可解析的该引擎语法
+  子集」内，引擎特有语法超出部分按 `PARSE_ERROR` 安全失败。
+
+## 方言支持
+
+三个方言共享同一条解析→校验→血缘→改写→渲染管线，差异集中在方言 profile
+（引号风格、标识符大小写语义、类型命名、内置函数库、输出渲染）：
+
+| 维度 | PostgreSQL | Trino | MySQL |
+|---|---|---|---|
+| 标识符引号 | 双引号（按需） | 双引号（按需） | 反引号（包装层一律加） |
+| 非引号标识符 | 折叠小写 | 折叠小写 | 不折叠、大小写不敏感匹配 |
+| 字符串字面量 | 单引号 | 单引号 | 单引号；**双引号不是标识符**（直接被拒，fail-closed） |
+| 两段名 `db.table` | 不支持（用三段名或不加限定） | 支持 | 支持（db = 声明的 schema） |
+| 非限定名同名冲突 | 按 schema 名字母序**静默首匹配**（非报错） | 同左 | 同左 |
+
+包装层（最外层投影）的标识符渲染：PostgreSQL/Trino 按需加引号（保留字、大小写、
+特殊字符），MySQL 一律反引号。`BETWEEN` / `NOT BETWEEN` 在 Trino 与 MySQL 输出
+中保留原义（Calcite 默认渲染成引擎不支持的 `BETWEEN ASYMMETRIC`，两方言各自
+覆盖了该渲染；PostgreSQL 原生支持 ASYMMETRIC，无需处理）；`BETWEEN SYMMETRIC`
+在三方言下均显式失败（PostgreSQL 除外——其输出保留 Calcite 原渲染且 PG 支持）。
+
+### 各引擎类型集（metadata.yaml 的 `type:`）
+
+- **PostgreSQL**：`boolean`、`smallint`、`integer`、`bigint`、`real`、
+  `double precision`、`decimal(p,s)`/`numeric(p,s)`、`char(n)`、`varchar(n)`、
+  `text`、`date`、`timestamp[(p)]`、`timestamp with time zone`/`timestamptz`、
+  `time[(p)]`、`time with time zone`/`timetz`；
+- **Trino**：`boolean`、`tinyint`~`bigint`、`real`、`double`、`decimal(p,s)`、
+  `varchar[(n)]`、`char(n)`、`varbinary`、`date`、`time[(p)] [with time zone]`、
+  `timestamp[(p)] [with time zone]`（`json`、`hyperloglog` 等不支持）；
+- **MySQL**：`boolean`、`tinyint/smallint/mediumint/int/integer/bigint[(n)]`、
+  `decimal(p,s)`、`float`、`double`、`char[(n)]`、`varchar(n)`、
+  `tinytext/mediumint/text/longtext`（→ varchar）、`binary[(n)]`、`varbinary(n)`、
+  `date`、`datetime[(p)]`、`timestamp[(p)]`、`time[(p)]`
+  （`json`、`year`、`enum`、`set`、`bit`、`geometry` 不支持）。
+
+类型声明在编辑器/API 回显时**原样保留**（不再规范化，例如 `text` 回显 `text`）。
+
+### 各引擎安全失败清单
+
+- **MySQL**：`CREATE TABLE … SELECT` 不带 `AS`（请写 AS 形式）；
+  `INSERT … ON DUPLICATE KEY UPDATE`、`REPLACE INTO`；带表属性的 CTAS 变体；
+  双引号字符串形式不存在（双引号标记被解析器直接拒绝）。
+  注意 `LIMIT offset, count` 逗号形式**可以**解析（MYSQL_5 语义）。
+- **Trino**：带 `WITH (…)` 表属性的 CTAS。
+- **通用**：`UPDATE`/`DELETE`/其他 DML/DDL、递归 CTE、输出位置关联标量子查询、
+  需要包装的重复输出列名。
+- **MySQL 反斜杠边界（有意保留）**：UDF 字符串参数中的反斜杠**不会**被双写；
+  在 MySQL 默认转义模式下，含反斜杠的参数值会按 MySQL 转义规则被引擎二次解释
+  （策略参数尽量避免反斜杠）。
+- **CTE 自引用**：CTE 主体内引用同名的 CTE（而非基础表）在所有方言下按递归 CTE
+  拒绝（fail-closed；真实 PostgreSQL/MySQL 可能按基础表解析——请显式改名）。
+- **内层 SQL 语义**：原始查询以内层原文快照保留，其中的转义、引号等由目标引擎
+  按自身语义解释；Calcite 校验期的解释可能不同，但只影响校验、不影响脱敏正确性。
 
 多条语句按顺序逐条处理；任意一条失败则整个命令失败，不输出部分改写结果
 （`--output` 指定的文件也不会被创建或覆盖）。错误诊断输出到 stderr，
@@ -440,18 +499,21 @@ policies:
 
 规则：
 
-- `catalog`、`schema`、表名、列名、类型全部必填；未加引号的标识符按 PostgreSQL
-  惯例统一折叠为小写作为策略键，YAML 中语义不同但折叠后相同的名字会被拒绝；
+- `catalog`、`schema`、表名、列名、类型全部必填；策略键统一折叠为小写
+  （与各方言的标识符折叠/大小写不敏感语义一致；引号标识符需与声明大小写一致），
+  YAML 中语义不同但折叠后相同的名字会被拒绝；
 - SQL 引用的所有表必须在 `metadata.tables` 中声明；未加限定名的表按声明的
-  `catalog.schema` 组合解析，命中多个时报歧义错误；
+  `catalog.schema` 组合解析，多个 schema 声明了同名表时按 schema 名字母序
+  静默取第一个（非报错——请用全限定名避免歧义）；
 - 列策略严格使用完整的 `catalog.schema.table.column` 精确匹配；
   不支持 `search_path`、通配符、正则或标签；
 - `arguments` 是有序标量（字符串/数字/布尔），原样渲染进最外层 UDF 调用；
-- 支持的标量类型：`boolean`、`smallint`、`integer`、`bigint`、`real`、
-  `double precision`、`decimal(p,s)`/`numeric(p,s)`、`char(n)`、`varchar(n)`、
-  `text`、`date`、`timestamp[(p)]`、`timestamp with time zone`、`time[(p)]`、
-  `time with time zone`；数组、JSON、复合类型和用户自定义类型暂不支持。
-  （页面表单导入后，`text` 会规范化显示为 `varchar`，语义一致。）
+- 支持的标量类型（默认 `postgresql` 方言清单）：`boolean`、`smallint`、`integer`、
+  `bigint`、`real`、`double precision`、`decimal(p,s)`/`numeric(p,s)`、`char(n)`、
+  `varchar(n)`、`text`、`date`、`timestamp[(p)]`、`timestamp with time zone`、
+  `time[(p)]`、`time with time zone`；其他方言的类型清单见「方言支持」一节；
+  数组、JSON、复合类型和用户自定义类型暂不支持（各引擎不可用类型清单同样见
+  「方言支持」）。类型声明在编辑器/API 回显时原样保留（如 `text` 回显 `text`）。
 
 ## 元数据微服务（mask-metadata，8082）
 
