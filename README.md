@@ -254,6 +254,12 @@ java -jar target/sql-mask.jar
 - `WITH RECURSIVE`（自引用/环）直接失败，不无限展开；
 - 重复输出别名是合法输入：无包装时原样输出；需要包装时，
   PostgreSQL 无法通过派生表列名可靠区分同名列，本版本直接失败。
+- **包装目标类型**：最外层 UDF 的第一个参数是输出列的值，工具不自动插入类型
+  转换。聚合列（如 `count(phone)`）命中文本型策略时包装目标是数值，真库执行
+  需要 UDF 有对应类型重载（如 `mask_phone(bigint, integer, integer)`），或避免
+  对聚合列绑定文本型策略；
+- `ORDER BY` 可以引用 SELECT 投影之外的列（含表别名限定），转换层会把排序键
+  投影回校验后的输出形态后再做血缘与包装，内层 `ORDER BY` 原样保留。
 
 ## 策略文件（policies.yaml）
 
