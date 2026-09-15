@@ -122,8 +122,9 @@ public final class PolicyValidator {
           .equals(ColumnKey.normalize(policy.resource().catalog(), "catalog"))) {
         continue;
       }
-      boolean overlap = policy.policyType() == PolicyType.ROW_FILTER
-          || intersects(other.resource().columns(), policy.resource().columns());
+      boolean overlap = (policy.policyType() == PolicyType.ROW_FILTER
+          || intersects(other.resource().columns(), policy.resource().columns()))
+          && subjectsMayOverlap(other.subjects(), policy.subjects());
       if (overlap) {
         throw error("policy '" + policy.name() + "' overlaps enabled policy '" + other.name()
             + "' on table '" + tableKey(policy.resource()) + "'; disable one of them first");
@@ -348,5 +349,16 @@ public final class PolicyValidator {
 
   private static SqlMaskException error(String message) {
     return new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, message);
+  }
+
+  /** Two selectors may hit the same subject: any "*" or a users/groups intersection. */
+  private static boolean subjectsMayOverlap(
+      io.sqlmask.policy.model.SubjectSelector a, io.sqlmask.policy.model.SubjectSelector b) {
+    if (a.users().contains("*") || a.groups().contains("*")
+        || b.users().contains("*") || b.groups().contains("*")) {
+      return true;
+    }
+    return !java.util.Collections.disjoint(a.users(), b.users())
+        || !java.util.Collections.disjoint(a.groups(), b.groups());
   }
 }
