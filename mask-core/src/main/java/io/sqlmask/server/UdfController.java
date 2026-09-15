@@ -1,0 +1,91 @@
+package io.sqlmask.server;
+
+import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.model.UdfDefinition;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/**
+ * UDF registry CRUD of one engine instance — the policy service's first admin
+ * surface. Errors flow through {@link ApiExceptionHandler} (SqlMaskException
+ * → 400 + code/message).
+ */
+@RestController
+@RequestMapping("/api/instances/{instance}/udfs")
+public class UdfController {
+
+  public record UdfSignatureDto(List<String> params, String returns) {
+  }
+
+  public record UdfDto(String name, List<UdfSignatureDto> signatures) {
+  }
+
+  private final PolicyService service;
+
+  public UdfController(PolicyService service) {
+    this.service = service;
+  }
+
+  @PostMapping
+  public UdfDto create(@PathVariable("instance") String instance, @RequestBody UdfDto request) {
+    return toDto(service.createUdf(instance, toModel(request)));
+  }
+
+  @GetMapping
+  public List<UdfDto> list(@PathVariable("instance") String instance) {
+    return service.udfs(instance).stream().map(UdfController::toDto).toList();
+  }
+
+  @GetMapping("/{name}")
+  public UdfDto get(@PathVariable("instance") String instance, @PathVariable("name") String name) {
+    return service.udf(instance, name).map(UdfController::toDto)
+        .orElseThrow(() -> new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "udf '" + name + "' not found in instance '" + instance + "'"));
+  }
+
+  @PutMapping("/{name}")
+  public UdfDto replace(@PathVariable("instance") String instance, @PathVariable("name") String name,
+      @RequestBody UdfDto request) {
+    return toDto(service.replaceUdf(instance, name, toModel(request)));
+  }
+
+  @DeleteMapping("/{name}")
+  public void delete(@PathVariable("instance") String instance, @PathVariable("name") String name) {
+    service.deleteUdf(instance, name);
+  }
+
+  private static UdfDefinition toModel(UdfDto dto) {
+    return new UdfDefinition(dto.name(), dto.signatures() == null ? List.of()
+        : dto.signatures().stream()
+            .map(s -> new UdfDefinition.UdfSignature(
+                s.params() == null ? List.of() : s.params(), requireReturnType(dto, s)))
+            .toList());
+  }
+
+  /**
+   * Input guard: a missing return type would surface as an unwrapped NPE deep
+   * in the validator's type parsing (HTTP 500); reject it here as a 400.
+   */
+  private static String requireReturnType(UdfDto dto, UdfSignatureDto signature) {
+    if (signature.returns() == null || signature.returns().isBlank()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + dto.name() + "': signature requires a return type");
+    }
+    return signature.returns();
+  }
+
+  private static UdfDto toDto(UdfDefinition udf) {
+    return new UdfDto(udf.name(), udf.signatures().stream()
+        .map(s -> new UdfSignatureDto(s.params(), s.returns()))
+        .toList());
+  }
+}

@@ -2,6 +2,10 @@ package io.sqlmask.server;
 
 import io.sqlmask.cli.SqlMaskApplication;
 import io.sqlmask.introspect.PgMetadataIntrospector;
+import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.PolicyValidator;
+import io.sqlmask.policyserver.store.InMemoryPolicyStore;
+import io.sqlmask.policyserver.store.PolicyStore;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -62,5 +66,20 @@ public class SqlMaskServiceApplication {
   @Bean
   PgMetadataIntrospector pgMetadataIntrospector() {
     return new PgMetadataIntrospector();
+  }
+
+  @Bean
+  PolicyStore policyStore() {
+    return new InMemoryPolicyStore();
+  }
+
+  @Bean
+  PolicyValidator policyValidator() {
+    return new PolicyValidator();
+  }
+
+  @Bean
+  PolicyService policyService(PolicyStore store, PolicyValidator validator) {
+    return new PolicyService(store, validator);
   }
 }
