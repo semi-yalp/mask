@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * PostgreSQL-backed {@link PolicyStore}: instances and their table structures
@@ -359,7 +360,7 @@ public class JdbcPolicyStore implements PolicyStore {
     }, args.toArray());
     return byName.entrySet().stream()
         .map(e -> new UdfDefinition(e.getKey(), List.copyOf(e.getValue())))
-        .collect(java.util.stream.Collectors.toList());
+        .collect(Collectors.toList());
   }
 
   private List<String> stringsFrom(String json) {

@@ -114,4 +114,47 @@ class UdfEndpointTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
   }
+
+  @Test
+  void malformedUdfBodiesFollowErrorContract() throws Exception {
+    // signature 缺 returns：锁住既有 requireReturnType 守卫
+    mvc.perform(post("/api/instances/pg_prod/udfs")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"]}]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+
+    // PUT body 缺 name：不得让 PolicyService 触发 NPE 变 500
+    mvc.perform(put("/api/instances/pg_prod/udfs/mask_phone")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"signatures\":[{\"params\":[\"varchar\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+
+    // signatures 数组里的 null 元素
+    mvc.perform(post("/api/instances/pg_prod/udfs")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":[null]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+
+    // params 里的 null 元素（List.copyOf 拒绝 null）
+    mvc.perform(post("/api/instances/pg_prod/udfs")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",null],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
+  void replaceUnknownUdfFollowsErrorContract() throws Exception {
+    mvc.perform(put("/api/instances/pg_prod/udfs/never_created")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"never_created\",\"signatures\":"
+                + "[{\"params\":[\"varchar\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
 }

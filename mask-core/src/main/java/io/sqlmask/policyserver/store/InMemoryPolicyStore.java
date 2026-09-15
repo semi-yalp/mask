@@ -6,6 +6,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.TableDef;
 import io.sqlmask.policyserver.model.UdfDefinition;
 
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,7 +166,7 @@ public class InMemoryPolicyStore implements PolicyStore {
   public synchronized List<UdfDefinition> listUdfs(String instanceName) {
     requireInstance(instanceName);
     return udfsByInstance.get(instanceName).values().stream()
-        .sorted(java.util.Comparator.comparing(UdfDefinition::name))
+        .sorted(Comparator.comparing(UdfDefinition::name))
         .toList();
   }
 

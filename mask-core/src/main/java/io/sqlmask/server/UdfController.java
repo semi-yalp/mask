@@ -64,11 +64,52 @@ public class UdfController {
   }
 
   private static UdfDefinition toModel(UdfDto dto) {
+    requireName(dto);
     return new UdfDefinition(dto.name(), dto.signatures() == null ? List.of()
         : dto.signatures().stream()
             .map(s -> new UdfDefinition.UdfSignature(
-                s.params() == null ? List.of() : s.params(), requireReturnType(dto, s)))
+                requireParams(dto, requireSignature(dto, s)), requireReturnType(dto, s)))
             .toList());
+  }
+
+  /**
+   * Input guard: a missing name would surface as an unwrapped NPE when the
+   * service compares it against the path name (HTTP 500); reject it here as
+   * a 400. Mirrors the validator's null-safe naming rule.
+   */
+  private static void requireName(UdfDto dto) {
+    if (dto.name() == null || dto.name().isBlank()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf definition requires a name");
+    }
+  }
+
+  /**
+   * Input guard: a null element in the signatures list would surface as an
+   * unwrapped NPE while reading its fields (HTTP 500); reject it here as a 400.
+   */
+  private static UdfSignatureDto requireSignature(UdfDto dto, UdfSignatureDto signature) {
+    if (signature == null) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + dto.name() + "': signatures must not contain null");
+    }
+    return signature;
+  }
+
+  /**
+   * Input guard: a null element in params would be rejected by
+   * UdfDefinition.UdfSignature's defensive List.copyOf as an unwrapped NPE
+   * (HTTP 500); reject it here as a 400.
+   */
+  private static List<String> requireParams(UdfDto dto, UdfSignatureDto signature) {
+    if (signature.params() == null) {
+      return List.of();
+    }
+    if (signature.params().stream().anyMatch(p -> p == null)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + dto.name() + "': signature parameters must not contain null");
+    }
+    return signature.params();
   }
 
   /**
