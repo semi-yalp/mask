@@ -7,6 +7,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -104,5 +105,52 @@ class PolicyValidatorTest {
             new EngineInstance("x", "postgresql", List.of(
                 new TableDef("c", "s", "t", List.of())))))
         .getMessage().contains("must declare at least one column"));
+  }
+
+  // ---- UDF 写入校验 ----
+
+  private static UdfDefinition udf(String name, UdfDefinition.UdfSignature... signatures) {
+    return new UdfDefinition(name, List.of(signatures));
+  }
+
+  @Test
+  void acceptsValidUdfDefinition() {
+    assertDoesNotThrow(() -> validator.validateUdf(INSTANCE, udf("mask_phone",
+        new UdfDefinition.UdfSignature(List.of("varchar", "integer", "integer"), "varchar"),
+        new UdfDefinition.UdfSignature(List.of("bigint", "integer", "integer"), "varchar"))));
+  }
+
+  @Test
+  void rejectsUdfWithoutSignaturesOrParams() {
+    assertTrue(assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("empty"))).getMessage().contains("at least one signature"));
+    assertTrue(assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("no_params",
+            new UdfDefinition.UdfSignature(List.of(), "varchar"))))
+        .getMessage().contains("column-value parameter"));
+  }
+
+  @Test
+  void rejectsUdfBadNameAndBadTypeDeclarations() {
+    assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("bad name!",
+            new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"))));
+    assertTrue(assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("mask_phone",
+            new UdfDefinition.UdfSignature(List.of("strng", "integer"), "varchar"))))
+        .getMessage().contains("strng"));
+    assertTrue(assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("mask_phone",
+            new UdfDefinition.UdfSignature(List.of("varchar"), "blob"))))
+        .getMessage().contains("blob"));
+  }
+
+  @Test
+  void rejectsDuplicateUdfSignature() {
+    assertTrue(assertThrows(SqlMaskException.class, () ->
+        validator.validateUdf(INSTANCE, udf("mask_phone",
+            new UdfDefinition.UdfSignature(List.of("varchar", "integer"), "varchar"),
+            new UdfDefinition.UdfSignature(List.of("varchar", "integer"), "text"))))
+        .getMessage().contains("duplicate signature"));
   }
 }

@@ -16,6 +16,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import io.sqlmask.rowfilter.RowFilterRegistry;
 import org.apache.calcite.schema.SchemaPlus;
 
@@ -120,6 +121,41 @@ public final class PolicyValidator {
         throw error("policy '" + policy.name() + "' overlaps enabled policy '" + other.name()
             + "' on table '" + tableKey(policy.resource()) + "'; disable one of them first");
       }
+    }
+  }
+
+  /** Config-time gate for udf writes: names, non-empty signatures, dialect-valid
+   * type declarations and signature deduplication. */
+  public void validateUdf(EngineInstance instance, UdfDefinition udf) {
+    requireName(udf.name(), "udf name");
+    if (udf.signatures().isEmpty()) {
+      throw error("udf '" + udf.name() + "' requires at least one signature");
+    }
+    TypeResolver typeResolver = DialectProfiles.byName(instance.dialect()).typeResolver();
+    Set<List<String>> seenParams = new LinkedHashSet<>();
+    for (int i = 0; i < udf.signatures().size(); i++) {
+      UdfDefinition.UdfSignature signature = udf.signatures().get(i);
+      if (signature.params().isEmpty()) {
+        throw error("udf '" + udf.name() + "' signature #" + i
+            + " requires at least the column-value parameter");
+      }
+      for (String declaration : signature.params()) {
+        requireParsableType(typeResolver, instance, udf.name(), declaration);
+      }
+      requireParsableType(typeResolver, instance, udf.name(), signature.returns());
+      if (!seenParams.add(signature.params())) {
+        throw error("udf '" + udf.name() + "': duplicate signature " + signature.params());
+      }
+    }
+  }
+
+  private static void requireParsableType(TypeResolver typeResolver, EngineInstance instance,
+      String udfName, String declaration) {
+    try {
+      typeResolver.parseColumn(declaration, declaration);
+    } catch (SqlMaskException | IllegalArgumentException e) {
+      throw error("udf '" + udfName + "' in instance '" + instance.name()
+          + "': invalid type declaration '" + declaration + "' (" + e.getMessage() + ")");
     }
   }
 
