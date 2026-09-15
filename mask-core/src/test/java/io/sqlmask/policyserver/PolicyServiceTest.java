@@ -7,6 +7,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import io.sqlmask.policyserver.store.InMemoryPolicyStore;
 import org.junit.jupiter.api.Test;
 
@@ -19,13 +20,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyServiceTest {
 
-  private final PolicyService service =
-      new PolicyService(new InMemoryPolicyStore(), new PolicyValidator());
+  private final InMemoryPolicyStore store = new InMemoryPolicyStore();
+  private final PolicyService service = new PolicyService(store, new PolicyValidator());
 
   @Test
   void updateMetadataRejectsRemovingReferencedTable() {
     service.createInstance("pg_prod", "postgresql", List.of(
         new TableDef("crm", "public", "customer", List.of(new ColumnDef("phone", "varchar")))));
+    store.createUdf("pg_prod", new UdfDefinition("mask_phone", List.of(
+        new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"))));
     service.createPolicy("pg_prod", new PolicyEntity("p", PolicyType.DATAMASK, true,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
         "mask_phone", List.of(), null));
@@ -42,6 +45,8 @@ class PolicyServiceTest {
   void effectiveReturnsCompiledResponse() {
     service.createInstance("pg_prod", "postgresql", List.of(
         new TableDef("crm", "public", "customer", List.of(new ColumnDef("phone", "varchar")))));
+    store.createUdf("pg_prod", new UdfDefinition("mask_phone", List.of(
+        new UdfDefinition.UdfSignature(List.of("varchar", "integer", "integer"), "varchar"))));
     service.createPolicy("pg_prod", new PolicyEntity("p", PolicyType.DATAMASK, true,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
         "mask_phone", List.of(3, 4), null));

@@ -19,13 +19,16 @@ import io.sqlmask.policyserver.model.TableDef;
 import io.sqlmask.policyserver.model.UdfDefinition;
 import io.sqlmask.rowfilter.RowFilterRegistry;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.sql.type.SqlTypeName;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Config-time gatekeeper: every write path validates here so the compiled
@@ -71,8 +74,8 @@ public final class PolicyValidator {
     }
   }
 
-  public void validatePolicy(EngineInstance instance, PolicyEntity policy,
-      List<PolicyEntity> otherEnabledPolicies) {
+  public void validatePolicy(EngineInstance instance, List<UdfDefinition> udfs,
+      PolicyEntity policy, List<PolicyEntity> otherEnabledPolicies) {
     requireName(instance.name(), "instance name");
     requireName(policy.name(), "policy name");
     TableMetadata target = findTable(instance, policy);
@@ -93,6 +96,10 @@ public final class PolicyValidator {
             throw error("policy '" + policy.name() + "': unknown column '" + column
                 + "' in table '" + tableKey(policy.resource()) + "'");
           }
+        }
+        String udfError = udfResolutionError(instance, udfs, policy);
+        if (udfError != null) {
+          throw error(udfError);
         }
       }
       case ROW_FILTER -> {
@@ -184,6 +191,121 @@ public final class PolicyValidator {
     } catch (SqlMaskException e) {
       throw error("policy '" + policy.name() + "': invalid filterExpr: " + e.getMessage());
     }
+  }
+
+  /**
+   * Udf-removal guard input: names of enabled DATAMASK policies whose udf
+   * reference no longer resolves against the given registry.
+   */
+  public List<String> policiesFailingUdfResolution(EngineInstance instance,
+      List<UdfDefinition> udfs, List<PolicyEntity> policies) {
+    List<String> failing = new ArrayList<>();
+    for (PolicyEntity policy : policies) {
+      if (!policy.enabled() || policy.policyType() != PolicyType.DATAMASK) {
+        continue;
+      }
+      if (udfResolutionError(instance, udfs, policy) != null) {
+        failing.add(policy.name());
+      }
+    }
+    return failing;
+  }
+
+  /** Null when the policy's udf reference resolves against the registry. */
+  private String udfResolutionError(EngineInstance instance, List<UdfDefinition> udfs,
+      PolicyEntity policy) {
+    UdfDefinition udf = udfs.stream()
+        .filter(u -> u.name().equals(policy.udf())).findFirst().orElse(null);
+    if (udf == null) {
+      return "policy '" + policy.name() + "': unknown udf '" + policy.udf()
+          + "' in instance '" + instance.name() + "'";
+    }
+    int expectedParams = policy.arguments().size() + 1;
+    List<UdfDefinition.UdfSignature> byArity = udf.signatures().stream()
+        .filter(s -> s.params().size() == expectedParams).toList();
+    if (byArity.isEmpty()) {
+      return "policy '" + policy.name() + "': udf '" + udf.name() + "' declares signatures "
+          + signatureShapes(udf) + " but the policy binds 1 column value + "
+          + policy.arguments().size() + " argument(s)";
+    }
+    TypeResolver typeResolver = DialectProfiles.byName(instance.dialect()).typeResolver();
+    List<UdfDefinition.UdfSignature> byScalarTypes = byArity.stream()
+        .filter(s -> argumentsMatch(typeResolver, s, policy.arguments())).toList();
+    if (byScalarTypes.isEmpty()) {
+      return "policy '" + policy.name() + "': argument types " + describeScalars(policy.arguments())
+          + " match no arity-" + expectedParams + " " + udf.name() + " signature";
+    }
+    TableMetadata target = findTable(instance, policy);
+    for (String columnName : policy.resource().columns()) {
+      TableMetadata.Column column = target.columns().stream()
+          .filter(c -> ColumnKey.normalize(c.name(), "column")
+              .equals(ColumnKey.normalize(columnName, "column")))
+          .findFirst().orElse(null);
+      if (column == null) {
+        return "policy '" + policy.name() + "': unknown column '" + columnName + "'";
+      }
+      boolean overloadExists = byScalarTypes.stream()
+          .anyMatch(s -> sameType(typeResolver, s.params().get(0), column));
+      if (!overloadExists) {
+        return "policy '" + policy.name() + "': column '" + columnName + "' ("
+            + column.typeDeclaration() + ") has no matching " + udf.name()
+            + " overload; declare a signature whose first parameter is "
+            + column.typeDeclaration();
+      }
+    }
+    return null;
+  }
+
+  private static boolean argumentsMatch(TypeResolver typeResolver,
+      UdfDefinition.UdfSignature signature, List<Object> arguments) {
+    for (int i = 0; i < arguments.size(); i++) {
+      TableMetadata.Column param = typeResolver.parseColumn("p", signature.params().get(i + 1));
+      if (!scalarFits(arguments.get(i), param)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Strict scalar matrix — no cross-family coercion (spec §4.2). */
+  private static boolean scalarFits(Object scalar, TableMetadata.Column param) {
+    if (scalar instanceof Number) {
+      return param.sqlTypeName() == SqlTypeName.SMALLINT
+          || param.sqlTypeName() == SqlTypeName.INTEGER
+          || param.sqlTypeName() == SqlTypeName.BIGINT
+          || param.sqlTypeName() == SqlTypeName.REAL
+          || param.sqlTypeName() == SqlTypeName.DOUBLE
+          || param.sqlTypeName() == SqlTypeName.DECIMAL;
+    }
+    if (scalar instanceof Boolean) {
+      return param.sqlTypeName() == SqlTypeName.BOOLEAN;
+    }
+    if (scalar instanceof String) {
+      return param.sqlTypeName() == SqlTypeName.VARCHAR || param.sqlTypeName() == SqlTypeName.CHAR;
+    }
+    return false;
+  }
+
+  /** Exact match on the parsed triple — declarations only normalize spellings. */
+  private static boolean sameType(TypeResolver typeResolver, String declaration,
+      TableMetadata.Column column) {
+    TableMetadata.Column parsed = typeResolver.parseColumn("x", declaration);
+    return parsed.sqlTypeName() == column.sqlTypeName()
+        && Objects.equals(parsed.precision(), column.precision())
+        && Objects.equals(parsed.scale(), column.scale());
+  }
+
+  private static String signatureShapes(UdfDefinition udf) {
+    return udf.signatures().stream()
+        .map(s -> "(" + String.join(", ", s.params()) + ")")
+        .collect(Collectors.joining(", ", "[", "]"));
+  }
+
+  private static String describeScalars(List<Object> arguments) {
+    return arguments.stream().map(scalar -> scalar instanceof Number ? "number"
+        : scalar instanceof Boolean ? "boolean"
+        : scalar instanceof String ? "string" : String.valueOf(scalar))
+        .collect(Collectors.joining(", ", "[", "]"));
   }
 
   private TableMetadata findTable(EngineInstance instance, PolicyEntity policy) {

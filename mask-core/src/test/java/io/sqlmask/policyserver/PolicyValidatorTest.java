@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,6 +28,13 @@ class PolicyValidatorTest {
           new ColumnDef("phone", "varchar"), new ColumnDef("email", "varchar"),
           new ColumnDef("status", "varchar"), new ColumnDef("id", "varchar")))));
 
+  private static final List<UdfDefinition> UDFS = List.of(
+      new UdfDefinition("mask_phone", List.of(
+          new UdfDefinition.UdfSignature(List.of("varchar", "integer", "integer"), "varchar"),
+          new UdfDefinition.UdfSignature(List.of("bigint", "integer", "integer"), "varchar"))),
+      new UdfDefinition("mask_ssn", List.of(
+          new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"))));
+
   private final PolicyValidator validator = new PolicyValidator();
 
   private PolicyEntity datamask(String name, String table, List<String> columns) {
@@ -37,16 +45,16 @@ class PolicyValidatorTest {
   @Test
   void acceptsValidDatamaskPolicy() {
     assertDoesNotThrow(() ->
-        validator.validatePolicy(INSTANCE, datamask("phone_mask", "customer", List.of("phone")), List.of()));
+        validator.validatePolicy(INSTANCE, UDFS, datamask("phone_mask", "customer", List.of("phone")), List.of()));
   }
 
   @Test
   void rejectsUnknownTableAndColumn() {
     assertTrue(assertThrows(SqlMaskException.class, () ->
-        validator.validatePolicy(INSTANCE, datamask("p", "no_such", List.of("phone")), List.of()))
+        validator.validatePolicy(INSTANCE, UDFS, datamask("p", "no_such", List.of("phone")), List.of()))
         .getMessage().contains("no_such"));
     assertTrue(assertThrows(SqlMaskException.class, () ->
-        validator.validatePolicy(INSTANCE, datamask("p", "customer", List.of("fax")), List.of()))
+        validator.validatePolicy(INSTANCE, UDFS, datamask("p", "customer", List.of("fax")), List.of()))
         .getMessage().contains("fax"));
   }
 
@@ -55,7 +63,7 @@ class PolicyValidatorTest {
     PolicyEntity existing = datamask("a_mask", "customer", List.of("phone", "email"));
     PolicyEntity overlapping = datamask("b_mask", "customer", List.of("email"));
     SqlMaskException e = assertThrows(SqlMaskException.class,
-        () -> validator.validatePolicy(INSTANCE, overlapping, List.of(existing)));
+        () -> validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
     assertTrue(e.getMessage().contains("a_mask") && e.getMessage().contains("b_mask"));
   }
 
@@ -65,7 +73,7 @@ class PolicyValidatorTest {
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
         "mask_phone", List.of(), null);
     assertDoesNotThrow(() ->
-        validator.validatePolicy(INSTANCE, datamask("b_mask", "customer", List.of("phone")), List.of(disabled)));
+        validator.validatePolicy(INSTANCE, UDFS, datamask("b_mask", "customer", List.of("phone")), List.of(disabled)));
   }
 
   @Test
@@ -73,11 +81,11 @@ class PolicyValidatorTest {
     PolicyEntity rf = new PolicyEntity("rf", PolicyType.ROW_FILTER, true,
         new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
         "status = 'active'");
-    assertDoesNotThrow(() -> validator.validatePolicy(INSTANCE, rf, List.of()));
+    assertDoesNotThrow(() -> validator.validatePolicy(INSTANCE, UDFS, rf, List.of()));
     PolicyEntity rf2 = new PolicyEntity("rf2", PolicyType.ROW_FILTER, true,
         new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
         "id > 0");
-    assertThrows(SqlMaskException.class, () -> validator.validatePolicy(INSTANCE, rf2, List.of(rf)));
+    assertThrows(SqlMaskException.class, () -> validator.validatePolicy(INSTANCE, UDFS, rf2, List.of(rf)));
   }
 
   @Test
@@ -85,7 +93,7 @@ class PolicyValidatorTest {
     PolicyEntity rf = new PolicyEntity("rf", PolicyType.ROW_FILTER, true,
         new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
         "status = (SELECT status FROM t)");
-    assertThrows(SqlMaskException.class, () -> validator.validatePolicy(INSTANCE, rf, List.of()));
+    assertThrows(SqlMaskException.class, () -> validator.validatePolicy(INSTANCE, UDFS, rf, List.of()));
   }
 
   @Test
@@ -105,6 +113,97 @@ class PolicyValidatorTest {
             new EngineInstance("x", "postgresql", List.of(
                 new TableDef("c", "s", "t", List.of())))))
         .getMessage().contains("must declare at least one column"));
+  }
+
+  // ---- DATAMASK 策略 udf 四步解析 ----
+
+  @Test
+  void rejectsUnknownUdfName() {
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        "mask_nonexistent", List.of(3, 4), null);
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()))
+        .getMessage().contains("unknown udf 'mask_nonexistent'"));
+  }
+
+  @Test
+  void rejectsArityMismatch() {
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        "mask_ssn", List.of(1), null);
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()))
+        .getMessage().contains("mask_ssn"));
+  }
+
+  @Test
+  void rejectsCrossFamilyScalarArgument() {
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        "mask_phone", List.of("abc", 4), null);
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()))
+        .getMessage().contains("argument"));
+  }
+
+  @Test
+  void rejectsColumnWithoutMatchingOverload() {
+    // status 是 varchar 但 id 在 fixture 里也是 varchar；借 bigint 列构造失配：
+    // phone(varchar) 有重载，改为选 id 列并把策略指到 mask_ssn（1 参签名）不行——
+    // 用一个 bigint 列的实例直接验证。
+    EngineInstance bigintInstance = new EngineInstance("pg_b", "postgresql",
+        List.of(new TableDef("crm", "public", "ledger", List.of(
+            new ColumnDef("acct", "bigint")))));
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "ledger", List.of("acct")),
+        "mask_ssn", List.of(), null);
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(bigintInstance, UDFS, p, List.of()))
+        .getMessage().contains("column 'acct'"));
+  }
+
+  @Test
+  void resolvesOverloadPerColumn() {
+    // 一条策略同时选 varchar 列（走第一签名）与 bigint 列（走第二签名）。
+    EngineInstance mixed = new EngineInstance("pg_m", "postgresql",
+        List.of(new TableDef("crm", "public", "t", List.of(
+            new ColumnDef("phone", "varchar"), new ColumnDef("uid", "bigint")))));
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "t", List.of("phone", "uid")),
+        "mask_phone", List.of(3, 4), null);
+    assertDoesNotThrow(() -> validator.validatePolicy(mixed, UDFS, p, List.of()));
+  }
+
+  @Test
+  void rejectsPrecisionMismatchAsNoOverload() {
+    // varchar(10) ≠ varchar（precision 参与精确匹配）。
+    EngineInstance sized = new EngineInstance("pg_s", "postgresql",
+        List.of(new TableDef("crm", "public", "t", List.of(
+            new ColumnDef("phone", "varchar(10)")))));
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "t", List.of("phone")),
+        "mask_ssn", List.of(), null);
+    assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(sized, UDFS, p, List.of()));
+  }
+
+  @Test
+  void policiesFailingUdfResolutionNamesEnabledDatamaskOnly() {
+    PolicyEntity enabledMask = datamask("phone_mask", "customer", List.of("phone"));
+    PolicyEntity disabledMask = new PolicyEntity("off", PolicyType.DATAMASK, false,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        "mask_phone", List.of(3, 4), null);
+    PolicyEntity rowFilter = new PolicyEntity("rf", PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        null, List.of(), "status = 'active'");
+    // 空注册表下只有 enabled 的 datamask 失效。
+    assertEquals(List.of("phone_mask"),
+        validator.policiesFailingUdfResolution(INSTANCE, List.of(),
+            List.of(enabledMask, disabledMask, rowFilter)));
+    // 注册表齐备时无人失效。
+    assertTrue(validator.policiesFailingUdfResolution(INSTANCE, UDFS,
+        List.of(enabledMask, disabledMask, rowFilter)).isEmpty());
   }
 
   // ---- UDF 写入校验 ----

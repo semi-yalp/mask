@@ -60,13 +60,15 @@ public class PolicyService {
 
   public PolicyEntity createPolicy(String instanceName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
-    validator.validatePolicy(instance, policy, enabledOthers(instanceName, null));
+    validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
+        enabledOthers(instanceName, null));
     return store.createPolicy(instanceName, policy);
   }
 
   public PolicyEntity updatePolicy(String instanceName, String policyName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
-    validator.validatePolicy(instance, policy, enabledOthers(instanceName, policyName));
+    validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
+        enabledOthers(instanceName, policyName));
     return store.updatePolicy(instanceName, policyName, policy);
   }
 
