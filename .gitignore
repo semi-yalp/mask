@@ -34,3 +34,4 @@ tpcds/out/
 
 # Superpowers session scratch (plans/ledgers/review packages)
 .superpowers/
+.udf-smoke/mysql-test/
