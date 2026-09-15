@@ -1,6 +1,8 @@
 package io.sqlmask.policyserver;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
+import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -52,7 +55,7 @@ class PolicyServiceTest {
     service.createPolicy("pg_prod", new PolicyEntity("p", PolicyType.DATAMASK, true,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
         "mask_phone", List.of(3, 4), null));
-    var response = service.effective("pg_prod");
+    var response = service.effective("pg_prod", Subject.anonymous());
     assertEquals(1, response.config().columns().size());
     assertEquals("postgresql", response.dialect());
   }
@@ -60,7 +63,8 @@ class PolicyServiceTest {
   @Test
   void unknownInstanceMapsToNotFound() {
     assertEquals(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
-        assertThrows(SqlMaskException.class, () -> service.effective("nope")).getCode());
+        assertThrows(SqlMaskException.class,
+            () -> service.effective("nope", Subject.anonymous())).getCode());
   }
 
   @Test
@@ -70,9 +74,23 @@ class PolicyServiceTest {
     recordingService.createInstance("pg_prod", "postgresql", List.of(
         new TableDef("crm", "public", "customer", List.of(new ColumnDef("phone", "varchar")))));
     store.calls.clear();
-    recordingService.effective("pg_prod");
+    recordingService.effective("pg_prod", Subject.anonymous());
     assertTrue(store.calls.indexOf("currentVersion") < store.calls.indexOf("listPolicies"),
         "currentVersion must be read before listPolicies, got: " + store.calls);
+  }
+
+  @Test
+  void effectiveFiltersBySubject() {
+    service.createInstance("pg_prod", "postgresql", List.of(
+        new TableDef("crm", "public", "customer", List.of(new ColumnDef("phone", "varchar")))));
+    service.createUdf("pg_prod", MASK_PHONE);
+    service.createPolicy("pg_prod", new PolicyEntity("only_alice", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("alice"), Set.of()), "mask_phone", List.of(), null));
+    assertEquals(1, service.effective("pg_prod", Subject.of("alice", List.of()))
+        .config().columns().size());
+    assertEquals(0, service.effective("pg_prod", Subject.of("bob", List.of()))
+        .config().columns().size());
   }
 
   // ---- UDF 服务面 ----
@@ -120,12 +138,12 @@ class PolicyServiceTest {
     service.createPolicy("pg_prod", new PolicyEntity("p", PolicyType.DATAMASK, true,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
         "mask_phone", List.of(), null));
-    var before = service.effective("pg_prod");
+    var before = service.effective("pg_prod", Subject.anonymous());
     long versionBefore = before.configVersion();
     service.replaceUdf("pg_prod", "mask_phone", new UdfDefinition("mask_phone", List.of(
         new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"),
         new UdfDefinition.UdfSignature(List.of("text"), "varchar"))));
-    var after = service.effective("pg_prod");
+    var after = service.effective("pg_prod", Subject.anonymous());
     assertEquals(before.config(), after.config());
     assertEquals(versionBefore + 1, after.configVersion());
   }

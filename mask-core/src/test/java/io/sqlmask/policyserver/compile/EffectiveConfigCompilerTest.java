@@ -1,6 +1,8 @@
 package io.sqlmask.policyserver.compile;
 
 import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.policy.model.Subject;
+import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -10,10 +12,12 @@ import io.sqlmask.policyserver.model.TableDef;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EffectiveConfigCompilerTest {
 
@@ -34,7 +38,7 @@ class EffectiveConfigCompilerTest {
             new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
             "status = 'active'"));
     EffectiveConfigResponse response =
-        EffectiveConfigCompiler.compile(INSTANCE, policies);
+        EffectiveConfigCompiler.compile(INSTANCE, policies, Subject.of("alice", List.of()));
 
     assertEquals(2, response.policySummary().enabled());
     assertEquals(1, response.policySummary().disabled());
@@ -51,8 +55,57 @@ class EffectiveConfigCompilerTest {
 
   @Test
   void blankRowFilterAbsentWhenNoRowFilterPolicy() {
-    EffectiveConfigResponse response = EffectiveConfigCompiler.compile(INSTANCE, List.of());
+    EffectiveConfigResponse response =
+        EffectiveConfigCompiler.compile(INSTANCE, List.of(), Subject.of("alice", List.of()));
     assertNull(response.config().metadata().tables().get(0).rowFilter());
     assertEquals(0, response.config().columns().size());
+  }
+
+  // ---- 按主体过滤 ----
+
+  @Test
+  void anonymousSubjectSeesOnlyWildcardPolicies() {
+    EffectiveConfigResponse response = EffectiveConfigCompiler.compile(
+        INSTANCE, List.of(wildcardMask(), aliceMask()), Subject.anonymous());
+    assertTrue(response.config().columns().stream()
+        .noneMatch(c -> "alice_mask".equals(c.policy())));
+    assertTrue(response.config().columns().stream()
+        .anyMatch(c -> "wildcard_mask".equals(c.policy())));
+    assertEquals(1, response.policySummary().enabled());
+    assertEquals(1, response.policySummary().disabled()); // 未命中计入 disabled
+  }
+
+  @Test
+  void namedSubjectSeesOwnAndWildcardPolicies() {
+    EffectiveConfigResponse response = EffectiveConfigCompiler.compile(
+        INSTANCE, List.of(wildcardMask(), aliceMask()), Subject.of("alice", List.of()));
+    assertEquals(2, response.policySummary().enabled());
+  }
+
+  @Test
+  void groupMembershipSelectsPolicies() {
+    EffectiveConfigResponse response = EffectiveConfigCompiler.compile(
+        INSTANCE, List.of(analystsRowFilter()), Subject.of("bob", List.of("analysts")));
+    // row_filter 只对该主体回填到表上
+    assertTrue(response.config().metadata().tables().stream()
+        .anyMatch(t -> t.rowFilter() != null && t.rowFilter().contains("status")));
+  }
+
+  private static PolicyEntity wildcardMask() {
+    return new PolicyEntity("wildcard_mask", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(), null);
+  }
+
+  private static PolicyEntity aliceMask() {
+    return new PolicyEntity("alice_mask", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("alice"), Set.of()), "mask_phone", List.of(), null);
+  }
+
+  private static PolicyEntity analystsRowFilter() {
+    return new PolicyEntity("analysts_filter", PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of(), Set.of("analysts")), null, List.of(), "status = 'active'");
   }
 }
