@@ -7,12 +7,14 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InMemoryPolicyStoreTest {
 
@@ -64,5 +66,51 @@ class InMemoryPolicyStoreTest {
             () -> store.updatePolicy("pg_prod", "p1", datamask("p2"))).getCode());
     assertEquals("p1", store.findPolicy("pg_prod", "p1").orElseThrow().name());
     assertEquals(2, store.currentVersion("pg_prod"));
+  }
+
+  // ---- UDF CRUD ----
+
+  private static UdfDefinition udf(String name, String... params) {
+    return new UdfDefinition(name, List.of(
+        new UdfDefinition.UdfSignature(List.of(params), "varchar")));
+  }
+
+  @Test
+  void udfCrudRoundTripAndVersionBumps() {
+    store.createInstance(INSTANCE);
+    assertEquals(1, store.currentVersion("pg_prod"));
+    store.createUdf("pg_prod", udf("mask_phone", "varchar", "integer", "integer"));
+    assertEquals(2, store.currentVersion("pg_prod"));
+    assertEquals("mask_phone", store.findUdf("pg_prod", "mask_phone").orElseThrow().name());
+    store.replaceUdf("pg_prod", "mask_phone",
+        new UdfDefinition("mask_phone", List.of(
+            new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"),
+            new UdfDefinition.UdfSignature(List.of("bigint"), "varchar"))));
+    assertEquals(2, store.findUdf("pg_prod", "mask_phone").orElseThrow().signatures().size());
+    assertEquals(3, store.currentVersion("pg_prod"));
+    assertEquals(1, store.listUdfs("pg_prod").size());
+    store.deleteUdf("pg_prod", "mask_phone");
+    assertTrue(store.findUdf("pg_prod", "mask_phone").isEmpty());
+    assertEquals(4, store.currentVersion("pg_prod"));
+  }
+
+  @Test
+  void udfErrorsFollowStoreContract() {
+    store.createInstance(INSTANCE);
+    store.createUdf("pg_prod", udf("mask_phone", "varchar"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR,
+        assertThrows(SqlMaskException.class,
+            () -> store.createUdf("pg_prod", udf("mask_phone", "varchar"))).getCode());
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR,
+        assertThrows(SqlMaskException.class,
+            () -> store.replaceUdf("pg_prod", "mask_phone", udf("renamed", "varchar")))
+            .getCode());
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR,
+        assertThrows(SqlMaskException.class,
+            () -> store.deleteUdf("pg_prod", "nope")).getCode());
+    assertEquals(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
+        assertThrows(SqlMaskException.class, () -> store.createUdf("nope", udf("u", "varchar")))
+            .getCode());
+    assertEquals(2, store.currentVersion("pg_prod")); // 失败变更不推进版本
   }
 }

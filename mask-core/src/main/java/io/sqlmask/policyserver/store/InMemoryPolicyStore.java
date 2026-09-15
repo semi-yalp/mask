@@ -4,6 +4,7 @@ import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +21,7 @@ public class InMemoryPolicyStore implements PolicyStore {
 
   private final Map<String, EngineInstance> instances = new LinkedHashMap<>();
   private final Map<String, Map<String, PolicyEntity>> policiesByInstance = new LinkedHashMap<>();
+  private final Map<String, Map<String, UdfDefinition>> udfsByInstance = new LinkedHashMap<>();
   private final Map<String, Long> versions = new LinkedHashMap<>();
 
   @Override
@@ -30,6 +32,7 @@ public class InMemoryPolicyStore implements PolicyStore {
     }
     instances.put(instance.name(), instance);
     policiesByInstance.put(instance.name(), new LinkedHashMap<>());
+    udfsByInstance.put(instance.name(), new LinkedHashMap<>());
     bump(instance.name());
     return instance;
   }
@@ -63,6 +66,7 @@ public class InMemoryPolicyStore implements PolicyStore {
     }
     instances.remove(name);
     policiesByInstance.remove(name);
+    udfsByInstance.remove(name);
     versions.remove(name);
   }
 
@@ -116,6 +120,61 @@ public class InMemoryPolicyStore implements PolicyStore {
     if (policies.remove(policyName) == null) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "policy '" + policyName + "' not found");
+    }
+    bump(instanceName);
+  }
+
+  @Override
+  public synchronized UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
+    requireInstance(instanceName);
+    Map<String, UdfDefinition> udfs = udfsByInstance.get(instanceName);
+    if (udfs.containsKey(udf.name())) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + udf.name() + "' already exists in instance '" + instanceName + "'");
+    }
+    udfs.put(udf.name(), udf);
+    bump(instanceName);
+    return udf;
+  }
+
+  @Override
+  public synchronized UdfDefinition replaceUdf(String instanceName, String udfName,
+      UdfDefinition udf) {
+    requireInstance(instanceName);
+    if (!udf.name().equals(udfName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "udf name mismatch: '"
+          + udfName + "' cannot be renamed to '" + udf.name() + "'");
+    }
+    Map<String, UdfDefinition> udfs = udfsByInstance.get(instanceName);
+    if (!udfs.containsKey(udfName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + udfName + "' not found in instance '" + instanceName + "'");
+    }
+    udfs.put(udfName, udf);
+    bump(instanceName);
+    return udf;
+  }
+
+  @Override
+  public synchronized Optional<UdfDefinition> findUdf(String instanceName, String udfName) {
+    requireInstance(instanceName);
+    return Optional.ofNullable(udfsByInstance.get(instanceName).get(udfName));
+  }
+
+  @Override
+  public synchronized List<UdfDefinition> listUdfs(String instanceName) {
+    requireInstance(instanceName);
+    return udfsByInstance.get(instanceName).values().stream()
+        .sorted(java.util.Comparator.comparing(UdfDefinition::name))
+        .toList();
+  }
+
+  @Override
+  public synchronized void deleteUdf(String instanceName, String udfName) {
+    requireInstance(instanceName);
+    if (udfsByInstance.get(instanceName).remove(udfName) == null) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "udf '" + udfName + "' not found in instance '" + instanceName + "'");
     }
     bump(instanceName);
   }

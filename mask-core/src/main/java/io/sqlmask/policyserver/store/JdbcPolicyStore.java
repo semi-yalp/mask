@@ -10,6 +10,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -185,6 +186,32 @@ public class JdbcPolicyStore implements PolicyStore {
           "policy '" + policyName + "' not found");
     }
     bumpVersion(instanceName);
+  }
+
+  /** UDF storage lands in a later task; the stub keeps the build compiling. */
+  @Override
+  public UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
+    throw new UnsupportedOperationException("not implemented in this task");
+  }
+
+  @Override
+  public UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf) {
+    throw new UnsupportedOperationException("not implemented in this task");
+  }
+
+  @Override
+  public Optional<UdfDefinition> findUdf(String instanceName, String udfName) {
+    throw new UnsupportedOperationException("not implemented in this task");
+  }
+
+  @Override
+  public List<UdfDefinition> listUdfs(String instanceName) {
+    throw new UnsupportedOperationException("not implemented in this task");
+  }
+
+  @Override
+  public void deleteUdf(String instanceName, String udfName) {
+    throw new UnsupportedOperationException("not implemented in this task");
   }
 
   @Override

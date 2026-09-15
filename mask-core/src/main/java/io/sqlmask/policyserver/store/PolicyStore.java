@@ -3,6 +3,7 @@ package io.sqlmask.policyserver.store;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 
 import java.util.List;
 import java.util.Optional;
@@ -47,6 +48,21 @@ public interface PolicyStore {
   List<PolicyEntity> listPolicies(String instanceName);
 
   void deletePolicy(String instanceName, String policyName);
+
+  /** Registers a udf definition; a duplicate name within the instance is a {@code CONFIG_ERROR}. */
+  UdfDefinition createUdf(String instanceName, UdfDefinition udf);
+
+  /** Replaces the definition stored under {@code udfName} (the name is immutable). */
+  UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf);
+
+  /** Looks up one udf definition; empty for an unknown name. */
+  Optional<UdfDefinition> findUdf(String instanceName, String udfName);
+
+  /** All udf definitions of the instance ordered by name. */
+  List<UdfDefinition> listUdfs(String instanceName);
+
+  /** Removes one udf definition; an unknown name is a {@code CONFIG_ERROR}. */
+  void deleteUdf(String instanceName, String udfName);
 
   /** Mutation counter, starting at 1; unknown instance throws {@code POLICY_INSTANCE_NOT_FOUND}. */
   long currentVersion(String instanceName);
