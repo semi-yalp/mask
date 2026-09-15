@@ -42,6 +42,20 @@ class PolicyAdminEndpointTest {
        "udf": "mask_phone", "arguments": [3, 4]}
       """;
 
+  private static final String INSTANCE_BODY_TABLE_WITHOUT_CATALOG = """
+      {"name": "pg_prod", "dialect": "postgresql",
+       "tables": [{"schema": "public", "name": "customer",
+                   "columns": [{"name": "phone", "type": "varchar"}]}]}
+      """;
+
+  private static final String POLICY_BODY_RESOURCE_WITHOUT_TABLE = """
+      {"name": "phone_mask_analysts", "policyType": "datamask", "isEnabled": true,
+       "resource": {"catalog": "crm", "schema": "public",
+                    "columns": ["phone"]},
+       "subjects": {"users": ["alice"], "groups": []},
+       "udf": "mask_phone", "arguments": [3, 4]}
+      """;
+
   @Autowired
   private MockMvc mvc;
 
@@ -148,6 +162,33 @@ class PolicyAdminEndpointTest {
     mvc.perform(put("/api/instances/pg_prod/policies/phone_mask_analysts")
             .contentType(MediaType.APPLICATION_JSON)
             .content(POLICY_BODY_WITHOUT_RESOURCE))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
+  void tableWithoutCatalogFollowsErrorContract() throws Exception {
+    // 表缺 catalog 不得漏成 ColumnKey.normalize 的 IllegalArgumentException→500；
+    // 控制器守卫应以 400 CONFIG_ERROR 拒绝
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY_TABLE_WITHOUT_CATALOG))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
+  void policyResourceWithoutTableFollowsErrorContract() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+
+    // resource 缺 table：守卫应先于 findTable 的 normalize 以 400 CONFIG_ERROR 拒绝
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(POLICY_BODY_RESOURCE_WITHOUT_TABLE))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
   }

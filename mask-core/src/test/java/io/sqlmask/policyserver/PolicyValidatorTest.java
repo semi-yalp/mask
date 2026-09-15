@@ -266,12 +266,32 @@ class PolicyValidatorTest {
 
   @Test
   void sameTypeSameTableDisjointSubjectsDoNotOverlap() {
-    PolicyEntity analysts = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
+    // users-only 互不相交、groups-only 互不相交：确实选不中同一主体，放行
+    PolicyEntity alice = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
         List.of("phone"));
-    PolicyEntity auditors = datamaskWithSubjects("b_mask", Set.of(), Set.of("auditors"),
+    PolicyEntity bob = datamaskWithSubjects("b_mask", Set.of("bob"), Set.of(),
         List.of("phone"));
     assertDoesNotThrow(() ->
-        validator.validatePolicy(INSTANCE, UDFS, analysts, List.of(auditors)));
+        validator.validatePolicy(INSTANCE, UDFS, alice, List.of(bob)));
+    PolicyEntity analytics = datamaskWithSubjects("c_mask", Set.of(), Set.of("analytics"),
+        List.of("phone"));
+    PolicyEntity bi = datamaskWithSubjects("d_mask", Set.of(), Set.of("bi"),
+        List.of("phone"));
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, analytics, List.of(bi)));
+  }
+
+  @Test
+  void crossSetSubjectsOverlapForCompositeSubject() {
+    // 复合主体 (bob, [analysts]) 经 matchLevel 独立命中 users 与 groups，
+    // users-only × groups-only 同表同列也必须拒绝（否则编译期/按主体静默双策略）
+    PolicyEntity usersOnly = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
+        List.of("phone"));
+    PolicyEntity groupsOnly = datamaskWithSubjects("b_mask", Set.of(), Set.of("analysts"),
+        List.of("phone"));
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, groupsOnly, List.of(usersOnly)))
+        .getMessage().contains("overlaps"));
   }
 
   @Test
@@ -303,12 +323,13 @@ class PolicyValidatorTest {
 
   @Test
   void rowFilterSameTableDisjointSubjectsAllowed() {
+    // users 互斥即可；users × groups 的组合会命中复合主体，不再作为反例
     PolicyEntity rfA = new PolicyEntity("rf_a", PolicyType.ROW_FILTER, true,
         new ResourceSelector("crm", "public", "customer", List.of()),
         new SubjectSelector(Set.of("alice"), Set.of()), null, List.of(), "status = 'active'");
     PolicyEntity rfB = new PolicyEntity("rf_b", PolicyType.ROW_FILTER, true,
         new ResourceSelector("crm", "public", "customer", List.of()),
-        new SubjectSelector(Set.of(), Set.of("auditors")), null, List.of(), "id > 0");
+        new SubjectSelector(Set.of("bob"), Set.of()), null, List.of(), "id > 0");
     assertDoesNotThrow(() ->
         validator.validatePolicy(INSTANCE, UDFS, rfB, List.of(rfA)));
   }

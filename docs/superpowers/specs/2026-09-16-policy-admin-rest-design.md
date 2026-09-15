@@ -110,9 +110,11 @@ message}`；实例内策略名唯一、UDF 引用校验（四步解析）照常�
   同表）时拒绝。主体相交判定：
 
   > selectorA 与 selectorB 相交 ⟺ 任一方 users 或 groups 含 `*`，
-  > 或 A.users ∩ B.users ≠ ∅，或 A.groups ∩ B.groups ≠ ∅
-  > （user 只匹配 users、group 只匹配 groups，两者不交叉判定——
-  > 与 `SubjectSelector.matches` 语义一致）
+  > 或 A.users ∩ B.users ≠ ∅，或 A.groups ∩ B.groups ≠ ∅，
+  > 或（A.users ≠ ∅ 且 B.groups ≠ ∅），或（A.groups ≠ ∅ 且 B.users ≠ ∅）
+  > （复合主体（user, groups）经 `SubjectSelector.matchLevel` 独立匹配
+  > users 与 groups——任一方 users 非空且另一方 groups 非空，即可能存在
+  > 同时命中两条策略的复合主体，按保守相交处理）
 
 - 删除/替换 UDF 的守恒守卫同样按主体无关执行（引用完整性是实例级属性）；
 - DATAMASK 的 UDF 四步校验（存在性/个数/标量矩阵/列类型）不变。

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -119,11 +120,24 @@ public class PolicyAdminController {
     if (tables == null) {
       return List.of();
     }
-    return tables.stream()
-        .map(t -> new TableDef(t.catalog(), t.schema(), t.name(),
-            (t.columns() == null ? List.<ColumnDto>of() : t.columns()).stream()
-                .map(c -> new ColumnDef(c.name(), c.type())).toList()))
-        .toList();
+    List<TableDef> defs = new ArrayList<>(tables.size());
+    for (int i = 0; i < tables.size(); i++) {
+      TableDto t = tables.get(i);
+      String tableRef = "table '"
+          + (t.name() == null || t.name().isBlank() ? "#" + i : t.name()) + "'";
+      requireText(t.catalog(), tableRef + ": catalog");
+      requireText(t.schema(), tableRef + ": schema");
+      requireText(t.name(), tableRef + ": name");
+      List<ColumnDto> columns = t.columns() == null ? List.of() : t.columns();
+      List<ColumnDef> columnDefs = new ArrayList<>(columns.size());
+      for (int j = 0; j < columns.size(); j++) {
+        ColumnDto c = columns.get(j);
+        requireText(c.name(), tableRef + ": column '#" + j + "': name");
+        columnDefs.add(new ColumnDef(c.name(), c.type()));
+      }
+      defs.add(new TableDef(t.catalog(), t.schema(), t.name(), columnDefs));
+    }
+    return defs;
   }
 
   private static PolicyEntity toModel(PolicyDto dto) {
@@ -138,14 +152,26 @@ public class PolicyAdminController {
   }
 
   /**
-   * Input guard: a missing resource would surface as an unwrapped NPE while
-   * reading its fields (HTTP 500); reject it here as a 400. Mirrors
-   * UdfController's null-safe input guards.
+   * Input guard: a missing resource or blank resource identifier would surface
+   * as an unwrapped NPE/IllegalArgumentException (HTTP 500) inside validation;
+   * reject it here as a 400. Mirrors UdfController's null-safe input guards.
    */
   private static void requireResource(PolicyDto dto) {
     if (dto.resource() == null) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "policy '" + dto.name() + "': resource is required");
+    }
+    requireText(dto.resource().catalog(), "policy '" + dto.name() + "': resource catalog");
+    requireText(dto.resource().schema(), "policy '" + dto.name() + "': resource schema");
+    requireText(dto.resource().table(), "policy '" + dto.name() + "': resource table");
+  }
+
+  /** Input guard: blank identifiers only fail later inside
+   * {@code ColumnKey.normalize} with a bare IllegalArgumentException (HTTP 500);
+   * reject them here as a 400 {@code CONFIG_ERROR}. */
+  private static void requireText(String value, String what) {
+    if (value == null || value.isBlank()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, what + " is required");
     }
   }
 

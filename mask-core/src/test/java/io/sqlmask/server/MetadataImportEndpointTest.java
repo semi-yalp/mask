@@ -110,4 +110,14 @@ class MetadataImportEndpointTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
   }
+
+  @Test
+  void missingMetadataFieldsAreRejected() throws Exception {
+    // 守卫：缺 metadataInstance 时以 400 CONFIG_ERROR 拒绝（存量行为回归覆盖）
+    mvc.perform(post("/api/instances/imported/import-metadata")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"metadataBaseUrl\": \"http://x\", \"metadataApiKey\": \"k\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
 }
