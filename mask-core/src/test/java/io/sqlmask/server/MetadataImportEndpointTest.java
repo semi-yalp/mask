@@ -71,7 +71,8 @@ class MetadataImportEndpointTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.name").value("imported"))
         .andExpect(jsonPath("$.dialect").value("postgresql"))
-        .andExpect(jsonPath("$.tables[0].name").value("customer"));
+        .andExpect(jsonPath("$.tables[0].name").value("customer"))
+        .andExpect(jsonPath("$.tables[0].columns[0].type").value("varchar"));
   }
 
   @Test

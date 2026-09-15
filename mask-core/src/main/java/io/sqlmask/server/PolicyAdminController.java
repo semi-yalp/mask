@@ -194,9 +194,14 @@ public class PolicyAdminController {
   }
 
   private static InstanceDto toDto(EngineInstance i) {
-    return new InstanceDto(i.name(), i.dialect(), i.tables().stream()
+    return new InstanceDto(i.name(), i.dialect(), toTableDtos(i.tables()));
+  }
+
+  /** Shared with MetadataImportController so both surfaces emit `type`, not `typeDeclaration`. */
+  static List<TableDto> toTableDtos(List<TableDef> tables) {
+    return tables.stream()
         .map(t -> new TableDto(t.catalog(), t.schema(), t.name(), t.columns().stream()
             .map(c -> new ColumnDto(c.name(), c.typeDeclaration())).toList()))
-        .toList());
+        .toList();
   }
 }

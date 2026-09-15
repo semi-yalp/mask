@@ -26,7 +26,8 @@ public class MetadataImportController {
       String metadataInstance) {
   }
 
-  public record ImportResponse(String name, String dialect, List<TableDef> tables) {
+  public record ImportResponse(String name, String dialect,
+      List<PolicyAdminController.TableDto> tables) {
   }
 
   private final PolicyService service;
@@ -57,7 +58,8 @@ public class MetadataImportController {
         .filter(i -> i.name().equals(name)).findFirst().orElse(null);
     if (existing == null) {
       EngineInstance created = service.createInstance(name, snapshot.dialect(), tables);
-      return new ImportResponse(created.name(), created.dialect(), created.tables());
+      return new ImportResponse(created.name(), created.dialect(),
+          PolicyAdminController.toTableDtos(created.tables()));
     }
     if (!existing.dialect().equals(snapshot.dialect())) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "instance '" + name
@@ -65,6 +67,7 @@ public class MetadataImportController {
           + request.metadataInstance() + "' reports '" + snapshot.dialect() + "'");
     }
     EngineInstance updated = service.updateInstanceTables(name, tables);
-    return new ImportResponse(updated.name(), updated.dialect(), updated.tables());
+    return new ImportResponse(updated.name(), updated.dialect(),
+        PolicyAdminController.toTableDtos(updated.tables()));
   }
 }
