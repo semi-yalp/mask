@@ -82,4 +82,9 @@ public class SqlMaskServiceApplication {
   PolicyService policyService(PolicyStore store, PolicyValidator validator) {
     return new PolicyService(store, validator);
   }
+
+  @Bean
+  MetadataStructureFetcher metadataStructureFetcher() {
+    return new MetadataStructureFetcher.HttpMetadataStructureFetcher();
+  }
 }
