@@ -1,6 +1,7 @@
 package io.sqlmask.policyserver;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -11,6 +12,7 @@ import io.sqlmask.policyserver.model.UdfDefinition;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -251,5 +253,90 @@ class PolicyValidatorTest {
             new UdfDefinition.UdfSignature(List.of("varchar", "integer"), "varchar"),
             new UdfDefinition.UdfSignature(List.of("varchar", "integer"), "text"))))
         .getMessage().contains("duplicate signature"));
+  }
+
+  // ---- 主体相交重叠校验 ----
+
+  private static PolicyEntity datamaskWithSubjects(String name, Set<String> users,
+      Set<String> groups, List<String> columns) {
+    return new PolicyEntity(name, PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", columns),
+        new SubjectSelector(users, groups), "mask_phone", List.of(3, 4), null);
+  }
+
+  @Test
+  void sameTypeSameTableDisjointSubjectsDoNotOverlap() {
+    // users-only 互不相交、groups-only 互不相交：确实选不中同一主体，放行
+    PolicyEntity alice = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
+        List.of("phone"));
+    PolicyEntity bob = datamaskWithSubjects("b_mask", Set.of("bob"), Set.of(),
+        List.of("phone"));
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, alice, List.of(bob)));
+    PolicyEntity analytics = datamaskWithSubjects("c_mask", Set.of(), Set.of("analytics"),
+        List.of("phone"));
+    PolicyEntity bi = datamaskWithSubjects("d_mask", Set.of(), Set.of("bi"),
+        List.of("phone"));
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, analytics, List.of(bi)));
+  }
+
+  @Test
+  void crossSetSubjectsOverlapForCompositeSubject() {
+    // 复合主体 (bob, [analysts]) 经 matchLevel 独立命中 users 与 groups，
+    // users-only × groups-only 同表同列也必须拒绝（否则编译期/按主体静默双策略）
+    PolicyEntity usersOnly = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
+        List.of("phone"));
+    PolicyEntity groupsOnly = datamaskWithSubjects("b_mask", Set.of(), Set.of("analysts"),
+        List.of("phone"));
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, groupsOnly, List.of(usersOnly)))
+        .getMessage().contains("overlaps"));
+  }
+
+  @Test
+  void wildcardSubjectOverlapsEverything() {
+    PolicyEntity analysts = datamaskWithSubjects("a_mask", Set.of("alice"), Set.of(),
+        List.of("phone"));
+    PolicyEntity everyone = datamaskWithSubjects("b_mask", Set.of(), Set.of("*"),
+        List.of("phone"));
+    assertTrue(assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, everyone, List.of(analysts)))
+        .getMessage().contains("overlaps"));
+  }
+
+  @Test
+  void userIntersectionAndGroupIntersectionOverlap() {
+    PolicyEntity a = datamaskWithSubjects("a_mask", Set.of("alice", "bob"), Set.of(),
+        List.of("phone"));
+    PolicyEntity b = datamaskWithSubjects("b_mask", Set.of("bob"), Set.of(),
+        List.of("phone"));
+    assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, b, List.of(a)));
+    PolicyEntity c = datamaskWithSubjects("c_mask", Set.of(), Set.of("analytics"),
+        List.of("phone"));
+    PolicyEntity d = datamaskWithSubjects("d_mask", Set.of(), Set.of("analytics", "bi"),
+        List.of("phone"));
+    assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, d, List.of(c)));
+  }
+
+  @Test
+  void rowFilterSameTableDisjointSubjectsAllowed() {
+    // users 互斥即可；users × groups 的组合会命中复合主体，不再作为反例
+    PolicyEntity rfA = new PolicyEntity("rf_a", PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("alice"), Set.of()), null, List.of(), "status = 'active'");
+    PolicyEntity rfB = new PolicyEntity("rf_b", PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("bob"), Set.of()), null, List.of(), "id > 0");
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, rfB, List.of(rfA)));
+  }
+
+  @Test
+  void defaultConstructorMeansEveryone() {
+    PolicyEntity legacy = datamask("legacy", "customer", List.of("phone")); // 7 参便捷构造
+    assertEquals(Set.of("*"), legacy.subjects().users());
   }
 }

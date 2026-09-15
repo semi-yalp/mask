@@ -1,7 +1,7 @@
 # 策略服务管理面 REST 设计方案（实例/策略 CRUD + 主体维度 + metaserver 导入 + API Key）
 
 日期：2026-09-16
-状态：设计已与用户逐项确认（用户定位 / 资源来源 / 鉴权 / 主体机制 / REST+模型 / 数据面+导入 六项全部通过）
+状态：已实现（见 docs/superpowers/plans/2026-09-16-policy-admin-rest.md）
 前置文档：`2026-09-06-policy-service-design.md`（策略微服务模型）、
 `2026-09-15-udf-registry-design.md`（UDF 注册表，已实现，其 REST 是管理面第一个端点）
 
@@ -55,12 +55,11 @@ EngineInstance（不变：name + dialect + tables）
 
 - `SubjectSelector` 直接复用 `io.sqlmask.policy.model.SubjectSelector`（非空
   校验与 `*` 通配语义内建：users 或 groups 至少一项非空，`["*"]` 表示全体）；
-- 存储：`policy` 表新增 `subjects JSONB NOT NULL`；存量行迁移回填
-  `{"users":["*"]}`（语义零变化：现状即全体生效）。`schema.sql` 的
-  `CREATE TABLE IF NOT EXISTS` 不会改已存在的表——存量部署执行
-  `ALTER TABLE policy ADD COLUMN subjects JSONB` + 回填
-  `UPDATE policy SET subjects = '{"users":["*"]}'::jsonb WHERE subjects IS NULL`
-  （允许短暂 NULL，读取层对 NULL 按 `{"users":["*"]}` 容错兜底）；
+- 存储：`policy` 表新增 `subjects JSONB`（允许短暂 NULL，读取层对 NULL 按
+  `{"users":["*"]}` 容错）；存量行迁移回填 `{"users":["*"]}`（语义零变化：
+  现状即全体生效）。`schema.sql` 的 `CREATE TABLE IF NOT EXISTS` 不会改
+  已存在的表——存量部署执行 `ALTER TABLE policy ADD COLUMN subjects JSONB`
+  + 回填 `UPDATE policy SET subjects = '{"users":["*"]}'::jsonb WHERE subjects IS NULL`；
 - REST payload（datamask 示例）：
 
 ```json
@@ -111,9 +110,11 @@ message}`；实例内策略名唯一、UDF 引用校验（四步解析）照常�
   同表）时拒绝。主体相交判定：
 
   > selectorA 与 selectorB 相交 ⟺ 任一方 users 或 groups 含 `*`，
-  > 或 A.users ∩ B.users ≠ ∅，或 A.groups ∩ B.groups ≠ ∅
-  > （user 只匹配 users、group 只匹配 groups，两者不交叉判定——
-  > 与 `SubjectSelector.matches` 语义一致）
+  > 或 A.users ∩ B.users ≠ ∅，或 A.groups ∩ B.groups ≠ ∅，
+  > 或（A.users ≠ ∅ 且 B.groups ≠ ∅），或（A.groups ≠ ∅ 且 B.users ≠ ∅）
+  > （复合主体（user, groups）经 `SubjectSelector.matchLevel` 独立匹配
+  > users 与 groups——任一方 users 非空且另一方 groups 非空，即可能存在
+  > 同时命中两条策略的复合主体，按保守相交处理）
 
 - 删除/替换 UDF 的守恒守卫同样按主体无关执行（引用完整性是实例级属性）；
 - DATAMASK 的 UDF 四步校验（存在性/个数/标量矩阵/列类型）不变。

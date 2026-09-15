@@ -550,3 +550,19 @@ DATAMASK 策略写入时按注册表校验：UDF 存在、参数个数（= argum
 boolean→boolean，无跨族转换）、每个选中列的类型与某重载首参精确相等
 （无隐式转换，需要 `mask_phone(bigint, …)` 这类重载）。删除或替换使
 启用中策略失效的 UDF 会被拒绝（先禁用策略）。YAML/CLI 路径不受影响。
+
+## 策略服务管理面（REST）
+
+实例与策略的管理全流程已可通过 REST 编排：`POST /api/instances`（带表列
+资源）→ `POST /api/instances/{i}/udfs`（注册脱敏函数签名）→ `POST
+/api/instances/{i}/policies`（datamask/row_filter，`subjects` 声明
+users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
+按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。表列
+资源可从元数据服务一键导入：`POST /api/instances/{i}/import-metadata`。
+同表同类型策略的重叠校验按主体相交放宽——不同人群可各配各的脱敏列与
+行过滤。
+
+鉴权：环境变量 `SQLMASK_ADMIN_API_KEY`（管 `/api/instances/**`）与
+`SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制
+`X-Api-Key` 校验（401），未配置则放行（本地开发）；存量策略自动等价
+`{"users":["*"]}` 全体生效。

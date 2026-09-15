@@ -3,6 +3,7 @@ package io.sqlmask.policyserver.compile;
 import io.sqlmask.config.source.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
+import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -31,8 +32,11 @@ public final class EffectiveConfigCompiler {
   }
 
   public static EffectiveConfigResponse compile(EngineInstance instance,
-      List<PolicyEntity> policies) {
-    List<PolicyEntity> enabled = policies.stream().filter(PolicyEntity::enabled).toList();
+      List<PolicyEntity> policies, Subject subject) {
+    List<PolicyEntity> enabled = policies.stream()
+        .filter(PolicyEntity::enabled)
+        .filter(p -> p.subjects().matchLevel(subject) > 0)
+        .toList();
     int disabled = policies.size() - enabled.size();
 
     List<EffectiveConfigResponse.ColumnBinding> bindings = new ArrayList<>();

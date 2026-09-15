@@ -2,33 +2,44 @@ package io.sqlmask.config.source;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * Pulls the compiled effective configuration from the policy service and
- * caches it by version. Serves the cached configuration while the service is
- * unreachable (stale-but-available); a cold cache plus an unreachable service
- * fails closed with POLICY_SERVICE_UNAVAILABLE — never degrades to the
- * unmasked input.
+ * caches it per subject (user plus normalized groups). Serves a subject's
+ * cached configuration while the service is unreachable (stale-but-available);
+ * a subject with no cache entry plus an unreachable service fails closed with
+ * POLICY_SERVICE_UNAVAILABLE — never degrades to the unmasked input.
  */
 public final class PolicyServiceConfigSource implements ConfigSource {
 
   private static final ObjectMapper JSON = new ObjectMapper();
 
+  private record SubjectKey(String user, List<String> groups) {
+  }
+
   private final HttpClient http;
-  private final URI effectiveUri;
+  private final String baseUrl;
   private final String apiKey;
   private final String instanceName;
-  private volatile ResolvedConfig cache;
+  private final Map<SubjectKey, ResolvedConfig> cache = new LinkedHashMap<>();
 
   public PolicyServiceConfigSource(String baseUrl, String apiKey, String instanceName) {
-    this.effectiveUri = URI.create(baseUrl + "/api/effective/" + instanceName);
+    this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.instanceName = instanceName;
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
@@ -36,27 +47,41 @@ public final class PolicyServiceConfigSource implements ConfigSource {
 
   @Override
   public synchronized ResolvedConfig load() {
-    if (cache != null) {
-      return cache;
-    }
-    return cache = fetchAndAssemble();
+    return load(Subject.anonymous());
   }
 
-  /**
-   * Polls the service and refreshes the cache when the version moved.
-   *
-   * @return true when the cache was updated
-   */
+  /** Loads (and caches) the effective config compiled for one subject. */
+  public synchronized ResolvedConfig load(Subject subject) {
+    SubjectKey key = keyOf(subject);
+    ResolvedConfig cached = cache.get(key);
+    if (cached != null) {
+      return cached;
+    }
+    ResolvedConfig fresh = fetchAndAssemble(key);
+    cache.put(key, fresh);
+    return fresh;
+  }
+
+  /** Polls every cached subject; true when any subject's version moved. */
   public synchronized boolean refresh() {
-    ResolvedConfig fresh = fetchAndAssemble();
-    if (cache != null && cache.configVersion() == fresh.configVersion()) {
-      return false;
+    boolean anyUpdated = false;
+    for (Map.Entry<SubjectKey, ResolvedConfig> entry : cache.entrySet()) {
+      ResolvedConfig fresh = fetchAndAssemble(entry.getKey());
+      if (entry.getValue().configVersion() != fresh.configVersion()) {
+        entry.setValue(fresh);
+        anyUpdated = true;
+      }
     }
-    cache = fresh;
-    return true;
+    return anyUpdated;
   }
 
-  private ResolvedConfig fetchAndAssemble() {
+  private static SubjectKey keyOf(Subject subject) {
+    return new SubjectKey(subject.user(),
+        List.copyOf(new TreeSet<>(subject.groups())));
+  }
+
+  private ResolvedConfig fetchAndAssemble(SubjectKey key) {
+    URI effectiveUri = effectiveUri(key);
     HttpRequest request = HttpRequest.newBuilder(effectiveUri)
         .header("Accept", "application/json")
         .header("X-Api-Key", apiKey == null ? "" : apiKey)
@@ -96,5 +121,17 @@ public final class PolicyServiceConfigSource implements ConfigSource {
     }
     return new ResolvedConfig(
         new EffectiveConfigAssembler().assemble(payload), payload.dialect(), payload.configVersion());
+  }
+
+  private URI effectiveUri(SubjectKey key) {
+    List<String> params = new ArrayList<>();
+    if (key.user() != null) {
+      params.add("user=" + URLEncoder.encode(key.user(), StandardCharsets.UTF_8));
+    }
+    for (String group : key.groups()) {
+      params.add("groups=" + URLEncoder.encode(group, StandardCharsets.UTF_8));
+    }
+    String query = params.isEmpty() ? "" : "?" + String.join("&", params);
+    return URI.create(baseUrl + "/api/effective/" + instanceName + query);
   }
 }

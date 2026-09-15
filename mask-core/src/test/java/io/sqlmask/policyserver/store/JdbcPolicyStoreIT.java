@@ -216,4 +216,38 @@ class JdbcPolicyStoreIT {
             new UdfDefinition("renamed", List.of(
                 new UdfDefinition.UdfSignature(List.of("varchar"), "varchar")))));
   }
+
+  // ---- subjects 持久化 ----
+
+  @Test
+  void policySubjectsRoundTrip() {
+    store.createInstance(instance());
+    PolicyEntity withSubjects = new PolicyEntity("p1", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new io.sqlmask.policy.model.SubjectSelector(
+            java.util.Set.of("alice"), java.util.Set.of("analysts")),
+        "mask_phone", List.of(3, 4), null);
+    store.createPolicy(instanceName(), withSubjects);
+    PolicyEntity loaded = store.findPolicy(instanceName(), "p1").orElseThrow();
+    assertEquals(java.util.Set.of("alice"), loaded.subjects().users());
+    assertEquals(java.util.Set.of("analysts"), loaded.subjects().groups());
+  }
+
+  @Test
+  void nullSubjectsColumnReadsAsEveryone() {
+    store.createInstance(instance());
+    // 直接插入无 subjects 的旧行，模拟存量库
+    cleanupJdbc.update("INSERT INTO policy (instance_id, name, policy_type, is_enabled,"
+            + " udf, arguments, filter_expr, resource, subjects) VALUES (?, 'legacy',"
+            + " 'DATAMASK', true, 'mask_phone', '[]'::jsonb, NULL, ?::jsonb, NULL)",
+        instanceIdOf(instanceName()), "{\"catalog\":\"crm\",\"schema\":\"public\","
+            + "\"table\":\"customer\",\"columns\":[\"phone\"]}");
+    PolicyEntity legacy = store.findPolicy(instanceName(), "legacy").orElseThrow();
+    assertEquals(java.util.Set.of("*"), legacy.subjects().users());
+  }
+
+  private Long instanceIdOf(String name) {
+    return cleanupJdbc.queryForObject(
+        "SELECT id FROM policy_instance WHERE name = ?", Long.class, name);
+  }
 }

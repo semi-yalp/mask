@@ -3,6 +3,7 @@ package io.sqlmask.policyserver;
 import io.sqlmask.config.source.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
+import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.compile.EffectiveConfigCompiler;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -118,11 +119,11 @@ public class PolicyService {
     store.deleteUdf(instanceName, udfName);
   }
 
-  public EffectiveConfigResponse effective(String name) {
+  public EffectiveConfigResponse effective(String name, Subject subject) {
     EngineInstance instance = requireInstance(name);
     long configVersion = store.currentVersion(name);
     EffectiveConfigResponse compiled =
-        EffectiveConfigCompiler.compile(instance, store.listPolicies(name));
+        EffectiveConfigCompiler.compile(instance, store.listPolicies(name), subject);
     return new EffectiveConfigResponse(instance.name(), instance.dialect(),
         configVersion, compiled.policySummary(), compiled.config());
   }
