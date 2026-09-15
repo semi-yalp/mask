@@ -56,7 +56,7 @@ class MysqlMetadataIntrospectorTest {
     assertEquals("varchar(50)", result.tables().get(0).columns().get(1).yamlType());
     assertTrue(result.warnings().stream().anyMatch(w ->
         w.contains("shop.shop.customer.id") && w.contains("mysql type bigint unsigned")
-        && w.endsWith("degraded to varchar")));
+        && w.endsWith("loses unsigned range semantics, mapped to bigint")));
   }
 
   @Test

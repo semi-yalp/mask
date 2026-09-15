@@ -47,9 +47,15 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
       for (IntrospectionResult.TableInfo table : tables) {
         for (IntrospectionResult.ColumnInfo column : table.columns()) {
           if (column.degraded()) {
-            warnings.add("column " + table.catalog() + "." + table.schema() + "."
+            String prefix = "column " + table.catalog() + "." + table.schema() + "."
                 + table.name() + "." + column.name() + ": mysql type "
-                + column.originalPgType() + " is not representable, degraded to varchar");
+                + column.originalPgType();
+            // unsigned/signed 剥离保留基础数值类型，只是取值范围语义丢失；
+            // --strict 只拒绝真正的 varchar 降级（SqlMaskApplication 按该
+            // 后缀判定），所以两种情况必须用不同文案。
+            warnings.add("varchar".equals(column.yamlType())
+                ? prefix + " is not representable, degraded to varchar"
+                : prefix + " loses unsigned range semantics, mapped to " + column.yamlType());
           }
         }
       }
