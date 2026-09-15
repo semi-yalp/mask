@@ -620,7 +620,6 @@ Expected: COMPILATION ERROR（无 `load(Subject)`）。
   }
 
   /** Polls every cached subject; true when any subject's version moved. */
-  @Override
   public synchronized boolean refresh() {
     boolean anyUpdated = false;
     for (java.util.Map.Entry<SubjectKey, ResolvedConfig> entry : cache.entrySet()) {
