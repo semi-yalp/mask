@@ -2,6 +2,7 @@ package io.sqlmask.config.source;
 
 import com.sun.net.httpserver.HttpServer;
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,9 +11,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,12 +35,14 @@ class PolicyServiceConfigSourceTest {
   private final AtomicReference<String> body = new AtomicReference<>(BODY_V1);
   private final AtomicReference<Integer> status = new AtomicReference<>(200);
   private final AtomicReference<String> seenKey = new AtomicReference<>("");
+  private final AtomicReference<String> seenQuery = new AtomicReference<>();
 
   @BeforeEach
   void start() throws IOException {
     server = HttpServer.create(new InetSocketAddress(0), 0);
     server.createContext("/api/effective/pg_prod", exchange -> {
       seenKey.set(exchange.getRequestHeaders().getFirst("X-Api-Key"));
+      seenQuery.set(exchange.getRequestURI().getQuery());
       byte[] bytes = body.get().getBytes(StandardCharsets.UTF_8);
       exchange.sendResponseHeaders(status.get(), bytes.length);
       try (OutputStream os = exchange.getResponseBody()) {
@@ -104,5 +109,51 @@ class PolicyServiceConfigSourceTest {
     status.set(401);
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> source().load());
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+  }
+
+  // ---- 主体感知 ----
+
+  @Test
+  void loadBySubjectSendsQueryParamsAndCachesIndependently() {
+    PolicyServiceConfigSource s = source();
+    ConfigSource.ResolvedConfig alice = s.load(Subject.of("alice", List.of("a", "b")));
+    assertEquals("postgresql", alice.dialect());
+    assertTrue(seenQuery.get().contains("user=alice"));
+    assertTrue(seenQuery.get().contains("groups=a"));
+    assertTrue(seenQuery.get().contains("groups=b"));
+    s.load(Subject.of("bob", List.of()));
+    assertTrue(seenQuery.get().contains("user=bob"));
+    s.load(Subject.of("alice", List.of("a", "b"))); // 命中缓存，不再发请求
+    assertEquals("user=bob", seenQuery.get());
+  }
+
+  @Test
+  void anonymousLoadSendsNoQuery() {
+    source().load(Subject.anonymous());
+    assertTrue(seenQuery.get() == null || seenQuery.get().isEmpty());
+  }
+
+  @Test
+  void refreshUpdatesAllCachedSubjects() {
+    PolicyServiceConfigSource s = source();
+    s.load(Subject.of("alice", List.of()));
+    s.load(Subject.of("bob", List.of()));
+    assertFalse(s.refresh()); // 两主体同版本
+    body.set(BODY_V1.replace("\"configVersion\":1", "\"configVersion\":2"));
+    assertTrue(s.refresh());
+    assertEquals(2, s.load(Subject.of("alice", List.of())).configVersion());
+    assertEquals(2, s.load(Subject.of("bob", List.of())).configVersion());
+  }
+
+  @Test
+  void coldSubjectFailsClosedWhenServiceDown() {
+    PolicyServiceConfigSource s = source();
+    s.load(Subject.of("alice", List.of())); // 温缓存主体
+    server.stop(0);
+    assertEquals(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE,
+        assertThrows(SqlMaskException.class,
+            () -> s.load(Subject.of("newbie", List.of()))).getCode());
+    // 已缓存主体 stale 可用
+    assertEquals("postgresql", s.load(Subject.of("alice", List.of())).dialect());
   }
 }
