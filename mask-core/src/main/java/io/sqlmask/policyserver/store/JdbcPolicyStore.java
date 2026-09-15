@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -135,7 +136,8 @@ public class JdbcPolicyStore implements PolicyStore {
           + policyName + "' cannot be renamed to '" + policy.name() + "'");
     }
     int updated = jdbc.update("UPDATE policy SET policy_type = ?, is_enabled = ?, udf = ?,"
-            + " arguments = ?::jsonb, filter_expr = ?, resource = ?::jsonb, updated_at = now()"
+            + " arguments = ?::jsonb, filter_expr = ?, resource = ?::jsonb,"
+            + " subjects = ?::jsonb, updated_at = now()"
             + " WHERE instance_id = ? AND name = ?",
         ps -> {
           ps.setString(1, policy.policyType().name());
@@ -144,8 +146,9 @@ public class JdbcPolicyStore implements PolicyStore {
           setNullableJson(ps, 4, policy.arguments());
           setNullableString(ps, 5, policy.filterExpr());
           ps.setString(6, toJson(policy.resource()));
-          ps.setLong(7, instanceId);
-          ps.setString(8, policyName);
+          ps.setString(7, toJson(policy.subjects()));
+          ps.setLong(8, instanceId);
+          ps.setString(9, policyName);
         });
     if (updated == 0) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
@@ -391,8 +394,8 @@ public class JdbcPolicyStore implements PolicyStore {
 
   private void insertPolicy(long instanceId, PolicyEntity policy) {
     jdbc.update("INSERT INTO policy (instance_id, name, policy_type, is_enabled, udf,"
-            + " arguments, filter_expr, resource)"
-            + " VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb)",
+            + " arguments, filter_expr, resource, subjects)"
+            + " VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb)",
         ps -> {
           ps.setLong(1, instanceId);
           ps.setString(2, policy.name());
@@ -402,6 +405,7 @@ public class JdbcPolicyStore implements PolicyStore {
           setNullableJson(ps, 6, policy.arguments());
           setNullableString(ps, 7, policy.filterExpr());
           ps.setString(8, toJson(policy.resource()));
+          ps.setString(9, toJson(policy.subjects()));
         });
   }
 
@@ -411,13 +415,15 @@ public class JdbcPolicyStore implements PolicyStore {
         PolicyType.valueOf(rs.getString("policy_type")),
         rs.getBoolean("is_enabled"),
         resourceFrom(rs.getString("resource")),
+        subjectFrom(rs.getString("subjects")),
         rs.getString("udf"),
         argumentsFrom(rs.getString("arguments")),
         rs.getString("filter_expr"));
   }
 
   private String selectPolicySql() {
-    return "SELECT name, policy_type, is_enabled, udf, arguments, filter_expr, resource FROM policy";
+    return "SELECT name, policy_type, is_enabled, udf, arguments, filter_expr, resource, subjects"
+        + " FROM policy";
   }
 
   private void setNullableString(PreparedStatement ps, int index, String value) throws SQLException {
@@ -468,6 +474,19 @@ public class JdbcPolicyStore implements PolicyStore {
     } catch (JsonProcessingException e) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "could not deserialize policy resource: " + e.getMessage(), e);
+    }
+  }
+
+  /** Null-tolerant: a missing/blank column (pre-migration row) reads as everyone. */
+  private io.sqlmask.policy.model.SubjectSelector subjectFrom(String json) {
+    if (json == null || json.isBlank()) {
+      return new io.sqlmask.policy.model.SubjectSelector(Set.of("*"), Set.of());
+    }
+    try {
+      return mapper.readValue(json, io.sqlmask.policy.model.SubjectSelector.class);
+    } catch (JsonProcessingException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "could not deserialize policy subjects: " + e.getMessage(), e);
     }
   }
 
