@@ -536,3 +536,17 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
   采集时服务端解析；密码不落库、不进日志、不进 URL
 - 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
   字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略
+
+## UDF 注册表（策略服务）
+
+策略微服务的实例可登记脱敏 UDF 签名（名称 + 有序参数类型 + 返回类型，
+首参数绑定被脱敏列的值，对齐 PG 以「名字+参数类型」标识函数、同名重载
+按调用点解析）。REST：`POST/GET /api/instances/{instance}/udfs`、
+`GET/PUT/DELETE /api/instances/{instance}/udfs/{name}`（web 应用内置
+InMemory 存储，部署侧可换 JdbcPolicyStore + schema.sql 的 instance_udf 表）。
+
+DATAMASK 策略写入时按注册表校验：UDF 存在、参数个数（= arguments + 1
+个列值）、标量类型（number→整数/浮点/numeric 族，string→字符族，
+boolean→boolean，无跨族转换）、每个选中列的类型与某重载首参精确相等
+（无隐式转换，需要 `mask_phone(bigint, …)` 这类重载）。删除或替换使
+启用中策略失效的 UDF 会被拒绝（先禁用策略）。YAML/CLI 路径不受影响。

@@ -7,6 +7,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Runs the {@link InMemoryPolicyStoreTest} scenarios against
@@ -171,5 +173,47 @@ class JdbcPolicyStoreIT {
     assertEquals(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
         assertThrows(SqlMaskException.class,
             () -> store.findPolicy("no_such_instance_" + UNIQUE_SUFFIX, "p1")).getCode());
+  }
+
+  // ---- UDF CRUD（镜像 InMemory 场景） ----
+
+  private static UdfDefinition udf() {
+    return new UdfDefinition("mask_phone", List.of(
+        new UdfDefinition.UdfSignature(List.of("varchar", "integer", "integer"), "varchar"),
+        new UdfDefinition.UdfSignature(List.of("bigint", "integer", "integer"), "varchar")));
+  }
+
+  @Test
+  void udfCrudRoundTripAndVersionBumps() {
+    store.createInstance(instance());
+    long v1 = store.currentVersion(instanceName());
+    store.createUdf(instanceName(), udf());
+    assertEquals(v1 + 1, store.currentVersion(instanceName()));
+    UdfDefinition loaded = store.findUdf(instanceName(), "mask_phone").orElseThrow();
+    assertEquals(2, loaded.signatures().size());
+    assertEquals(List.of("varchar", "integer", "integer"), loaded.signatures().get(0).params());
+    assertEquals("bigint", loaded.signatures().get(1).params().get(0));
+    store.replaceUdf(instanceName(), "mask_phone", new UdfDefinition("mask_phone", List.of(
+        new UdfDefinition.UdfSignature(List.of("varchar"), "varchar"))));
+    assertEquals(1, store.findUdf(instanceName(), "mask_phone").orElseThrow().signatures().size());
+    assertEquals(v1 + 2, store.currentVersion(instanceName()));
+    assertEquals(1, store.listUdfs(instanceName()).size());
+    store.deleteUdf(instanceName(), "mask_phone");
+    assertTrue(store.findUdf(instanceName(), "mask_phone").isEmpty());
+    assertEquals(v1 + 3, store.currentVersion(instanceName()));
+  }
+
+  @Test
+  void udfDuplicateAndMissingFollowErrorContract() {
+    store.createInstance(instance());
+    store.createUdf(instanceName(), udf());
+    assertThrows(SqlMaskException.class,
+        () -> store.createUdf(instanceName(), udf()));
+    assertThrows(SqlMaskException.class,
+        () -> store.deleteUdf(instanceName(), "nope"));
+    assertThrows(SqlMaskException.class,
+        () -> store.replaceUdf(instanceName(), "mask_phone",
+            new UdfDefinition("renamed", List.of(
+                new UdfDefinition.UdfSignature(List.of("varchar"), "varchar")))));
   }
 }

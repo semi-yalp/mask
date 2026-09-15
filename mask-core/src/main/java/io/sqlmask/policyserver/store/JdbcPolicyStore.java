@@ -10,6 +10,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -21,8 +22,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * PostgreSQL-backed {@link PolicyStore}: instances and their table structures
@@ -188,6 +192,63 @@ public class JdbcPolicyStore implements PolicyStore {
   }
 
   @Override
+  @Transactional
+  public UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
+    long instanceId = requireInstanceRow(instanceName).id();
+    if (udfExists(instanceId, udf.name())) {
+      throw duplicateUdf(udf.name(), instanceName);
+    }
+    try {
+      insertUdfSignatures(instanceId, udf);
+    } catch (DuplicateKeyException e) {
+      throw duplicateUdf(udf.name(), instanceName);
+    }
+    bumpVersion(instanceName);
+    return udf;
+  }
+
+  @Override
+  @Transactional
+  public UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf) {
+    long instanceId = requireInstanceRow(instanceName).id();
+    if (!udf.name().equals(udfName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "udf name mismatch: '"
+          + udfName + "' cannot be renamed to '" + udf.name() + "'");
+    }
+    if (!udfExists(instanceId, udfName)) {
+      throw missingUdf(udfName, instanceName);
+    }
+    jdbc.update("DELETE FROM instance_udf WHERE instance_id = ? AND name = ?", instanceId, udfName);
+    insertUdfSignatures(instanceId, udf);
+    bumpVersion(instanceName);
+    return udf;
+  }
+
+  @Override
+  public Optional<UdfDefinition> findUdf(String instanceName, String udfName) {
+    long instanceId = requireInstanceRow(instanceName).id();
+    return loadUdfs(instanceId, udfName).stream().findFirst();
+  }
+
+  @Override
+  public List<UdfDefinition> listUdfs(String instanceName) {
+    long instanceId = requireInstanceRow(instanceName).id();
+    return loadUdfs(instanceId, null);
+  }
+
+  @Override
+  @Transactional
+  public void deleteUdf(String instanceName, String udfName) {
+    long instanceId = requireInstanceRow(instanceName).id();
+    int deleted = jdbc.update("DELETE FROM instance_udf WHERE instance_id = ? AND name = ?",
+        instanceId, udfName);
+    if (deleted == 0) {
+      throw missingUdf(udfName, instanceName);
+    }
+    bumpVersion(instanceName);
+  }
+
+  @Override
   public long currentVersion(String instanceName) {
     List<Long> versions = jdbc.queryForList(
         "SELECT config_version FROM policy_instance WHERE name = ?", Long.class, instanceName);
@@ -264,6 +325,62 @@ public class JdbcPolicyStore implements PolicyStore {
       tables.add(new TableDef(row.catalog(), row.schema(), row.name(), columns));
     }
     return tables;
+  }
+
+  private boolean udfExists(long instanceId, String udfName) {
+    return !jdbc.queryForList("SELECT id FROM instance_udf WHERE instance_id = ? AND name = ?",
+        Long.class, instanceId, udfName).isEmpty();
+  }
+
+  private void insertUdfSignatures(long instanceId, UdfDefinition udf) {
+    for (int i = 0; i < udf.signatures().size(); i++) {
+      UdfDefinition.UdfSignature signature = udf.signatures().get(i);
+      jdbc.update("INSERT INTO instance_udf (instance_id, name, param_types, return_type, position)"
+              + " VALUES (?, ?, ?, ?, ?)",
+          instanceId, udf.name(), toJson(signature.params()), signature.returns(), i);
+    }
+  }
+
+  private List<UdfDefinition> loadUdfs(long instanceId, String onlyName) {
+    StringBuilder sql = new StringBuilder(
+        "SELECT name, param_types, return_type FROM instance_udf WHERE instance_id = ?");
+    List<Object> args = new ArrayList<>(List.of(instanceId));
+    if (onlyName != null) {
+      sql.append(" AND name = ?");
+      args.add(onlyName);
+    }
+    sql.append(" ORDER BY name, position");
+    Map<String, List<UdfDefinition.UdfSignature>> byName = new LinkedHashMap<>();
+    jdbc.query(sql.toString(), (rs, n) -> {
+      byName.computeIfAbsent(rs.getString("name"),
+              k -> new ArrayList<>())
+          .add(new UdfDefinition.UdfSignature(stringsFrom(rs.getString("param_types")),
+              rs.getString("return_type")));
+      return null;
+    }, args.toArray());
+    return byName.entrySet().stream()
+        .map(e -> new UdfDefinition(e.getKey(), List.copyOf(e.getValue())))
+        .collect(Collectors.toList());
+  }
+
+  private List<String> stringsFrom(String json) {
+    try {
+      return mapper.readValue(json, new TypeReference<List<String>>() {
+      });
+    } catch (JsonProcessingException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "could not deserialize udf param types: " + e.getMessage());
+    }
+  }
+
+  private SqlMaskException duplicateUdf(String name, String instanceName) {
+    return new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+        "udf '" + name + "' already exists in instance '" + instanceName + "'");
+  }
+
+  private SqlMaskException missingUdf(String name, String instanceName) {
+    return new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+        "udf '" + name + "' not found in instance '" + instanceName + "'");
   }
 
   private boolean policyExists(long instanceId, String policyName) {

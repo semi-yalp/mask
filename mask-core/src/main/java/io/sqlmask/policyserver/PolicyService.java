@@ -9,11 +9,13 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
+import io.sqlmask.policyserver.model.UdfDefinition;
 import io.sqlmask.policyserver.store.PolicyStore;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -60,13 +62,15 @@ public class PolicyService {
 
   public PolicyEntity createPolicy(String instanceName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
-    validator.validatePolicy(instance, policy, enabledOthers(instanceName, null));
+    validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
+        enabledOthers(instanceName, null));
     return store.createPolicy(instanceName, policy);
   }
 
   public PolicyEntity updatePolicy(String instanceName, String policyName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
-    validator.validatePolicy(instance, policy, enabledOthers(instanceName, policyName));
+    validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
+        enabledOthers(instanceName, policyName));
     return store.updatePolicy(instanceName, policyName, policy);
   }
 
@@ -77,6 +81,41 @@ public class PolicyService {
 
   public List<PolicyEntity> policies(String instanceName) {
     return store.listPolicies(instanceName);
+  }
+
+  public UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
+    EngineInstance instance = requireInstance(instanceName);
+    validator.validateUdf(instance, udf);
+    return store.createUdf(instanceName, udf);
+  }
+
+  public UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf) {
+    requireInstance(instanceName);
+    if (!udf.name().equals(udfName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "udf name mismatch: '"
+          + udfName + "' cannot be renamed to '" + udf.name() + "'");
+    }
+    validator.validateUdf(requireInstance(instanceName), udf);
+    ensureEnabledPoliciesResolveUdfs(instanceName, withReplaced(store.listUdfs(instanceName), udf));
+    return store.replaceUdf(instanceName, udfName, udf);
+  }
+
+  public Optional<UdfDefinition> udf(String instanceName, String udfName) {
+    requireInstance(instanceName);
+    return store.findUdf(instanceName, udfName);
+  }
+
+  public List<UdfDefinition> udfs(String instanceName) {
+    requireInstance(instanceName);
+    return store.listUdfs(instanceName);
+  }
+
+  public void deleteUdf(String instanceName, String udfName) {
+    requireInstance(instanceName);
+    ensureEnabledPoliciesResolveUdfs(instanceName,
+        store.listUdfs(instanceName).stream()
+            .filter(u -> !u.name().equals(udfName)).toList());
+    store.deleteUdf(instanceName, udfName);
   }
 
   public EffectiveConfigResponse effective(String name) {
@@ -105,6 +144,25 @@ public class PolicyService {
           "cannot update tables of instance '" + instanceName + "': enabled policies "
               + dangling + " reference tables/columns that no longer exist");
     }
+  }
+
+  /**
+   * Udf-removal guard, mirroring {@link #ensureEnabledPoliciesResolve}: enabled
+   * DATAMASK policies must still resolve against the registry after the change
+   * (disabled ones may dangle — they are re-validated if ever re-enabled).
+   */
+  private void ensureEnabledPoliciesResolveUdfs(String instanceName, List<UdfDefinition> udfsAfter) {
+    List<String> dangling = validator.policiesFailingUdfResolution(
+        requireInstance(instanceName), udfsAfter, store.listPolicies(instanceName));
+    if (!dangling.isEmpty()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "cannot change udfs of instance '" + instanceName + "': enabled policies " + dangling
+              + " reference udf signatures that no longer resolve; disable them first");
+    }
+  }
+
+  private static List<UdfDefinition> withReplaced(List<UdfDefinition> udfs, UdfDefinition udf) {
+    return udfs.stream().map(u -> u.name().equals(udf.name()) ? udf : u).toList();
   }
 
   private static boolean resolves(EngineInstance instance, PolicyEntity policy) {
