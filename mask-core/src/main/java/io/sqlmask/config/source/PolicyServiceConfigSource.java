@@ -20,14 +20,20 @@ import java.util.TreeSet;
 
 /**
  * Pulls the compiled effective configuration from the policy service and
- * caches it per subject (user plus normalized groups). Serves a subject's
- * cached configuration while the service is unreachable (stale-but-available);
- * a subject with no cache entry plus an unreachable service fails closed with
- * POLICY_SERVICE_UNAVAILABLE — never degrades to the unmasked input.
+ * caches it per subject (user plus normalized groups) in an access-ordered
+ * LRU of at most {@link #MAX_CACHED_SUBJECTS} entries — an evicted subject
+ * simply re-fetches on its next load (failing closed if the service is then
+ * unreachable). Serves a subject's cached configuration while the service is
+ * unreachable (stale-but-available); a subject with no cache entry plus an
+ * unreachable service fails closed with POLICY_SERVICE_UNAVAILABLE — never
+ * degrades to the unmasked input.
  */
 public final class PolicyServiceConfigSource implements ConfigSource {
 
   private static final ObjectMapper JSON = new ObjectMapper();
+
+  /** Cached-subject ceiling; excess evicts least-recently-used. */
+  private static final int MAX_CACHED_SUBJECTS = 256;
 
   private record SubjectKey(String user, List<String> groups) {
   }
@@ -36,7 +42,13 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   private final String baseUrl;
   private final String apiKey;
   private final String instanceName;
-  private final Map<SubjectKey, ResolvedConfig> cache = new LinkedHashMap<>();
+  private final Map<SubjectKey, ResolvedConfig> cache =
+      new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<SubjectKey, ResolvedConfig> eldest) {
+          return size() > MAX_CACHED_SUBJECTS;
+        }
+      };
 
   public PolicyServiceConfigSource(String baseUrl, String apiKey, String instanceName) {
     this.baseUrl = baseUrl;

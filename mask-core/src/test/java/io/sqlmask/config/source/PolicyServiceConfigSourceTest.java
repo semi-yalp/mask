@@ -156,4 +156,20 @@ class PolicyServiceConfigSourceTest {
     // 已缓存主体 stale 可用
     assertEquals("postgresql", s.load(Subject.of("alice", List.of())).dialect());
   }
+
+  @Test
+  void evictsLeastRecentlyUsedSubjectBeyondCapacity() {
+    PolicyServiceConfigSource s = source();
+    s.load(Subject.of("u0", List.of()));
+    for (int i = 1; i <= 256; i++) { // 256 个更多主体 → u0 成为最久未用
+      s.load(Subject.of("u" + i, List.of()));
+    }
+    // 最近的主体命中缓存，不发请求
+    seenQuery.set("<unchanged>");
+    s.load(Subject.of("u256", List.of()));
+    assertEquals("<unchanged>", seenQuery.get());
+    // 超出容量的最久主体被逐出，重新 load 触发拉取
+    s.load(Subject.of("u0", List.of()));
+    assertEquals("user=u0", seenQuery.get());
+  }
 }

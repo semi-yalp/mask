@@ -130,7 +130,8 @@ message}`；实例内策略名唯一、UDF 引用校验（四步解析）照常�
   得到自洽配置（一表一条 row_filter、列不重叠天然保持）；响应产物形状不变；
 - `configVersion` 仍是实例级：任何策略/表/UDF 变更推进，客户端据此刷新；
 - **客户端**（`PolicyServiceConfigSource`）：单缓存改为
-  `Map<主体键, ResolvedConfig>`——`load(subject)` 缺失即拉取并缓存；
+  `Map<主体键, ResolvedConfig>`（访问序 LRU，上限 256 主体，超出逐出最久未用，
+  被逐出主体下次 load 重新拉取）——`load(subject)` 缺失即拉取并缓存；
   `refresh()` 版本轮询时刷新全部已缓存主体；服务不可达时命中缓存 → stale
   可用、冷主体 → `POLICY_SERVICE_UNAVAILABLE` fail closed（语义不变）；
 - **改写链路**：`RewriteController` 已组装 `Subject.of(user, groups)`；策略服务
