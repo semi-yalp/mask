@@ -38,3 +38,15 @@ CREATE TABLE IF NOT EXISTS policy (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (instance_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS instance_udf (
+  id BIGSERIAL PRIMARY KEY,
+  instance_id BIGINT NOT NULL REFERENCES policy_instance(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  param_types TEXT NOT NULL,
+  return_type VARCHAR(255) NOT NULL,
+  position INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (instance_id, name, param_types)
+);
