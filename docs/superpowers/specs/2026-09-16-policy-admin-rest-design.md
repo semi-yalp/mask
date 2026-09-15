@@ -121,7 +121,9 @@ message}`；实例内策略名唯一、UDF 引用校验（四步解析）照常�
 ## 5. 数据面：按主体编译
 
 - `GET /api/effective/{instance}?user=u&groups=a,b`（groups 逗号分隔）；
-  **无参数 = 匿名主体**（仅命中 `*` 策略）；
+  **无参数 = 匿名主体**（仅命中 `*` 策略）。注：该端点在 policy-service spec
+  中规划过但从未落地（只有客户端 `PolicyServiceConfigSource` 在拼这个 URL），
+  本次随主体参数一并新建；
 - `EffectiveConfigCompiler.compile(instance, policies, subject)`：先按
   `SubjectSelector.matches(subject)` 过滤启用策略，再走现有展开——每个主体
   得到自洽配置（一表一条 row_filter、列不重叠天然保持）；响应产物形状不变；
