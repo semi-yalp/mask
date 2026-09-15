@@ -58,10 +58,11 @@ class ConnectionSpecTest {
 
   @Test
   void mysqlUrl() {
-    assertEquals("jdbc:mysql://127.0.0.1:3306/shop?connectTimeout=10&socketTimeout=60&sslMode=DISABLED&allowPublicKeyRetrieval=true",
+    // Connector/J 超时单位是毫秒：connectTimeoutSeconds（秒）×1000、socketTimeout 60s=60000
+    assertEquals("jdbc:mysql://127.0.0.1:3306/shop?connectTimeout=10000&socketTimeout=60000&sslMode=DISABLED&allowPublicKeyRetrieval=true",
         new ConnectionSpec("mysql", "127.0.0.1", 3306, "shop", "u", "p",
             List.of(), false, false, "disable", 10).toJdbcUrl());
-    assertEquals("jdbc:mysql://h:3306/shop?connectTimeout=10&socketTimeout=60&sslMode=REQUIRED&verifyServerCertificate=false",
+    assertEquals("jdbc:mysql://h:3306/shop?connectTimeout=10000&socketTimeout=60000&sslMode=REQUIRED&verifyServerCertificate=false",
         new ConnectionSpec("mysql", "h", 3306, "shop", "u", "p",
             List.of(), false, false, "require", 10).toJdbcUrl());
   }

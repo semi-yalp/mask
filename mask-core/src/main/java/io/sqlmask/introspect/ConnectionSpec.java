@@ -55,8 +55,11 @@ public record ConnectionSpec(String engine, String host, int port, String databa
           + "&socketTimeout=60&readOnly=true";
       case "mysql" -> {
         requireKnownSslmode();
+        // Connector/J takes connect/socket timeouts in milliseconds, unlike
+        // the PostgreSQL driver's seconds.
         yield "jdbc:mysql://" + host + ":" + port + "/" + database
-            + "?connectTimeout=" + connectTimeoutSeconds + "&socketTimeout=60"
+            + "?connectTimeout=" + connectTimeoutSeconds * 1000
+            + "&socketTimeout=60000"
             + ("require".equalsIgnoreCase(sslmode)
                 ? "&sslMode=REQUIRED&verifyServerCertificate=false"
                 // caching_sha2_password (MySQL 8 default) needs the server RSA key
