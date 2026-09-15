@@ -87,4 +87,14 @@ public class SqlMaskServiceApplication {
   MetadataStructureFetcher metadataStructureFetcher() {
     return new MetadataStructureFetcher.HttpMetadataStructureFetcher();
   }
+
+  @Bean
+  org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> policyApiKeyFilter() {
+    org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> registration =
+        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new PolicyApiKeyFilter(
+            System.getenv("SQLMASK_ADMIN_API_KEY"), System.getenv("SQLMASK_DATA_API_KEY")));
+    registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
+    registration.setOrder(1);
+    return registration;
+  }
 }
