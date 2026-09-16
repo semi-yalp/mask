@@ -186,10 +186,10 @@ git commit -m "feat(policy): PolicyEntity 增加 priority 字段（缺省 0，le
   void rejectsSamePriorityOverlapWithPrioritiesInMessage() {
     PolicyEntity existing = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 0,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
-        "mask_phone", List.of(3, 4), null);
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
     PolicyEntity overlapping = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 0,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
-        "mask_phone", List.of(3, 4), null);
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
     SqlMaskException e = assertThrows(SqlMaskException.class,
         () -> validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
     assertTrue(e.getMessage().contains("a_mask") && e.getMessage().contains("b_mask"));
@@ -200,10 +200,10 @@ git commit -m "feat(policy): PolicyEntity 增加 priority 字段（缺省 0，le
   void allowsOverlapWithDifferentPriority() {
     PolicyEntity existing = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 10,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
-        "mask_phone", List.of(3, 4), null);
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
     PolicyEntity overlapping = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 0,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
-        "mask_phone", List.of(3, 4), null);
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
     assertDoesNotThrow(() ->
         validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
   }
@@ -220,6 +220,8 @@ git commit -m "feat(policy): PolicyEntity 增加 priority 字段（缺省 0，le
         validator.validatePolicy(INSTANCE, UDFS, bobOnly, List.of(aliceOnly)));
   }
 ```
+
+（三个新测试均用 9 参规范构造器显式给 priority——不存在"8 参带 priority"的重载。）
 
 - [ ] **Step 2: 运行确认失败**
 
@@ -320,7 +322,8 @@ git commit -m "feat(policy): 重叠拒绝收紧为同 priority（datamask），r
     var table = EffectiveConfigCompiler
         .compile(INSTANCE, List.of(low, tie, high), Subject.of("alice", List.of()))
         .config().metadata().tables().get(0);
-    assertEquals("(id > 0) AND (region = 'cn') AND (status = 'active')", table.rowFilter());
+    // 同 priority(10)平局按 name 升序:rf_b 在 rf_z 之前;rf_a(priority 0)最后
+    assertEquals("(region = 'cn') AND (id > 0) AND (status = 'active')", table.rowFilter());
   }
 
   @Test
@@ -555,6 +558,7 @@ git commit -m "feat(policy): 管理面策略 API 增加 priority 字段（缺省
     store.createInstance(instance());
     PolicyEntity withPriority = new PolicyEntity("mask_p7", PolicyType.DATAMASK, true, 7,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new io.sqlmask.policy.model.SubjectSelector(java.util.Set.of("*"), java.util.Set.of()),
         "mask_phone", List.of(3, 4), null);
     store.createPolicy(instanceName(), withPriority);
     assertEquals(7, store.findPolicy(instanceName(), "mask_p7").orElseThrow().priority());
@@ -562,10 +566,13 @@ git commit -m "feat(policy): 管理面策略 API 增加 priority 字段（缺省
     store.updatePolicy(instanceName(), "mask_p7",
         new PolicyEntity("mask_p7", PolicyType.DATAMASK, true, 3,
             new ResourceSelector("crm", "public", "customer", List.of("phone")),
+            new io.sqlmask.policy.model.SubjectSelector(java.util.Set.of("*"), java.util.Set.of()),
             "mask_phone", List.of(3, 4), null));
     assertEquals(3, store.findPolicy(instanceName(), "mask_p7").orElseThrow().priority());
   }
 ```
+
+（用全限定 `SubjectSelector` 免改 import 区；9 参规范构造器显式给 priority——不存在"8 参带 priority"的重载。）
 
 (b) `InMemoryPolicyStoreTest.java` 追加（沿用该文件既有 `store` 字段、`INSTANCE` 常量与 `findPolicy` 访问模式）：
 
