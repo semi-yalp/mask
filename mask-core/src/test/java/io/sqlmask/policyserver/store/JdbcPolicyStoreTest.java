@@ -8,17 +8,19 @@ import io.sqlmask.policyserver.model.PolicyType;
 import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
 import io.sqlmask.policyserver.model.UdfDefinition;
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 import javax.sql.DataSource;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -29,18 +31,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Runs the {@link InMemoryPolicyStoreTest} scenarios against
- * {@link JdbcPolicyStore} on a real PostgreSQL. Only executes when
- * {@code POLICY_PG_URL} is set (e.g. {@code jdbc:postgresql://127.0.0.1:5432/sqlmask_policy});
- * {@code POLICY_PG_USER}/{@code POLICY_PG_PASSWORD} default to
- * {@code sqlmask}/{@code sqlmask}. Applies {@code schema.sql} on start and
- * removes every instance it created after each test, so runs are repeatable
- * and never collide with leftover data (a unique per-run name suffix).
+ * {@link JdbcPolicyStore} on a real PostgreSQL. By default an embedded
+ * PostgreSQL is started for the test JVM; setting {@code POLICY_PG_URL}
+ * (e.g. {@code jdbc:postgresql://127.0.0.1:5432/sqlmask_policy}) targets an
+ * existing database instead, with {@code POLICY_PG_USER}/
+ * {@code POLICY_PG_PASSWORD} defaulting to {@code sqlmask}/{@code sqlmask}.
+ * Applies {@code schema.sql} on start and removes every instance it created
+ * after each test, so runs are repeatable and never collide with leftover
+ * data (a unique per-run name suffix).
  */
-@EnabledIfEnvironmentVariable(named = "POLICY_PG_URL", matches = ".+")
-class JdbcPolicyStoreIT {
+class JdbcPolicyStoreTest {
 
   private static final String UNIQUE_SUFFIX = UUID.randomUUID().toString().substring(0, 8);
 
+  private static EmbeddedPostgres embedded;
   private static DataSource dataSource;
   private static JdbcTemplate cleanupJdbc;
 
@@ -52,11 +56,24 @@ class JdbcPolicyStoreIT {
   }
 
   @BeforeAll
-  static void initDatabase() {
-    dataSource = new DriverManagerDataSource(System.getenv("POLICY_PG_URL"),
-        env("POLICY_PG_USER", "sqlmask"), env("POLICY_PG_PASSWORD", "sqlmask"));
+  static void initDatabase() throws IOException {
+    String url = System.getenv("POLICY_PG_URL");
+    if (url != null && !url.isBlank()) {
+      dataSource = new DriverManagerDataSource(url,
+          env("POLICY_PG_USER", "sqlmask"), env("POLICY_PG_PASSWORD", "sqlmask"));
+    } else {
+      embedded = EmbeddedPostgres.builder().start();
+      dataSource = embedded.getPostgresDatabase();
+    }
     new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
     cleanupJdbc = new JdbcTemplate(dataSource);
+  }
+
+  @AfterAll
+  static void stopDatabase() throws IOException {
+    if (embedded != null) {
+      embedded.close();
+    }
   }
 
   @BeforeEach

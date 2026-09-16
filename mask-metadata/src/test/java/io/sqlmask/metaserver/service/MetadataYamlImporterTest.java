@@ -138,4 +138,17 @@ class MetadataYamlImporterTest {
     assertTrue(e.getMessage().contains("metadata.tables[0].columns[0] must be a mapping"),
         () -> e.getMessage());
   }
+
+  @Test
+  void nonMappingTableEntryRejected() {
+    String yaml = """
+        metadata:
+          tables:
+            - just_a_string
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> importer.parse(yaml, "test.yaml"));
+    assertTrue(e.getMessage().contains("metadata.tables[0] must be a mapping"),
+        () -> e.getMessage());
+  }
 }

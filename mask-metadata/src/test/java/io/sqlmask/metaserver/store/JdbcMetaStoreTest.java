@@ -4,7 +4,8 @@ import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
 import io.sqlmask.metaserver.model.TableStructure;
 import io.sqlmask.metaserver.model.TableStructure.ColumnStructure;
-import org.junit.jupiter.api.Assumptions;
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
@@ -20,25 +21,42 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Runs only when METADATA_PG_URL is set; schema is applied idempotently. */
-class JdbcMetaStoreIT {
+/**
+ * Runs against a real PostgreSQL: an embedded instance by default, or the
+ * database behind {@code METADATA_PG_URL} when set (user/password default to
+ * {@code postgres}); schema is applied idempotently.
+ */
+class JdbcMetaStoreTest {
 
+  private static EmbeddedPostgres embedded;
   private static JdbcTemplate jdbc;
   private static JdbcMetaStore store;
 
   @BeforeAll
   static void setUp() throws Exception {
+    javax.sql.DataSource ds;
     String url = System.getenv("METADATA_PG_URL");
-    Assumptions.assumeTrue(url != null, "METADATA_PG_URL not set; skipping JDBC store IT");
-    SingleConnectionDataSource ds = new SingleConnectionDataSource(url,
-        System.getenv().getOrDefault("METADATA_PG_USER", "postgres"),
-        System.getenv().getOrDefault("METADATA_PG_PASSWORD", "postgres"), true);
+    if (url != null) {
+      ds = new SingleConnectionDataSource(url,
+          System.getenv().getOrDefault("METADATA_PG_USER", "postgres"),
+          System.getenv().getOrDefault("METADATA_PG_PASSWORD", "postgres"), true);
+    } else {
+      embedded = EmbeddedPostgres.builder().start();
+      ds = embedded.getPostgresDatabase();
+    }
     jdbc = new JdbcTemplate(ds);
     try (Connection connection = ds.getConnection()) {
       ScriptUtils.executeSqlScript(connection,
-          new ClassPathResource("/metadata-schema.sql", JdbcMetaStoreIT.class));
+          new ClassPathResource("/metadata-schema.sql", JdbcMetaStoreTest.class));
     }
     store = new JdbcMetaStore(jdbc, new DataSourceTransactionManager(ds));
+  }
+
+  @AfterAll
+  static void tearDown() throws Exception {
+    if (embedded != null) {
+      embedded.close();
+    }
   }
 
   private static InstanceRow row(String name) {

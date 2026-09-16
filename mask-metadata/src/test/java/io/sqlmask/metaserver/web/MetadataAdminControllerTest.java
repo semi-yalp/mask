@@ -196,6 +196,18 @@ class MetadataAdminControllerTest {
   }
 
   @Test
+  void importWithoutDialectIs400() throws Exception {
+    mockMvc.perform(post("/api/instances/import")
+            .header("X-Api-Key", KEY)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"pg_x\",\"metadataYaml\":\"metadata:\\n  tables: []\\n\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
+        .andExpect(jsonPath("$.message")
+            .value(org.hamcrest.Matchers.containsString("name, dialect and metadataYaml are required")));
+  }
+
+  @Test
   void importWithNoTablesIs400() throws Exception {
     mockMvc.perform(post("/api/instances/import")
             .header("X-Api-Key", KEY)

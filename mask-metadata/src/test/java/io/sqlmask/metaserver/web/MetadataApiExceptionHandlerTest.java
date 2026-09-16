@@ -1,10 +1,13 @@
 package io.sqlmask.metaserver.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sqlmask.error.SqlMaskException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 class MetadataApiExceptionHandlerTest {
 
@@ -47,5 +50,29 @@ class MetadataApiExceptionHandlerTest {
     assertEquals("CONFIG_ERROR", body.code());
     assertEquals("bad input", body.message());
     assertEquals(java.util.List.of(), body.details());
+  }
+
+  @Test
+  void unreadableBodyMapsTo400WithBadRequestCode() {
+    ResponseEntity<MetadataApiExceptionHandler.ApiError> response = handler.handleUnreadable(
+        new HttpMessageNotReadableException("boom", (org.springframework.http.HttpInputMessage) null));
+    assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    assertEquals("BAD_REQUEST", response.getBody().code());
+    assertTrue(response.getBody().message().startsWith("request body is not valid JSON"));
+  }
+
+  @Test
+  void unexpectedExceptionMapsTo500WithInternalErrorCode() {
+    ResponseEntity<MetadataApiExceptionHandler.ApiError> response =
+        handler.handleUnexpected(new IllegalStateException("boom"));
+    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    assertEquals("INTERNAL_ERROR", response.getBody().code());
+    assertEquals("boom", response.getBody().message());
+  }
+
+  @Test
+  void unexpectedExceptionWithoutMessageFallsBackToExceptionName() {
+    assertEquals("NullPointerException",
+        handler.handleUnexpected(new NullPointerException()).getBody().message());
   }
 }
