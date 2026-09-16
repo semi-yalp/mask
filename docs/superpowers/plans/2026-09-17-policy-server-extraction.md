@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - 迁移端点（`/api/instances/**`、`/api/effective/**`、UDF CRUD、`import-metadata`）对外行为**逐字节不变**：路径、请求/响应 JSON、错误形状（`SqlMaskException` → 400 + `{code, message}`）、鉴权（`X-Api-Key`，未配置不拦截）全部照搬；
-- `io.sqlmask.policyserver` 包名原样保留；迁移的 6 个 `io.sqlmask.server` 类进新包 `io.sqlmask.policyserver.web`；
+- `io.sqlmask.policyserver` 包名原样保留；迁移的 5 个 `io.sqlmask.server` 类进新包 `io.sqlmask.policyserver.web`（`PolicyApiKeyFilter` 为复制件，同包名）；
 - 端口：core 8080 / **policy 8081** / metadata 8082；
 - 环境变量：服务端 `POLICY_PG_URL` / `POLICY_PG_USER` / `POLICY_PG_PASSWORD`、`SQLMASK_ADMIN_API_KEY` / `SQLMASK_DATA_API_KEY`；core 客户端 `POLICY_SERVICE_URL` / `POLICY_SERVICE_API_KEY` / `POLICY_SERVICE_POLL_INTERVAL_MS`（默认 30000）；
 - 新行为一律 TDD（先写失败测试）；迁移以"迁移测试在新模块全绿 + core 回归全绿"为验收；
 - Windows / Git Bash 环境；模块级测试命令用 `mvn -q -pl <module> -am test`（`-am` 保证依赖模块先构建）；
 - 提交信息用仓库既有 conventional 风格（`feat(policy-server): ...` / `test:` / `docs:`），每任务至少一个提交；
-- **执行前预检（Global）**：`git status --porcelain` 除 `?? untitled.md` 外必须干净。存在其他工作线的未提交修改（如审计 WIP：`mask-core/pom.xml` 的 mask-audit 依赖、`PolicyApiKeyFilterTest.java` 的审计测试）时**立即中止并报告**，不执行、不提交、不推送——这些改动与 Task 1 操作对象重叠，强行继续会污染两条工作线。
+- **执行前预检（Global）**：本计划在隔离 worktree（`C:/Users/yhh/orca/mask-policy-exec`，分支 `feature/audit-es-impl2`）中执行；worktree 创建时自然干净，主工作区（`C:/Users/yhh/orca/mask`）其他工作线（如 prometheus-metrics）的未提交 WIP 与本计划无关、绝不动。若执行中 worktree 出现计划之外的脏文件，中止并报告。
 
 ---
 
@@ -44,10 +44,10 @@
 - Move: `mask-core/src/main/resources/schema.sql` → `mask-policy-server/src/main/resources/schema.sql`
 - Move (测试): `mask-core/src/test/java/io/sqlmask/policyserver/` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/`；`mask-core/.../server/{EffectiveConfigEndpointTest,PolicyAdminEndpointTest,UdfEndpointTest,MetadataImportEndpointTest}.java` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/web/`（包名同步改）
 - Modify: `pom.xml`（根，`<modules>` 增加 mask-policy-server）
-- Modify: `mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`（删 5 个 @Bean）
+- Modify: `mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`（删 4 个 policy 相关 @Bean，其余——审计 bean、`policyApiKeyFilter` 注册——全部保留）
 
 **Interfaces:**
-- Consumes: core 的 `io.sqlmask.config.source.EffectiveConfigResponse`、`io.sqlmask.metadataclient.MetadataClient`、`io.sqlmask.error.SqlMaskException`（经 mask-core 依赖获得）；mask-policy 的 `SubjectSelector`/`Subject`；
+- Consumes: core 的 `io.sqlmask.config.source.EffectiveConfigResponse`、`io.sqlmask.metadataclient.MetadataClient`、`io.sqlmask.error.SqlMaskException`（经 mask-core 依赖获得）；mask-policy 的 `SubjectSelector`/`Subject`；**mask-audit**（`AuditEvents` 常量——复制的 `PolicyApiKeyFilter` 打标 authKind 用，pom 需显式依赖）；
 - Produces: 独立 Spring Boot 应用 `PolicyServerApplication`（fat jar `mask-policy-server-*.jar`，8081）；`PolicyStore` bean 规则——配置了 DataSource（生产默认）→ `JdbcPolicyStore`，未配置（测试排除 DataSource 自动装配）→ `InMemoryPolicyStore`。后续任务不直接依赖这些 bean，但依赖"8081 上管理面/数据面可用"这一事实。
 
 - [ ] **Step 1: 创建模块 pom 与根 pom 登记**
@@ -82,6 +82,11 @@
     <dependency>
       <groupId>io.sqlmask</groupId>
       <artifactId>mask-policy</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>io.sqlmask</groupId>
+      <artifactId>mask-audit</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
@@ -178,18 +183,16 @@ done
 
 - [ ] **Step 4: 复制 PolicyApiKeyFilter（不迁移）并写启动类、两个 application.yml、异常处理器**
 
-复制过滤器（core 保留原类与原测试——审计工作线正在 core 扩展它，两份必须逐字节一致）：
+复制过滤器（core 保留原类与原测试——审计工作线在 core 扩展它，两份必须逐字节一致；worktree 干净，直接复制已提交版本，测试里的 `/api/audit` 用例经 mask-audit 依赖编译、对复制件同样成立）：
 
 ```bash
 sed 's/^package io\.sqlmask\.server;/package io.sqlmask.policyserver.web;/' \
   mask-core/src/main/java/io/sqlmask/server/PolicyApiKeyFilter.java \
   > mask-policy-server/src/main/java/io/sqlmask/policyserver/web/PolicyApiKeyFilter.java
-git show HEAD:mask-core/src/test/java/io/sqlmask/server/PolicyApiKeyFilterTest.java \
-  | sed 's/^package io\.sqlmask\.server;/package io.sqlmask.policyserver.web;/' \
+sed 's/^package io\.sqlmask\.server;/package io.sqlmask.policyserver.web;/' \
+  mask-core/src/test/java/io/sqlmask/server/PolicyApiKeyFilterTest.java \
   > mask-policy-server/src/test/java/io/sqlmask/policyserver/web/PolicyApiKeyFilterTest.java
 ```
-
-（第二份用 `git show HEAD:` 取已提交版本，避免把工作区里审计 WIP 的未提交改动带进 policy-server。）
 
 `mask-policy-server/src/main/java/io/sqlmask/policyserver/PolicyServerApplication.java`：
 
@@ -331,7 +334,7 @@ public class PolicyApiExceptionHandler {
 
 - [ ] **Step 5: 从 SqlMaskServiceApplication 删除内嵌策略服务**
 
-`mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`：删除 import `io.sqlmask.policyserver.PolicyService`、`io.sqlmask.policyserver.PolicyValidator`、`io.sqlmask.policyserver.store.InMemoryPolicyStore`、`io.sqlmask.policyserver.store.PolicyStore`，以及 4 个 @Bean 方法：`policyStore`、`policyValidator`、`policyService`、`metadataStructureFetcher`。保留：CLI 分派逻辑、`rewriteEngine`、`pgMetadataIntrospector`、`policyApiKeyFilter` 注册（core 的过滤器类原地保留，审计工作线依赖它；其 urlPatterns 照旧，指向已无控制器的 `/api/instances/*`、`/api/effective/*` 无害，后续由审计工作线按需调整）、类上的 `exclude = DataSourceAutoConfiguration.class`（core 依旧无库）。删完后类体应剩 `main` / `looksLikeCliInvocation` / `rewriteEngine` / `pgMetadataIntrospector` / `policyApiKeyFilter`。
+`mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`：删除 import `io.sqlmask.policyserver.PolicyService`、`io.sqlmask.policyserver.PolicyValidator`、`io.sqlmask.policyserver.store.InMemoryPolicyStore`、`io.sqlmask.policyserver.store.PolicyStore`，以及 4 个 @Bean 方法：`policyStore`、`policyValidator`、`policyService`、`metadataStructureFetcher`。保留：CLI 分派逻辑、`rewriteEngine`、`pgMetadataIntrospector`、`policyApiKeyFilter` 注册（core 的过滤器类原地保留，审计工作线依赖它；其 urlPatterns 现为 `/api/instances/*`、`/api/effective/*`、`/api/audit/*`，前两组指向已迁走的控制器无害，由审计工作线按需调整）、其余全部审计相关 @Bean、类上的 `exclude = DataSourceAutoConfiguration.class`（core 依旧无库）。
 
 再全局确认 core 主代码无残留引用：`grep -rln "io\.sqlmask\.policyserver\|MetadataStructureFetcher" mask-core/src/main/java` → 期望：无输出。
 
