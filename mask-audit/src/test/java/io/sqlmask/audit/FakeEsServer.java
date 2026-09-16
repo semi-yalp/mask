@@ -30,8 +30,12 @@ public final class FakeEsServer implements Closeable {
   public final AtomicReference<Integer> bulkStatus = new AtomicReference<>(200);
   public final AtomicReference<String> bulkBody =
       new AtomicReference<>("{\"errors\":false,\"items\":[]}");
+  // Search responses must carry the fields a real ES 8 response always sends
+  // (took/timedOut/_shards, hits.total.relation, _index/_id per hit):
+  // elasticsearch-java validates them while decoding HitsMetadata.
   public final AtomicReference<String> searchBody = new AtomicReference<>("""
-      {"hits":{"total":{"value":0},"hits":[]}}""");
+      {"took":0,"timed_out":false,"_shards":{"total":1,"successful":1,"failed":0,"skipped":0},
+       "hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}""");
 
   private final HttpServer server;
 
@@ -85,6 +89,12 @@ public final class FakeEsServer implements Closeable {
 
   public List<RecordedRequest> requests(String pathPrefix) {
     return requests.stream().filter(r -> r.path().startsWith(pathPrefix)).toList();
+  }
+
+  /** Requests whose path ends with the suffix — e.g. the daily-index search
+   * requests this module sends, which the prefix filter cannot reach. */
+  public List<RecordedRequest> requestsEndingWith(String pathSuffix) {
+    return requests.stream().filter(r -> r.path().endsWith(pathSuffix)).toList();
   }
 
   public void setBulkFailure() {
