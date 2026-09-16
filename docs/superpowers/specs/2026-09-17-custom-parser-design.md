@@ -1,7 +1,8 @@
 # 自定义 SQL 解析器设计方案（mask-sqlparser：TOP / OVERWRITE 语法扩展）
 
 日期：2026-09-17
-状态：已评审（用户确认路线 B、基础设施先行、mask-core 落点、三方言全量切换）
+状态：已评审（用户确认路线 B、基础设施先行、mask-core 落点、三方言全量切换、
+关键字范围保持 TOP/OVERWRITE + backlog 入档）
 前置文档：`2026-09-06-multi-dialect-design.md`（其 §9 已预告 `INSERT OVERWRITE` 作为
 Spark 系方言的增量钩子，本文档为其提供解析层基础设施）
 
@@ -75,7 +76,7 @@ mask-sqlparser/
                                            maskParserImpls.ftl]
                                            （注：`+=` 表示最终生效内容含新增项；
                                            各键在双层合并下是替换还是与
-                                           default_config.fmpp 拼接，由 §10.1
+                                           default_config.fmpp 拼接，由 §11.1
                                            验证项钉死，验收标准是：标准关键字
                                            清单完整保留 + TOP/OVERWRITE 存在 +
                                            两词均为非保留）
@@ -225,7 +226,35 @@ SQL 分别用 Babel 与新解析器（开关关）解析，断言语句 kind 树
 3. Calcite 升级 runbook：解出新版 codegen → 重放挂点 diff → 全量差分
    （§7.2）+ 三方言套件全绿后合入。
 
-## 9. 明确不做（YAGNI）
+## 9. 关键字候选 backlog（2026-09-17 实测，本次不实现）
+
+探测方法：calcite-core / calcite-babel 1.42.0 jar 直跑（与线上解析配置同构），
+换新解析器或升级 Calcite 后应复测并更新本节。优先级原则：以生产上真实被
+`PARSE_ERROR` 拦截的 SQL 样本按频次排序；候选项随其目标方言任务认领，不单独
+攒批（方言归属过滤是设计的一部分，见 §4.5）。
+
+已支持、无需行动：`PIVOT`、`CROSS APPLY`、`ROWNUM`、`::` 强转、`RLIKE`、
+`<=>`、`LIMIT offset, count`、`LEFT SEMI JOIN`、`CONVERT`。
+
+缺失候选（按方言分组）：
+
+| 方言 | 写法 | 处置意向 | 备注 |
+|---|---|---|---|
+| Hive/Spark/Doris | `LATERAL VIEW` | 随 hive/doris 方言任务评估 | 需血缘可展开 |
+| Hive/Spark/Doris | `DISTRIBUTE BY` / `SORT BY` / `CLUSTER BY` | 随 hive/doris 方言任务做 | 查询尾部子句，语义可映射 |
+| SQL Server | `WITH (NOLOCK)` 等表提示 | 随 mssql 任务评估 | 剥除会改变加锁行为，属策略决定 |
+| SQL Server | `FOR XML` | 随 mssql 任务评估 | 输出形态特殊 |
+| SQL Server | 方括号标识符 `[id]` | 随 mssql 任务配置 | 非语法问题：`Quoting.BRACKET` |
+| MySQL | `FORCE INDEX` / `USE INDEX` | 随 mysql 增强评估 | FROM 子句内，挡查询 |
+| MySQL | `REPLACE INTO` / `ON DUPLICATE KEY UPDATE` | 随 mysql 增强评估 | 需动 composeWriteStatement 重组，非纯语法 |
+| Oracle | `(+)` 老式外连接、`CONNECT BY` | 大概率永久拒绝 | 血缘无法等价表达 |
+
+支持新关键字的三道过滤（永远适用的边界）：语句形态过滤（管线只收
+SELECT / WITH…SELECT / INSERT…SELECT / CTAS，DDL 与工具语句的关键字永不涉及）、
+方言归属过滤（只对目标方言开开关）、语义等价过滤（改写可还原 + 不影响掩码
+判定，否则拒绝）。
+
+## 10. 明确不做（YAGNI）
 
 - sqlserver / hive / spark / starrocks 完整方言 profile（本任务只交付解析层
   基础设施与开关）；
@@ -234,7 +263,7 @@ SQL 分别用 Babel 与新解析器（开关关）解析，断言语句 kind 树
 - mask-lite 的同步改造；
 - 兜底宽容解析器（Druid / JSqlParser）。
 
-## 10. 实现期验证项（每项需有对应产出或测试）
+## 11. 实现期验证项（每项需有对应产出或测试）
 
 1. **FMPP 双层配置合并的 maven 接法**：模板的 `default` 变量注入方式（候选：
    exec-maven-plugin/antrun 调 fmpp CLI 注入 `default_config.fmpp`；或验证
