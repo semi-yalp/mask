@@ -92,7 +92,9 @@ public final class EsAuditRecorder implements AuditRecorder, AutoCloseable {
           lastFlush = now;
         }
       } catch (InterruptedException ie) {
-        Thread.currentThread().interrupt(); // re-evaluate the loop condition
+        // Clear the flag so the drain phase can keep polling; the interrupt
+        // already did its job of breaking out of the blocking poll above.
+        Thread.interrupted();
       } catch (RuntimeException e) {
         log.debug("audit: writer loop iteration failed: {}", e.getMessage());
       }

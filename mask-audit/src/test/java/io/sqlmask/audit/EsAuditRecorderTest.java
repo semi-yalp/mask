@@ -84,8 +84,7 @@ class EsAuditRecorderTest {
     es.setBulkFailure();
     try (EsAuditRecorder r = new EsAuditRecorder(client, props(100, 1, 60_000))) {
       r.record(event("SELECT 1"));
-      waitUntil(() -> !es.requests("/_bulk").isEmpty(), 5000);
-      assertTrue(r.droppedBatches() >= 1);
+      waitUntil(() -> !es.requests("/_bulk").isEmpty() && r.droppedBatches() >= 1, 5000);
       es.resetBulk();
       r.record(event("SELECT 2"));
       waitUntil(() -> es.requests("/_bulk").size() >= 2, 5000);
