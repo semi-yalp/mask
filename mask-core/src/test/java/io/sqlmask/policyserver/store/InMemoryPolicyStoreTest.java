@@ -113,4 +113,14 @@ class InMemoryPolicyStoreTest {
             .getCode());
     assertEquals(2, store.currentVersion("pg_prod")); // 失败变更不推进版本
   }
+
+  @Test
+  void policyPrioritySurvivesInMemoryRoundTrip() {
+    store.createInstance(INSTANCE);
+    store.createPolicy("pg_prod", new PolicyEntity("p7",
+        PolicyType.DATAMASK, true, 7,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        null, "mask_phone", List.of(3, 4), null));
+    assertEquals(7, store.findPolicy("pg_prod", "p7").orElseThrow().priority());
+  }
 }

@@ -135,20 +135,21 @@ public class JdbcPolicyStore implements PolicyStore {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "policy name mismatch: '"
           + policyName + "' cannot be renamed to '" + policy.name() + "'");
     }
-    int updated = jdbc.update("UPDATE policy SET policy_type = ?, is_enabled = ?, udf = ?,"
-            + " arguments = ?::jsonb, filter_expr = ?, resource = ?::jsonb,"
+    int updated = jdbc.update("UPDATE policy SET policy_type = ?, is_enabled = ?, priority = ?,"
+            + " udf = ?, arguments = ?::jsonb, filter_expr = ?, resource = ?::jsonb,"
             + " subjects = ?::jsonb, updated_at = now()"
             + " WHERE instance_id = ? AND name = ?",
         ps -> {
           ps.setString(1, policy.policyType().name());
           ps.setBoolean(2, policy.enabled());
-          setNullableString(ps, 3, policy.udf());
-          setNullableJson(ps, 4, policy.arguments());
-          setNullableString(ps, 5, policy.filterExpr());
-          ps.setString(6, toJson(policy.resource()));
-          ps.setString(7, toJson(policy.subjects()));
-          ps.setLong(8, instanceId);
-          ps.setString(9, policyName);
+          ps.setInt(3, policy.priority());
+          setNullableString(ps, 4, policy.udf());
+          setNullableJson(ps, 5, policy.arguments());
+          setNullableString(ps, 6, policy.filterExpr());
+          ps.setString(7, toJson(policy.resource()));
+          ps.setString(8, toJson(policy.subjects()));
+          ps.setLong(9, instanceId);
+          ps.setString(10, policyName);
         });
     if (updated == 0) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
@@ -393,19 +394,20 @@ public class JdbcPolicyStore implements PolicyStore {
   }
 
   private void insertPolicy(long instanceId, PolicyEntity policy) {
-    jdbc.update("INSERT INTO policy (instance_id, name, policy_type, is_enabled, udf,"
-            + " arguments, filter_expr, resource, subjects)"
-            + " VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb)",
+    jdbc.update("INSERT INTO policy (instance_id, name, policy_type, is_enabled, priority,"
+            + " udf, arguments, filter_expr, resource, subjects)"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb)",
         ps -> {
           ps.setLong(1, instanceId);
           ps.setString(2, policy.name());
           ps.setString(3, policy.policyType().name());
           ps.setBoolean(4, policy.enabled());
-          setNullableString(ps, 5, policy.udf());
-          setNullableJson(ps, 6, policy.arguments());
-          setNullableString(ps, 7, policy.filterExpr());
-          ps.setString(8, toJson(policy.resource()));
-          ps.setString(9, toJson(policy.subjects()));
+          ps.setInt(5, policy.priority());
+          setNullableString(ps, 6, policy.udf());
+          setNullableJson(ps, 7, policy.arguments());
+          setNullableString(ps, 8, policy.filterExpr());
+          ps.setString(9, toJson(policy.resource()));
+          ps.setString(10, toJson(policy.subjects()));
         });
   }
 
@@ -414,6 +416,7 @@ public class JdbcPolicyStore implements PolicyStore {
         rs.getString("name"),
         PolicyType.valueOf(rs.getString("policy_type")),
         rs.getBoolean("is_enabled"),
+        rs.getInt("priority"),
         resourceFrom(rs.getString("resource")),
         subjectFrom(rs.getString("subjects")),
         rs.getString("udf"),
@@ -422,8 +425,8 @@ public class JdbcPolicyStore implements PolicyStore {
   }
 
   private String selectPolicySql() {
-    return "SELECT name, policy_type, is_enabled, udf, arguments, filter_expr, resource, subjects"
-        + " FROM policy";
+    return "SELECT name, policy_type, is_enabled, priority, udf, arguments, filter_expr,"
+        + " resource, subjects FROM policy";
   }
 
   private void setNullableString(PreparedStatement ps, int index, String value) throws SQLException {

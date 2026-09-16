@@ -263,6 +263,24 @@ class JdbcPolicyStoreTest {
     assertEquals(java.util.Set.of("*"), legacy.subjects().users());
   }
 
+  @Test
+  void policyPriorityRoundTripsThroughJdbc() {
+    store.createInstance(instance());
+    PolicyEntity withPriority = new PolicyEntity("mask_p7", PolicyType.DATAMASK, true, 7,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new io.sqlmask.policy.model.SubjectSelector(java.util.Set.of("*"), java.util.Set.of()),
+        "mask_phone", List.of(3, 4), null);
+    store.createPolicy(instanceName(), withPriority);
+    assertEquals(7, store.findPolicy(instanceName(), "mask_p7").orElseThrow().priority());
+
+    store.updatePolicy(instanceName(), "mask_p7",
+        new PolicyEntity("mask_p7", PolicyType.DATAMASK, true, 3,
+            new ResourceSelector("crm", "public", "customer", List.of("phone")),
+            new io.sqlmask.policy.model.SubjectSelector(java.util.Set.of("*"), java.util.Set.of()),
+            "mask_phone", List.of(3, 4), null));
+    assertEquals(3, store.findPolicy(instanceName(), "mask_p7").orElseThrow().priority());
+  }
+
   private Long instanceIdOf(String name) {
     return cleanupJdbc.queryForObject(
         "SELECT id FROM policy_instance WHERE name = ?", Long.class, name);

@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS policy (
   -- 存量库升级：ALTER TABLE policy ADD COLUMN subjects JSONB;
   --              UPDATE policy SET subjects = '{"users":["*"]}'::jsonb WHERE subjects IS NULL;
   subjects JSONB,
+  -- 存量库升级：ALTER TABLE policy ADD COLUMN priority INT NOT NULL DEFAULT 0;
+  priority INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (instance_id, name)
