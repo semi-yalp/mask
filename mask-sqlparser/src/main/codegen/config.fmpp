@@ -6,7 +6,30 @@ data: {
 
     # List of files in @includes directory.
     implementationFiles: [
-      "parserImpls.ftl"
+      "parserImpls.ftl",
+      "maskParserImpls.ftl"
+    ],
+
+    # mask 扩展关键字（INSERT OVERWRITE，spec §4.3）。
+    keywords: [
+      "OVERWRITE"
+    ],
+
+    # OVERWRITE 不设为保留字，避免破坏其作为标识符的既有用法。
+    nonReservedKeywordsToAdd: [
+      "OVERWRITE"
+    ],
+
+    # 解析器产生式引用的节点/开关类。
+    imports: [
+      "io.sqlmask.parser.SqlInsertOverwrite",
+      "io.sqlmask.parser.SqlMaskConformance"
+    ],
+
+    # 通过 SqlStmt() 首批备选（自带 LOOKAHEAD(2)）挂载，
+    # 先于基语法 SqlInsert() 匹配。
+    statementParserMethods: [
+      "SqlMaskInsertOverwrite()"
     ]
   }
 
