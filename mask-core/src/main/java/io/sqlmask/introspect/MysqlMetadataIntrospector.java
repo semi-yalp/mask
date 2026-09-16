@@ -9,10 +9,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Pulls table/column metadata from the connected MySQL database via
@@ -42,8 +44,8 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
   public IntrospectionResult introspect(ConnectionSpec spec) {
     try (Connection connection = open(spec)) {
       String catalog = queryCurrentDatabase(connection);
-      List<IntrospectionResult.TableInfo> tables = queryTables(connection, spec, catalog);
       List<String> warnings = new ArrayList<>();
+      List<IntrospectionResult.TableInfo> tables = queryTables(connection, spec, catalog, warnings);
       for (IntrospectionResult.TableInfo table : tables) {
         for (IntrospectionResult.ColumnInfo column : table.columns()) {
           if (column.degraded()) {
@@ -88,7 +90,8 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
   }
 
   private List<IntrospectionResult.TableInfo> queryTables(
-      Connection connection, ConnectionSpec spec, String catalog) throws SQLException {
+      Connection connection, ConnectionSpec spec, String catalog,
+      List<String> warnings) throws SQLException {
     String schemaPredicate = spec.schemas().isEmpty()
         ? "c.TABLE_SCHEMA = DATABASE()"
         : "c.TABLE_SCHEMA IN (" + placeholders(spec.schemas().size()) + ")";
@@ -100,7 +103,7 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
         statement.setString(index++, schema);
       }
       try (ResultSet rs = statement.executeQuery()) {
-        return assemble(rs, catalog);
+        return assemble(rs, catalog, warnings);
       }
     }
   }
@@ -109,9 +112,10 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
     return String.join(", ", Collections.nCopies(n, "?"));
   }
 
-  private List<IntrospectionResult.TableInfo> assemble(ResultSet rs, String catalog)
-      throws SQLException {
+  private List<IntrospectionResult.TableInfo> assemble(
+      ResultSet rs, String catalog, List<String> warnings) throws SQLException {
     Map<String, IntrospectionResult.TableInfo> byKey = new LinkedHashMap<>();
+    Set<String> unknownKindTables = new HashSet<>();
     while (rs.next()) {
       String schema = rs.getString("TABLE_SCHEMA");
       String name = rs.getString("TABLE_NAME");
@@ -121,13 +125,31 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
       String key = schema + "." + name;
       IntrospectionResult.TableInfo table = byKey.get(key);
       if (table == null) {
-        table = new IntrospectionResult.TableInfo(catalog, schema, name, new ArrayList<>());
+        String tableType = rs.getString("TABLE_TYPE");
+        String kind = kindOf(tableType);
+        if (kind == null) {
+          kind = TableKind.TABLE;
+          if (unknownKindTables.add(key)) {
+            warnings.add("unknown TABLE_TYPE '" + tableType + "' for "
+                + catalog + "." + schema + "." + name + ", degraded to table");
+          }
+        }
+        table = new IntrospectionResult.TableInfo(catalog, schema, name, kind, new ArrayList<>());
         byKey.put(key, table);
       }
       table.columns().add(new IntrospectionResult.ColumnInfo(column, mapped.yamlType(),
           columnType, mapped.degraded()));
     }
     return new ArrayList<>(byKey.values());
+  }
+
+  /** Maps an information_schema TABLE_TYPE value; null means unrecognized. */
+  private static String kindOf(String tableType) {
+    return switch (tableType) {
+      case "VIEW", "SYSTEM VIEW" -> TableKind.VIEW;
+      case "BASE TABLE" -> TableKind.TABLE;
+      default -> null;
+    };
   }
 
   /** Strips anything that may carry connection details from driver messages. */

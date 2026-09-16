@@ -50,6 +50,7 @@ class MysqlMetadataIntrospectorTest {
     assertEquals("shop", result.catalog());
     assertEquals(1, result.tables().size());
     assertEquals("shop", result.tables().get(0).schema());
+    assertEquals("table", result.tables().get(0).kind());
     assertEquals(2, result.tables().get(0).columns().size());
     assertEquals("bigint", result.tables().get(0).columns().get(0).yamlType());
     assertTrue(result.tables().get(0).columns().get(0).degraded());
@@ -57,6 +58,42 @@ class MysqlMetadataIntrospectorTest {
     assertTrue(result.warnings().stream().anyMatch(w ->
         w.contains("shop.shop.customer.id") && w.contains("mysql type bigint unsigned")
         && w.endsWith("loses unsigned range semantics, mapped to bigint")));
+  }
+
+  @Test
+  void viewKindsAreMappedAndUnknownTableTypeDegradesWithWarning() throws SQLException {
+    Connection conn = mock(Connection.class);
+    PreparedStatement c1 = mock(PreparedStatement.class);
+    PreparedStatement c2 = mock(PreparedStatement.class);
+    when(conn.prepareStatement(anyString())).thenReturn(c1, c2);
+
+    ResultSet db = mock(ResultSet.class);
+    when(db.next()).thenReturn(true, false);
+    when(db.getString(1)).thenReturn("shop");
+
+    ResultSet rows = mock(ResultSet.class);
+    // 每行: TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, COLUMN_NAME, COLUMN_TYPE
+    when(rows.next()).thenReturn(true, true, true, false);
+    when(rows.getString("TABLE_SCHEMA")).thenReturn("shop", "shop", "shop");
+    when(rows.getString("TABLE_NAME")).thenReturn("customer_v", "system_v", "weird");
+    when(rows.getString("TABLE_TYPE")).thenReturn("VIEW", "SYSTEM VIEW", "WHATEVER");
+    when(rows.getString("COLUMN_NAME")).thenReturn("id", "id", "id");
+    when(rows.getString("COLUMN_TYPE")).thenReturn("bigint", "bigint", "bigint");
+
+    when(c1.executeQuery()).thenReturn(db);
+    when(c2.executeQuery()).thenReturn(rows);
+
+    MysqlMetadataIntrospector introspector = new MysqlMetadataIntrospector() {
+      @Override protected Connection open(ConnectionSpec spec) { return conn; }
+    };
+    IntrospectionResult result = introspector.introspect(
+        new ConnectionSpec("mysql", "h", 3306, "shop", "u", "p", List.of(), true, false, "disable", 10));
+
+    assertEquals("view", result.tables().get(0).kind());
+    assertEquals("view", result.tables().get(1).kind());
+    assertEquals("table", result.tables().get(2).kind());
+    assertTrue(result.warnings().stream()
+        .anyMatch(w -> w.contains("unknown TABLE_TYPE 'WHATEVER'") && w.contains("shop.shop.weird")));
   }
 
   @Test
