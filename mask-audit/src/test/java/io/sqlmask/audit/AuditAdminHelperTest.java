@@ -98,4 +98,25 @@ class AuditAdminHelperTest {
     assertEquals("ANONYMOUS", recorder.events.get(0).authKind());
     assertNull(recorder.events.get(0).sourceIp());
   }
+
+  @Test
+  void throwingRecorderDoesNotMaskOriginalErrorOrLoseResult() {
+    // AuditRecorder implementations are contractually never-throw; this guards
+    // the best-effort fallback so a misbehaving recorder can neither replace
+    // the rethrown business exception nor lose a completed result.
+    AuditRecorder throwing = event -> {
+      throw new RuntimeException("recorder blew up");
+    };
+    AuditAdminHelper helper = new AuditAdminHelper(throwing, "sql-mask", t -> "X");
+    RuntimeException boom = new IllegalStateException("original");
+    RuntimeException thrown = assertThrows(IllegalStateException.class,
+        () -> helper.adminChange(request("127.0.0.1", null), "DELETE", "POLICY", "crm",
+            "mask-phone", () -> Map.of(), () -> {
+              throw boom;
+            }));
+    assertSame(boom, thrown);
+    String result = helper.adminChange(request("127.0.0.1", null), "CREATE", "INSTANCE",
+        null, "pg", () -> Map.of(), () -> "ok");
+    assertEquals("ok", result);
+  }
 }
