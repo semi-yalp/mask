@@ -14,9 +14,12 @@ import java.security.MessageDigest;
 
 /**
  * Static API key gate over the policy service surfaces: the admin key guards
- * /api/instances/**, the data key guards /api/effective/**. An unconfigured
- * key leaves its surface open (this app also serves a local browser UI);
- * a configured key rejects every request without a matching X-Api-Key.
+ * /api/instances/**, the data key guards /api/effective/**, and the admin key
+ * also guards /api/audit/**. Once a key check passes the filter marks the
+ * request with {@code audit.authKind=API_KEY} for the audit pipeline. An
+ * unconfigured key leaves its surface open (this app also serves a local
+ * browser UI); a configured key rejects every request without a matching
+ * X-Api-Key.
  *
  * <p>Path checks use {@link HttpServletRequest#getServletPath()}: the decoded
  * path without the context path. The container matches the filter's URL
@@ -52,6 +55,8 @@ public final class PolicyApiKeyFilter implements Filter {
           "{\"code\":\"UNAUTHORIZED\",\"message\":\"missing or invalid API key\",\"details\":[]}");
       return;
     }
+    request.setAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE,
+        io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY);
     chain.doFilter(req, res);
   }
 
@@ -71,6 +76,9 @@ public final class PolicyApiKeyFilter implements Filter {
     }
     if (path.equals("/api/effective") || path.startsWith("/api/effective/")) {
       return dataKey == null || dataKey.isBlank() ? null : dataKey;
+    }
+    if (path.equals("/api/audit") || path.startsWith("/api/audit/")) {
+      return adminKey == null || adminKey.isBlank() ? null : adminKey;
     }
     return null;
   }

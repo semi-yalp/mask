@@ -9,6 +9,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyApiKeyFilterTest {
 
@@ -98,5 +100,33 @@ class PolicyApiKeyFilterTest {
         "admin-secret").getStatus());
     assertEquals(401, run(filter, "/app/api/effective/pg_prod", "/api/effective/pg_prod", null)
         .getStatus());
+  }
+
+  @Test
+  void auditSurfaceRequiresAdminKeyAndMarksAuthKind() throws Exception {
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(401, run(filter, "/api/audit/events", "data-secret").getStatus());
+    assertEquals(401, run(filter, "/api/audit/events", null).getStatus());
+
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/audit/events");
+    request.setServletPath("/api/audit/events");
+    request.addHeader("X-Api-Key", "admin-secret");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    java.util.concurrent.atomic.AtomicBoolean chainReached = new java.util.concurrent.atomic.AtomicBoolean();
+    filter.doFilter(request, response, (req, res) -> chainReached.set(true));
+    assertEquals(200, response.getStatus());
+    assertTrue(chainReached.get());
+    assertEquals(io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY,
+        request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
+  }
+
+  @Test
+  void openManagedPathStaysAnonymous() throws Exception {
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter(null, null);
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/audit/events");
+    request.setServletPath("/api/audit/events");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    filter.doFilter(request, response, new MockFilterChain());
+    assertNull(request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
   }
 }
