@@ -1,12 +1,12 @@
 package io.masklite.rewrite;
 
 import io.masklite.config.MaskingPolicy;
+import io.masklite.dialect.Dialect;
 import io.masklite.dialect.IdentifierPolicy;
-import io.masklite.dialect.PostgresDialect;
 import io.masklite.error.SqlMaskException;
 import io.masklite.sql.ValidatedSql;
 import org.apache.calcite.sql.SqlLiteral;
-import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
+import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.parser.SqlParserPos;
 
 import java.math.BigDecimal;
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  */
 public final class SqlRewriteService {
 
-  public String rewrite(ValidatedSql validated, RewritePlan plan, PostgresDialect dialect) {
+  public String rewrite(ValidatedSql validated, RewritePlan plan, Dialect dialect) {
     if (!plan.requiresWrapper()) {
       // The validator mutates the parse tree in place (for example it copies
       // ORDER BY / FETCH of a top-level SqlOrderBy into the inner select), so
@@ -72,7 +72,7 @@ public final class SqlRewriteService {
     return names;
   }
 
-  private String buildWrapper(ValidatedSql validated, RewritePlan plan, PostgresDialect dialect) {
+  private String buildWrapper(ValidatedSql validated, RewritePlan plan, Dialect dialect) {
     IdentifierPolicy ids = dialect.identifiers();
     List<String> columnNames = finalColumnNames(plan);
     boolean renamed = false;
@@ -83,7 +83,8 @@ public final class SqlRewriteService {
       renamed |= !name.equals(output.outputName());
       String reference = ids.renderQualified(WRAPPER_ALIAS, name);
       if (output.isMasked()) {
-        String call = renderUdfCall(output.policy().orElseThrow(), reference, ids);
+        String call = renderUdfCall(output.policy().orElseThrow(), reference, ids,
+            dialect.profile().sqlDialect());
         items.add(call + " AS " + ids.render(name));
       } else {
         items.add(reference);
@@ -100,20 +101,21 @@ public final class SqlRewriteService {
   }
 
   /** Renders {@code udf(reference, arg1, arg2, ...)} with ordered scalar literals. */
-  private String renderUdfCall(MaskingPolicy policy, String reference, IdentifierPolicy ids) {
+  private String renderUdfCall(MaskingPolicy policy, String reference, IdentifierPolicy ids,
+      SqlDialect sqlDialect) {
     List<String> arguments = new ArrayList<>();
     arguments.add(reference);
     for (Object argument : policy.arguments()) {
-      arguments.add(renderLiteral(argument, policy));
+      arguments.add(renderLiteral(argument, policy, sqlDialect));
     }
     return ids.render(policy.udf()) + "(" + String.join(", ", arguments) + ")";
   }
 
   /** Renders arguments through Calcite literal nodes, never string concatenation of raw values. */
-  private String renderLiteral(Object argument, MaskingPolicy policy) {
+  private String renderLiteral(Object argument, MaskingPolicy policy, SqlDialect sqlDialect) {
     SqlLiteral literal = toLiteral(argument, policy);
     return literal.toSqlString(config -> config
-        .withDialect(PostgresqlSqlDialect.DEFAULT)
+        .withDialect(sqlDialect)
         .withQuoteAllIdentifiers(false)
         .withAlwaysUseParentheses(false)
         .withIndentation(0)).getSql();

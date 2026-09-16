@@ -1,6 +1,7 @@
 package io.masklite.config;
 
 import io.masklite.dialect.PostgresqlTypeResolver;
+import io.masklite.dialect.TypeResolver;
 import io.masklite.error.SqlMaskException;
 import io.masklite.metadata.ColumnKey;
 import io.masklite.metadata.TableMetadata;
@@ -28,6 +29,18 @@ import java.util.Set;
  */
 public final class YamlConfigLoader {
 
+  private final TypeResolver typeResolver;
+
+  /** Interprets column type declarations in the default (PostgreSQL) vocabulary. */
+  public YamlConfigLoader() {
+    this(new PostgresqlTypeResolver());
+  }
+
+  /** Interprets column type declarations in the vocabulary of {@code typeResolver}. */
+  public YamlConfigLoader(TypeResolver typeResolver) {
+    this.typeResolver = typeResolver;
+  }
+
   /** Loads and validates the YAML file at {@code path}. */
   public MaskingConfig load(Path path) {
     try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -44,7 +57,6 @@ public final class YamlConfigLoader {
   }
 
   private MaskingConfig load(Reader reader, String sourceName) {
-    PostgresqlTypeResolver typeResolver = new PostgresqlTypeResolver();
     Object root = parse(reader, sourceName);
     requireMapping(root, sourceName + ": root must be a mapping");
     Map<?, ?> rootMap = (Map<?, ?>) root;
@@ -69,7 +81,7 @@ public final class YamlConfigLoader {
   }
 
   private List<TableMetadata> loadTables(Map<?, ?> root, String sourceName,
-      PostgresqlTypeResolver typeResolver) {
+      TypeResolver typeResolver) {
     Object metadata = root.get("metadata");
     requireMapping(metadata, sourceName + ": 'metadata' must be a mapping");
     Map<?, ?> metadataMap = (Map<?, ?>) metadata;

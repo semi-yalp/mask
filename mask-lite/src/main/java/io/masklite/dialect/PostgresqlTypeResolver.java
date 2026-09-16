@@ -8,12 +8,15 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** PostgreSQL scalar type declarations (the historical tool vocabulary). */
-public final class PostgresqlTypeResolver {
+/**
+ * PostgreSQL scalar type declarations (the historical tool vocabulary).
+ */
+public final class PostgresqlTypeResolver implements TypeResolver {
 
   private static final Pattern PARAMS =
       Pattern.compile("^(.+?)\\s*\\(\\s*(\\d+)\\s*(?:,\\s*(\\d+)\\s*)?\\)$");
 
+  @Override
   public TableMetadata.Column parseColumn(String name, String typeDeclaration) {
     String raw = typeDeclaration.trim();
     String lowered = raw.toLowerCase(Locale.ROOT);

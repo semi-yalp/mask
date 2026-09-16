@@ -1,7 +1,8 @@
 package io.masklite.rewrite;
 
 import io.masklite.config.MaskingConfig;
-import io.masklite.dialect.PostgresDialect;
+import io.masklite.dialect.Dialect;
+import io.masklite.dialect.DialectRegistry;
 import io.masklite.error.SqlMaskException;
 import io.masklite.lineage.LineageAnalyzer;
 import io.masklite.metadata.YamlCalciteSchemaFactory;
@@ -44,7 +45,7 @@ public final class RewriteEngine {
    */
   public List<StatementRewrite> rewrite(MaskingConfig config, String sqlText) {
     SchemaPlus schema = YamlCalciteSchemaFactory.create(config);
-    PostgresDialect dialect = new PostgresDialect();
+    Dialect dialect = DialectRegistry.create(DialectRegistry.DEFAULT);
     LineageAnalyzer analyzer = new LineageAnalyzer();
     ColumnMaskSelector selector = ColumnMaskSelector.of(config);
     SqlRewriteService rewriteService = new SqlRewriteService();
@@ -69,7 +70,7 @@ public final class RewriteEngine {
     return results;
   }
 
-  private StatementRewrite rewriteOne(PostgresDialect dialect, LineageAnalyzer analyzer,
+  private StatementRewrite rewriteOne(Dialect dialect, LineageAnalyzer analyzer,
       ColumnMaskSelector selector, SqlRewriteService rewriteService, SchemaPlus schema,
       String statementText, int ordinal) {
     SqlNode parsed = dialect.parse(statementText, ordinal);
