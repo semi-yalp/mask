@@ -44,3 +44,33 @@ SqlNode SqlMaskInsertOverwrite() :
             columnList);
     }
 }
+
+<#-- SELECT TOP (n)：映射进 SqlSelect.fetch（spec §4.2），由 Parser.jj SqlSelect() 挂点调用 -->
+SqlNode SqlMaskTopN() :
+{
+    final SqlNode expr;
+    final Span s;
+}
+{
+    <TOP> { s = span(); }
+    (
+        LOOKAHEAD(2) <LPAREN> expr = Expression(ExprContext.ACCEPT_SUB_QUERY) <RPAREN>
+    |   expr = UnsignedNumericLiteral()
+    )
+    {
+        if (!(this.conformance instanceof SqlMaskConformance)
+            || !((SqlMaskConformance) this.conformance).isTopNAllowed()) {
+            throw new ParseException("TOP is not enabled for this dialect");
+        }
+        if (getToken(1).kind == IDENTIFIER && "PERCENT".equalsIgnoreCase(getToken(1).image)) {
+            throw new ParseException("TOP ... PERCENT is not supported");
+        }
+        <#-- TIES 在 Calcite 基语法里已是非保留关键字（自带 <TIES> token），需兼容两种形态 -->
+        if (getToken(1).kind == WITH
+            && (getToken(2).kind == TIES
+                || (getToken(2).kind == IDENTIFIER && "TIES".equalsIgnoreCase(getToken(2).image)))) {
+            throw new ParseException("TOP ... WITH TIES is not supported");
+        }
+        return expr;
+    }
+}

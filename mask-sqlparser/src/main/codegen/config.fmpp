@@ -10,13 +10,15 @@ data: {
       "maskParserImpls.ftl"
     ],
 
-    # mask 扩展关键字（INSERT OVERWRITE，spec §4.3）。
+    # mask 扩展关键字（INSERT OVERWRITE，spec §4.3；SELECT TOP，spec §4.2）。
     keywords: [
+      "TOP"
       "OVERWRITE"
     ],
 
     # OVERWRITE 不设为保留字，避免破坏其作为标识符的既有用法。
     nonReservedKeywordsToAdd: [
+      "TOP"
       "OVERWRITE"
     ],
 

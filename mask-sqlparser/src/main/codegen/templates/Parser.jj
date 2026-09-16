@@ -739,6 +739,12 @@ SqlNode OrderByLimitOpt(SqlNode e) :
         FetchClause(offsetFetch)
     ]
     {
+        if (e instanceof SqlSelect
+            && ((SqlSelect) e).getFetch() != null
+            && (offsetFetch[0] != null || offsetFetch[1] != null)) {
+            throw new ParseException(
+                "TOP cannot be combined with OFFSET/LIMIT/FETCH");
+        }
         if (orderBy != null || offsetFetch[0] != null || offsetFetch[1] != null) {
             if (orderBy != null
                 && e instanceof SqlSelect
@@ -1374,6 +1380,7 @@ SqlSelect SqlSelect() :
     final SqlNode qualify;
     final SqlNodeList by;
     final List<SqlNode> hints = new ArrayList<SqlNode>();
+    SqlNode topFetch = null;
     final Span s;
 }
 {
@@ -1391,6 +1398,12 @@ SqlSelect SqlSelect() :
     {
         keywordList = new SqlNodeList(keywords, s.addAll(keywords).pos());
     }
+    [
+        LOOKAHEAD( { getToken(1).kind == TOP
+            && (getToken(2).kind == LPAREN
+                || getToken(2).kind == UNSIGNED_INTEGER_LITERAL) } )
+        topFetch = SqlMaskTopN()
+    ]
     AddSelectItem(selectList)
     ( <COMMA> AddSelectItem(selectList) )*
 <#if parser.includeSelectBy!false>
@@ -1419,7 +1432,7 @@ SqlSelect SqlSelect() :
         final SqlSelect select = new SqlSelect(s.end(this), keywordList,
             new SqlNodeList(selectList, Span.of(selectList).pos()),
             fromClause, where, groupBy, having, windowDecls, qualify,
-            null, null, null, new SqlNodeList(hints, getPos()));
+            null, null, topFetch, new SqlNodeList(hints, getPos()));
         SqlByRewriter.rewrite(select, by);
         return select;
     }
