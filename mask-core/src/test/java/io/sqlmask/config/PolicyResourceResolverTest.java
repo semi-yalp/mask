@@ -76,4 +76,40 @@ class PolicyResourceResolverTest {
         List.of());
     new PolicyResourceResolver(loaded()).validate(List.of(mask));
   }
+
+  @Test
+  void globTablePatternResolvesWhenADeclaredTableMatches() {
+    new PolicyResourceResolver(loaded()).validate(
+        List.of(rowFilterPolicy("crm", "public", "cust*")));
+  }
+
+  @Test
+  void globTablePatternMatchingNothingIsRejected() {
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new PolicyResourceResolver(loaded()).validate(
+            List.of(rowFilterPolicy("crm", "public", "nope_*"))));
+    assertTrue(e.getMessage().contains("matches no declared table"));
+  }
+
+  @Test
+  void globColumnPatternResolvesWhenADeclaredColumnMatches() {
+    Policy mask = new Policy("m", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("crm", "public", "customer", "phon*")),
+        List.of(new DataMaskItem(
+            new SubjectSelector(Set.of(), Set.of("*")), "mask_phone", List.of())),
+        List.of());
+    new PolicyResourceResolver(loaded()).validate(List.of(mask));
+  }
+
+  @Test
+  void globColumnPatternMatchingNothingIsRejected() {
+    Policy mask = new Policy("m", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("crm", "public", "customer", "emai*")),
+        List.of(new DataMaskItem(
+            new SubjectSelector(Set.of(), Set.of("*")), "mask_email", List.of())),
+        List.of());
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new PolicyResourceResolver(loaded()).validate(List.of(mask)));
+    assertTrue(e.getMessage().contains("column 'emai*'"));
+  }
 }

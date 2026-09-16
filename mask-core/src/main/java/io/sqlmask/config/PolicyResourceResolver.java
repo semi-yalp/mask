@@ -3,6 +3,7 @@ package io.sqlmask.config;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.metadata.TableMetadata;
+import io.sqlmask.policy.match.GlobMatcher;
 import io.sqlmask.policy.model.Policy;
 import io.sqlmask.policy.model.PolicyResource;
 
@@ -10,9 +11,9 @@ import java.util.List;
 
 /**
  * Fail-closed resource resolution: every policy resource must match at least
- * one declared table (and a concrete column must exist on one of the matched
- * tables). A policy that silently matches nothing is a configuration error —
- * a typo would otherwise disable protection unnoticed.
+ * one declared table (and its column pattern — concrete or glob — must exist
+ * on one of the matched tables). A policy that silently matches nothing is a
+ * configuration error — a typo would otherwise disable protection unnoticed.
  */
 public final class PolicyResourceResolver {
 
@@ -30,7 +31,7 @@ public final class PolicyResourceResolver {
           throw error("policy '" + policy.name() + "': resource '" + describe(resource)
               + "' matches no declared table");
         }
-        if (resource.column() != null && !"*".equals(resource.column())) {
+        if (resource.column() != null) {
           boolean columnDeclared = tables.stream().anyMatch(t -> hasColumn(t, resource.column()));
           if (!columnDeclared) {
             throw error("policy '" + policy.name() + "': resource column '"
@@ -50,14 +51,13 @@ public final class PolicyResourceResolver {
         .toList();
   }
 
-  private boolean hasColumn(TableMetadata table, String column) {
+  private boolean hasColumn(TableMetadata table, String pattern) {
     return table.columns().stream()
-        .anyMatch(c -> ColumnKey.normalize(c.name(), "column").equals(column));
+        .anyMatch(c -> GlobMatcher.matches(pattern, ColumnKey.normalize(c.name(), "column")));
   }
 
   private static boolean levelMatches(String pattern, String declared, String part) {
-    return "*".equals(pattern)
-        || pattern.equals(ColumnKey.normalize(declared, part));
+    return GlobMatcher.matches(pattern, ColumnKey.normalize(declared, part));
   }
 
   private static String describe(PolicyResource resource) {

@@ -275,7 +275,7 @@ policies:
       - catalog: crm
         schema: public
         table: customer
-        column: [phone, email]     # 标量、列表或 "*"
+        column: [phone, email]     # 标量、列表或 "*"（也支持 glob，如 "phone_*"）
     dataMaskItems:
       - groups: ["*"]              # 或 users: [...]；至少一个非空
         udf: mask_phone
@@ -300,8 +300,14 @@ policies:
   主体时视为匿名（只有 `*` 项命中）；
 - 多策略命中同一资源：`enabled: false` 跳过 → `priority` 高者优先 → 同优先级按
   声明顺序；掩码每列只取唯一命中，行过滤命中项按决策顺序 AND 叠加；
-- 策略资源必须命中至少一张声明表/列，否则 `CONFIG_ERROR`（fail-closed，防手误
-  静默失效）；`filterExpr` 复用行过滤白名单，错误消息带 `policy '<名>': filterExpr` 前缀；
+- 资源四级（catalog/schema/table/column）均支持 glob 通配：`*` 匹配本级内的任意
+  字符序列（含空串），可出现在任意位置、可出现多次（如 `order_*`、`*_bak`、
+  `log_*_v2`；裸 `*` 即"该级全部"）。模式与标识符一样先折叠为小写再匹配，标识符
+  中的字面 `*` 无法表达；主体选择器不受影响（仍只支持精确值或 `*`）。管理面
+  （policy server）资源仍要求精确名，写入含 `*` 的资源会被显式拒绝；
+- 策略资源（含 glob 模式）必须命中至少一张声明表/列，否则 `CONFIG_ERROR`
+  （fail-closed，防手误静默失效）；`filterExpr` 复用行过滤白名单，错误消息带
+  `policy '<名>': filterExpr` 前缀；
 - 与 metadata 内嵌策略互斥：两套来源同时非空即 `CONFIG_ERROR`；
 - 页面「策略文件」页签发送的是「校验并应用」通过后的内容——应用后再编辑、
   未重新校验的内容不会随改写请求发送。

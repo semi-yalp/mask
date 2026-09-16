@@ -98,4 +98,53 @@ class PolicyEngineTest {
     assertTrue(new PolicyEngine(PolicyIndex.of(List.of(p)))
         .rowFiltersFor("crm", "public", "orders", ANON).isEmpty());
   }
+
+  @Test
+  void maskMatchesGlobPatternAtEveryLevel() {
+    Policy p = new Policy("glob", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("c*", "pub*", "orders_*", "phone_*")),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_glob", List.of())),
+        List.of());
+    MaskInstruction instruction = new PolicyEngine(PolicyIndex.of(List.of(p)))
+        .maskFor("crm", "public", "orders_2026", "phone_last4", ANON)
+        .orElseThrow();
+    assertEquals("mask_glob", instruction.udf());
+  }
+
+  @Test
+  void globPatternDoesNotMatchUnrelatedName() {
+    Policy p = new Policy("glob", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("crm", "public", "order_*", "phone")),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_glob", List.of())),
+        List.of());
+    assertTrue(new PolicyEngine(PolicyIndex.of(List.of(p)))
+        .maskFor("crm", "public", "refund_2026", "phone", ANON).isEmpty());
+    assertTrue(new PolicyEngine(PolicyIndex.of(List.of(p)))
+        .maskFor("crm", "public", "orders_2026", "email", ANON).isEmpty());
+  }
+
+  @Test
+  void samePriorityGlobAndExactResolveInDeclarationOrder() {
+    Policy broad = new Policy("broad", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("crm", "public", "orders_*", "phone")),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_broad", List.of())),
+        List.of());
+    Policy exact = new Policy("exact", true, 0, PolicyType.DATA_MASK,
+        List.of(PolicyResource.column("crm", "public", "orders_2026", "phone")),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_exact", List.of())),
+        List.of());
+    assertEquals("mask_broad", new PolicyEngine(PolicyIndex.of(List.of(broad, exact)))
+        .maskFor("crm", "public", "orders_2026", "phone", ANON).orElseThrow().udf());
+  }
+
+  @Test
+  void rowFilterMatchesGlobTablePattern() {
+    Policy p = new Policy("rf", true, 0, PolicyType.ROW_FILTER,
+        List.of(PolicyResource.table("crm", "public", "tmp_*")),
+        List.of(), List.of(new RowFilterItem(new SubjectSelector(Set.of(), Set.of("*")), "tenant = 1")));
+    List<RowFilterHit> hits = new PolicyEngine(PolicyIndex.of(List.of(p)))
+        .rowFiltersFor("crm", "public", "tmp_orders", ANON);
+    assertEquals(1, hits.size());
+    assertEquals("tenant = 1", hits.get(0).expr());
+  }
 }
