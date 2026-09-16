@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS meta_table (
   catalog VARCHAR(255) NOT NULL,
   schema_name VARCHAR(255) NOT NULL,
   table_name VARCHAR(255) NOT NULL,
+  kind VARCHAR(32) NOT NULL DEFAULT 'table',
   position INT NOT NULL,
   UNIQUE (instance_id, catalog, schema_name, table_name)
 );
@@ -33,3 +34,6 @@ CREATE TABLE IF NOT EXISTS meta_column (
   type_declaration TEXT NOT NULL,
   position INT NOT NULL
 );
+
+-- 存量库补列：spring.sql.init mode=always 每次启动执行；新库上无效果（幂等）
+ALTER TABLE meta_table ADD COLUMN IF NOT EXISTS kind VARCHAR(32) NOT NULL DEFAULT 'table';
