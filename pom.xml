@@ -12,6 +12,7 @@
   <name>sql-mask-parent</name>
 
   <modules>
+    <module>mask-sqlparser</module>
     <module>mask-core</module>
     <module>mask-audit</module>
     <module>mask-policy</module>
