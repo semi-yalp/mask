@@ -53,7 +53,7 @@ public class PolicyAdminController {
   public record ResourceDto(String catalog, String schema, String table, List<String> columns) {
   }
 
-  public record PolicyDto(String name, String policyType, boolean isEnabled,
+  public record PolicyDto(String name, String policyType, boolean isEnabled, Integer priority,
       ResourceDto resource, SubjectDto subjects, String udf, List<Object> arguments,
       String filterExpr) {
   }
@@ -195,6 +195,7 @@ public class PolicyAdminController {
     SubjectSelector subjects = dto.subjects() == null ? null
         : new SubjectSelector(dto.subjects().users(), dto.subjects().groups());
     return new PolicyEntity(dto.name(), parseType(dto.policyType()), dto.isEnabled(),
+        dto.priority(),
         new ResourceSelector(dto.resource().catalog(), dto.resource().schema(),
             dto.resource().table(), dto.resource().columns() == null
                 ? List.of() : dto.resource().columns()),
@@ -236,7 +237,7 @@ public class PolicyAdminController {
 
   private static PolicyDto toDto(PolicyEntity p) {
     return new PolicyDto(p.name(), p.policyType().name().toLowerCase(Locale.ROOT),
-        p.enabled(),
+        p.enabled(), p.priority(),
         new ResourceDto(p.resource().catalog(), p.resource().schema(),
             p.resource().table(), p.resource().columns()),
         new SubjectDto(p.subjects().users(), p.subjects().groups()),
