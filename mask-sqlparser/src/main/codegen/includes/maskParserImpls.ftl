@@ -49,10 +49,9 @@ SqlNode SqlMaskInsertOverwrite() :
 SqlNode SqlMaskTopN() :
 {
     final SqlNode expr;
-    final Span s;
 }
 {
-    <TOP> { s = span(); }
+    <TOP>
     (
         LOOKAHEAD(2) <LPAREN> expr = Expression(ExprContext.ACCEPT_SUB_QUERY) <RPAREN>
     |   expr = UnsignedNumericLiteral()
@@ -62,10 +61,14 @@ SqlNode SqlMaskTopN() :
             || !((SqlMaskConformance) this.conformance).isTopNAllowed()) {
             throw new ParseException("TOP is not enabled for this dialect");
         }
-        if (getToken(1).kind == IDENTIFIER && "PERCENT".equalsIgnoreCase(getToken(1).image)) {
+        <#-- PERCENT 是保留字（自带 <PERCENT> token），永远以 kind=PERCENT 到达；
+             IDENTIFIER 分支仅为防御性回退（与下方 TIES 同理） -->
+        if (getToken(1).kind == PERCENT
+            || (getToken(1).kind == IDENTIFIER && "PERCENT".equalsIgnoreCase(getToken(1).image))) {
             throw new ParseException("TOP ... PERCENT is not supported");
         }
-        <#-- TIES 在 Calcite 基语法里已是非保留关键字（自带 <TIES> token），需兼容两种形态 -->
+        <#-- TIES 在 Calcite 基语法里已是非保留关键字（自带 <TIES> token），需兼容两种形态；
+             IDENTIFIER 分支保留作为防御性回退 -->
         if (getToken(1).kind == WITH
             && (getToken(2).kind == TIES
                 || (getToken(2).kind == IDENTIFIER && "TIES".equalsIgnoreCase(getToken(2).image)))) {

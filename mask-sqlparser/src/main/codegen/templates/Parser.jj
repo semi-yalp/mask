@@ -742,8 +742,12 @@ SqlNode OrderByLimitOpt(SqlNode e) :
         if (e instanceof SqlSelect
             && ((SqlSelect) e).getFetch() != null
             && (offsetFetch[0] != null || offsetFetch[1] != null)) {
+            // 冲突 fetch 即 TOP n，把其位置写进错误消息。不用同块既有
+            // SqlUtil.newContextException：它抛 CalciteContextException
+            // （RuntimeException），而消费方契约要求 SqlParseException。
+            final SqlParserPos topPos = ((SqlSelect) e).getFetch().getParserPosition();
             throw new ParseException(
-                "TOP cannot be combined with OFFSET/LIMIT/FETCH");
+                "TOP cannot be combined with OFFSET/LIMIT/FETCH (" + topPos + ")");
         }
         if (orderBy != null || offsetFetch[0] != null || offsetFetch[1] != null) {
             if (orderBy != null
