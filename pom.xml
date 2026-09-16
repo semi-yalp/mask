@@ -13,6 +13,7 @@
 
   <modules>
     <module>mask-core</module>
+    <module>mask-audit</module>
     <module>mask-policy</module>
     <module>mask-metadata</module>
   </modules>

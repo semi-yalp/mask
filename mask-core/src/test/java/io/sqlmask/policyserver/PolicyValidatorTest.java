@@ -99,6 +99,33 @@ class PolicyValidatorTest {
   }
 
   @Test
+  void rejectsGlobPatternInTableLevel() {
+    PolicyEntity p = datamask("p", "cust*", List.of("phone"));
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()));
+    assertTrue(e.getMessage().contains("glob"));
+    assertTrue(e.getCode() == SqlMaskException.Code.CONFIG_ERROR);
+  }
+
+  @Test
+  void rejectsGlobPatternInColumnLevel() {
+    PolicyEntity p = datamask("p", "customer", List.of("phon*"));
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()));
+    assertTrue(e.getMessage().contains("glob"));
+  }
+
+  @Test
+  void rejectsGlobPatternInRowFilterTableLevel() {
+    PolicyEntity rf = new PolicyEntity("rf", PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "tmp_*", List.of()), null, List.of(),
+        "status = 'active'");
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, rf, List.of()));
+    assertTrue(e.getMessage().contains("glob"));
+  }
+
+  @Test
   void rejectsBadInstanceNameDialectAndTypes() {
     assertThrows(SqlMaskException.class, () -> validator.validateInstance(
         new EngineInstance("bad name!", "postgresql", INSTANCE.tables())));

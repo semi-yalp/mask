@@ -16,8 +16,9 @@ import java.util.Optional;
 /**
  * The policy decision point (PDP): pure, stateless matching of resources and
  * subjects against the policy index. Deterministic for a given index,
- * resource and subject. Request-side names are concrete values; "*" appears
- * only on the policy declaration side.
+ * resource and subject. Request-side names are concrete values; glob patterns
+ * (each "*" matches any sequence within one level) appear only on the policy
+ * declaration side.
  */
 public final class PolicyEngine {
 
@@ -96,6 +97,6 @@ public final class PolicyEngine {
   }
 
   private static boolean levelMatches(String pattern, String value) {
-    return "*".equals(pattern) || pattern.equals(value);
+    return GlobMatcher.matches(pattern, value);
   }
 }

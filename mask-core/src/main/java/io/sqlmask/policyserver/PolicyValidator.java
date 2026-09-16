@@ -78,6 +78,7 @@ public final class PolicyValidator {
       PolicyEntity policy, List<PolicyEntity> otherEnabledPolicies) {
     requireName(instance.name(), "instance name");
     requireName(policy.name(), "policy name");
+    requireGlobFree(policy);
     TableMetadata target = findTable(instance, policy);
     switch (policy.policyType()) {
       case DATAMASK -> {
@@ -128,6 +129,24 @@ public final class PolicyValidator {
       if (overlap) {
         throw error("policy '" + policy.name() + "' overlaps enabled policy '" + other.name()
             + "' on table '" + tableKey(policy.resource()) + "'; disable one of them first");
+      }
+    }
+  }
+
+  /**
+   * The management plane stores exact resources only: overlap detection relies
+   * on name equality, so a glob pattern here would silently evade it. Glob
+   * matching belongs to the policies.yaml policy subsystem.
+   */
+  private static void requireGlobFree(PolicyEntity policy) {
+    ResourceSelector resource = policy.resource();
+    List<String> levels = new ArrayList<>(
+        List.of(resource.catalog(), resource.schema(), resource.table()));
+    levels.addAll(resource.columns());
+    for (String level : levels) {
+      if (level.contains("*")) {
+        throw error("policy '" + policy.name() + "': glob '*' in resource is not supported;"
+            + " declare exact catalog/schema/table/column names");
       }
     }
   }
