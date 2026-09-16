@@ -9,12 +9,21 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Static API key gate over the policy service surfaces: the admin key guards
  * /api/instances/**, the data key guards /api/effective/**. An unconfigured
  * key leaves its surface open (this app also serves a local browser UI);
  * a configured key rejects every request without a matching X-Api-Key.
+ *
+ * <p>Path checks use {@link HttpServletRequest#getServletPath()}: the decoded
+ * path without the context path. The container matches the filter's URL
+ * patterns against that same decoded form, so the gate and the mapping can
+ * never disagree — a raw {@code getRequestURI()} check would let an encoded
+ * path ({@code /api/%69nstances}) or a context-path deployment slip through
+ * the gate while still routing to the controllers.
  */
 public final class PolicyApiKeyFilter implements Filter {
 
@@ -31,12 +40,12 @@ public final class PolicyApiKeyFilter implements Filter {
       throws IOException, ServletException {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
-    String required = requiredKey(request.getRequestURI());
+    String required = requiredKey(request.getServletPath());
     if (required == null) {
       chain.doFilter(req, res);
       return;
     }
-    if (!required.equals(request.getHeader("X-Api-Key"))) {
+    if (!keyMatches(required, request.getHeader("X-Api-Key"))) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       response.setContentType("application/json");
       response.getWriter().write(
@@ -46,12 +55,21 @@ public final class PolicyApiKeyFilter implements Filter {
     chain.doFilter(req, res);
   }
 
+  /** Constant-time comparison so the check does not leak the key byte by byte. */
+  private static boolean keyMatches(String expected, String provided) {
+    if (provided == null) {
+      return false;
+    }
+    return MessageDigest.isEqual(
+        expected.getBytes(StandardCharsets.UTF_8), provided.getBytes(StandardCharsets.UTF_8));
+  }
+
   /** Null when the path is unmanaged or its key is unconfigured (open). */
   private String requiredKey(String path) {
-    if (path.startsWith("/api/instances")) {
+    if (path.equals("/api/instances") || path.startsWith("/api/instances/")) {
       return adminKey == null || adminKey.isBlank() ? null : adminKey;
     }
-    if (path.startsWith("/api/effective")) {
+    if (path.equals("/api/effective") || path.startsWith("/api/effective/")) {
       return dataKey == null || dataKey.isBlank() ? null : dataKey;
     }
     return null;

@@ -2,6 +2,7 @@ package io.sqlmask.rowfilter;
 
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.dialect.DialectAdapter;
+import io.sqlmask.dialect.DialectProfile;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.TableMetadata;
 import org.apache.calcite.sql.SqlBasicCall;
@@ -40,10 +41,15 @@ import java.util.Set;
  * unqualified name matching several declared tables fails outright instead
  * of silently binding whichever candidate the catalog reader finds first
  * (the validator resolves search paths first-match, so deferring the
- * decision could leave a filtered table unfiltered). Two-part names are not
- * matched at all: they do not resolve against the declared
- * {@code catalog.schema} paths today, and injecting for a reference that
- * fails validation anyway would invent behavior.
+ * decision could leave a filtered table unfiltered). Two-part
+ * {@code schema.table} references are resolved only for dialects whose
+ * validator search path accepts them ({@code CATALOG_SCHEMA_AND_SCHEMA},
+ * i.e. MySQL via its bare {@code [catalog]} path); for the other dialects
+ * validation rejects the reference anyway, so there is nothing to inject.
+ * Name comparison follows the profile's {@code caseSensitiveNameMatching}:
+ * a case-insensitive validator (MySQL) must not be able to bind a reference
+ * the case-sensitive rewriter comparison missed — that would silently skip
+ * the filter.
  *
  * <p>The rewriter never mutates the input tree; unchanged subtrees are
  * returned by reference, so statements without any hit keep their identity.
@@ -55,9 +61,14 @@ public final class RowFilterRewriter {
   }
 
   private final DialectAdapter dialect;
+  private final boolean caseSensitiveNames;
+  private final boolean resolveTwoPartNames;
 
   public RowFilterRewriter(DialectAdapter dialect) {
     this.dialect = dialect;
+    this.caseSensitiveNames = dialect.profile().caseSensitiveNameMatching();
+    this.resolveTwoPartNames = dialect.profile().schemaPathStyle()
+        == DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA;
   }
 
   public Result apply(SqlNode parsed, LoadedConfig loaded, RowFilterRegistry registry) {
@@ -67,7 +78,7 @@ public final class RowFilterRewriter {
     Context context = new Context(loaded, registry);
     SqlNode rewritten = rewriteQuery(parsed, context, new ArrayDeque<>());
     if (context.injections > 0) {
-      rejectQualifiedColumnReferences(parsed, context);
+      rejectQualifiedColumnReferences(this, parsed, context);
     }
     return new Result(rewritten, context.injections);
   }
@@ -78,12 +89,13 @@ public final class RowFilterRewriter {
    * table no longer bind. The rewrite is refused instead of producing SQL
    * that fails validation with a confusing diagnostic (or, worse, re-binds).
    */
-  private static void rejectQualifiedColumnReferences(SqlNode parsed, Context context) {
+  private static void rejectQualifiedColumnReferences(RowFilterRewriter rewriter, SqlNode parsed,
+      Context context) {
     for (TableMetadata table : context.loaded.tables()) {
       if (!context.registry.isControlled(table.catalog(), table.schema(), table.name())) {
         continue;
       }
-      if (hasQualifiedColumnReference(parsed, table)) {
+      if (rewriter.hasQualifiedColumnReference(parsed, table)) {
         throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
             "statement references filtered table '" + table.qualifiedName()
                 + "' with fully qualified columns, which an injected row filter "
@@ -93,7 +105,7 @@ public final class RowFilterRewriter {
   }
 
   /** Matches four-part identifiers {@code catalog.schema.table.column}. */
-  private static boolean hasQualifiedColumnReference(SqlNode node, TableMetadata table) {
+  private boolean hasQualifiedColumnReference(SqlNode node, TableMetadata table) {
     if (node == null) {
       return false;
     }
@@ -303,7 +315,7 @@ public final class RowFilterRewriter {
     return from;
   }
 
-  private static boolean subtreeMentionsTable(SqlNode node, TableMetadata table) {
+  private boolean subtreeMentionsTable(SqlNode node, TableMetadata table) {
     if (node == null) {
       return false;
     }
@@ -426,35 +438,64 @@ public final class RowFilterRewriter {
         }
       }
     }
-    // two-part names do not resolve against the declared catalog.schema
-    // paths today; leave them for the validator to reject as-is
+    if (names.size() == 2 && resolveTwoPartNames) {
+      // dialects whose validator search path contains the bare [catalog]
+      // entry (MySQL) bind schema.table under the declared catalog, so the
+      // reference validates and MUST be injected — leaving it alone would
+      // silently skip the filter. Match schema+name across declared tables;
+      // ambiguity across catalogs is refused (same policy as unqualified
+      // names) instead of silently trusting the validator's first match.
+      List<TableMetadata> candidates = new ArrayList<>();
+      for (TableMetadata table : context.loaded.tables()) {
+        if (nameMatches(names.get(0), table.schema())
+            && nameMatches(names.get(1), table.name())) {
+          candidates.add(table);
+        }
+      }
+      if (candidates.size() > 1) {
+        List<String> qualified = candidates.stream().map(TableMetadata::qualifiedName).sorted().toList();
+        throw new SqlMaskException(SqlMaskException.Code.VALIDATION_ERROR,
+            "table reference '" + names.get(0) + "." + names.get(1)
+                + "' matches multiple declared tables " + qualified
+                + "; use the fully qualified name so the row filter decision is unambiguous");
+      }
+      if (!candidates.isEmpty()) {
+        return injectIfFiltered(candidates.get(0), reference, context, addAliasWrapper);
+      }
+    }
+    // everything else (two-part names on dialects that reject them, unknown
+    // names) is left for the validator to reject as-is
     return reference;
   }
 
-  private static boolean isVisibleCte(String name, Deque<Set<String>> cteScopes) {
+  private boolean isVisibleCte(String name, Deque<Set<String>> cteScopes) {
+    // comparison follows the same case rules as the validator: a
+    // case-insensitive dialect (MySQL) binds `WITH C ... FROM c` to the CTE,
+    // so the rewriter must see it as a CTE too instead of matching a base table
     for (Set<String> scope : cteScopes) {
-      if (scope.contains(name)) {
-        return true;
+      for (String cte : scope) {
+        if (nameMatches(name, cte)) {
+          return true;
+        }
       }
     }
     return false;
   }
 
   /**
-   * PostgreSQL identifier semantics: unquoted references were folded to lower
-   * case at parse time, so a reference spelling that is not all-lowercase
-   * was quoted and must match the declaration exactly (case-sensitive) — a
-   * quoted {@code "Customer"} is a different table from declared
-   * {@code customer}.
-   *
-   * <p>Strictness consequence for row filters: they are only usable on
-   * lowercase-declared (or exactly lowercase-spelled) table names — a
-   * non-lowercase declared name cannot carry a filter, because the
-   * registry's own wrapped parse folds unquoted names to lower case and such
-   * a table therefore fails registry build before any reference comparison.
+   * PostgreSQL/Trino identifier semantics: unquoted references were folded to
+   * lower case at parse time, so a reference spelling that is not
+   * all-lowercase was quoted and must match the declaration exactly
+   * (case-sensitive) — a quoted {@code "Customer"} is a different table from
+   * declared {@code customer}. MySQL keeps the reference spelling but its
+   * validator matches names case-insensitively; the comparison must follow
+   * the validator or a case variant reference would bypass injection while
+   * still validating (and the filter would be silently skipped).
    */
-  private static boolean nameMatches(String reference, String declared) {
-    return reference.equals(declared);
+  private boolean nameMatches(String reference, String declared) {
+    return caseSensitiveNames
+        ? reference.equals(declared)
+        : reference.equalsIgnoreCase(declared);
   }
 
   private SqlNode injectIfFiltered(TableMetadata table, SqlIdentifier reference, Context context,

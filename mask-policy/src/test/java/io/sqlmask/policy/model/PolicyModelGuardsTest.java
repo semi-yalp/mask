@@ -78,4 +78,24 @@ class PolicyModelGuardsTest {
   void nullSubjectMatchesNothing() {
     assertEquals(0, EVERYONE.matchLevel(null));
   }
+
+  @Test
+  void selectorNamesAreTrimmedSymmetricallyWithSubject() {
+    // "alice " must match the query subject alice — without trimming the
+    // selector the policy silently stops applying (fail-open)
+    SubjectSelector selector = new SubjectSelector(Set.of("alice "), Set.of(" devs\t"));
+    assertEquals(3, selector.matchLevel(Subject.of("alice", List.of("devs"))));
+    assertEquals(2, selector.matchLevel(Subject.of("nobody", List.of("devs"))));
+    assertEquals(0, selector.matchLevel(Subject.of("bob", List.of("other"))));
+  }
+
+  @Test
+  void blankSelectorNameIsRejected() {
+    PolicyException empty = assertThrows(PolicyException.class,
+        () -> new SubjectSelector(Set.of(""), Set.of("*")));
+    assertTrue(empty.getMessage().contains("non-blank"), () -> empty.getMessage());
+    PolicyException whitespace = assertThrows(PolicyException.class,
+        () -> new SubjectSelector(Set.of("   "), Set.of("*")));
+    assertTrue(whitespace.getMessage().contains("non-blank"), () -> whitespace.getMessage());
+  }
 }

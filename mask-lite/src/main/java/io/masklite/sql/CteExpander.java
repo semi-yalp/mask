@@ -51,7 +51,7 @@ public final class CteExpander {
   // SqlSelect operand indices per getOperandList() order
   private static final int SELECT_LIST_OPERAND = 1;
   private static final int GROUP_BY_OPERAND = 4;
-  private static final int ORDER_BY_OPERAND = 8;
+  private static final int ORDER_BY_OPERAND = 7;
 
   // SqlJoin operand indices per getOperandList() order
   private static final int JOIN_LEFT_OPERAND = 0;
@@ -84,12 +84,37 @@ public final class CteExpander {
         return expandWith((SqlWith) node, scopes);
       case SELECT:
         return expandSelect((SqlSelect) node, scopes);
+      case ORDER_BY:
+        return expandOrderBy((org.apache.calcite.sql.SqlOrderBy) node, scopes);
       default:
+        if (node instanceof SqlNodeList list) {
+          return expandList(list, scopes);
+        }
         if (node instanceof SqlCall call) {
           return rewriteCall(call, scopes);
         }
         return node;
     }
+  }
+
+  /**
+   * Calcite parses {@code WITH ... SELECT ... ORDER BY ...} as
+   * {@code ORDER_BY(WITH(...), orderList)}: the order list sits OUTSIDE the
+   * WITH, so a naive operand walk expands it after the WITH scope has been
+   * popped and CTE references in ORDER BY subqueries resolve to nothing.
+   * Normalize to {@code WITH(..., ORDER_BY(query, orderList))} — the same
+   * statement with identical semantics — so the order list expands inside
+   * the WITH scope. An ORDER BY over a plain query goes through the generic
+   * operand walk.
+   */
+  private SqlNode expandOrderBy(org.apache.calcite.sql.SqlOrderBy orderBy,
+      Deque<Scope> scopes) {
+    if (orderBy.query instanceof SqlWith with) {
+      return expand(new SqlWith(with.getParserPosition(), with.withList,
+          new org.apache.calcite.sql.SqlOrderBy(orderBy.getParserPosition(), with.body,
+              orderBy.orderList, orderBy.offset, orderBy.fetch)), scopes);
+    }
+    return rewriteCall(orderBy, scopes);
   }
 
   private SqlNode expandWith(SqlWith with, Deque<Scope> scopes) {

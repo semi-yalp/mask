@@ -72,7 +72,9 @@ class ConnectionSpecTest {
     assertEquals("jdbc:trino://127.0.0.1:8080/crm?SSL=false",
         new ConnectionSpec("trino", "127.0.0.1", 8080, "crm", "u", "p",
             List.of(), false, false, "disable", 10).toJdbcUrl());
-    assertEquals("jdbc:trino://h:8080/crm",
+    // require 必须显式带 SSL=true：trino-jdbc 的 SSL 默认 false，
+    // 不写参数等价于明文连接（require 语义静默失效）
+    assertEquals("jdbc:trino://h:8080/crm?SSL=true",
         new ConnectionSpec("trino", "h", 8080, "crm", "u", "p",
             List.of(), false, false, "require", 10).toJdbcUrl());
   }

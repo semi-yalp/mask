@@ -12,9 +12,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class PolicyApiKeyFilterTest {
 
+  /**
+   * Mirrors a real container: the servlet path is the URL-decoded request URI
+   * without the context path, and that is what the container matches filter
+   * URL patterns against.
+   */
   private MockHttpServletResponse run(PolicyApiKeyFilter filter, String path, String key)
       throws ServletException, IOException {
-    MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+    return run(filter, path, path, key);
+  }
+
+  private MockHttpServletResponse run(
+      PolicyApiKeyFilter filter, String requestUri, String servletPath, String key)
+      throws ServletException, IOException {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", requestUri);
+    request.setServletPath(servletPath);
     if (key != null) {
       request.addHeader("X-Api-Key", key);
     }
@@ -54,5 +66,37 @@ class PolicyApiKeyFilterTest {
     PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
     assertEquals(200, run(filter, "/api/rewrite", null).getStatus());
     assertEquals(200, run(filter, "/index.html", null).getStatus());
+  }
+
+  @Test
+  void segmentBoundaryIsEnforced() throws Exception {
+    // a prefix must not unlock a sibling surface (/api/instances-evil, /api/effectiveX)
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(200, run(filter, "/api/instances-evil", null).getStatus());
+    assertEquals(200, run(filter, "/api/effectiveX", null).getStatus());
+  }
+
+  @Test
+  void encodedUriCannotBypassTheGate() throws Exception {
+    // the container decodes /api/%69nstances to /api/instances for filter
+    // mapping and controller routing; the gate must key off the decoded form
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(401, run(filter, "/api/%69nstances/pg_prod", "/api/instances/pg_prod", null)
+        .getStatus());
+    assertEquals(200, run(filter, "/api/%69nstances/pg_prod", "/api/instances/pg_prod",
+        "admin-secret").getStatus());
+  }
+
+  @Test
+  void contextPathDeploymentIsStillGuarded() throws Exception {
+    // under server.servlet.context-path=/app the request URI carries the
+    // prefix; the servlet path the container routes on does not
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(401, run(filter, "/app/api/instances/pg_prod", "/api/instances/pg_prod", null)
+        .getStatus());
+    assertEquals(200, run(filter, "/app/api/instances/pg_prod", "/api/instances/pg_prod",
+        "admin-secret").getStatus());
+    assertEquals(401, run(filter, "/app/api/effective/pg_prod", "/api/effective/pg_prod", null)
+        .getStatus());
   }
 }

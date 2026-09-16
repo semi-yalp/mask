@@ -9,8 +9,8 @@ import java.util.List;
  * backslash escapes and doubled quotes), quoted identifiers, dollar-quoted
  * strings ({@code $$...$$}, {@code $tag$...$tag$}) and comments
  * ({@code --} line comments and nestable block comments) never contribute
- * split points. Blank statements are dropped; statement order is preserved;
- * returned statements carry no trailing semicolon.
+ * split points. Blank and comment-only statements are dropped; statement
+ * order is preserved; returned statements carry no trailing semicolon.
  */
 public final class SqlStatementSplitter {
 
@@ -43,9 +43,52 @@ public final class SqlStatementSplitter {
 
   private static void addStatement(List<String> statements, String sql, int start, int end) {
     String statement = sql.substring(start, end).trim();
-    if (!statement.isEmpty()) {
+    if (containsCode(statement)) {
       statements.add(statement);
     }
+  }
+
+  /**
+   * False when the fragment holds nothing but whitespace and comments — a
+   * trailing {@code -- note} after the final semicolon is dropped exactly like
+   * a blank, instead of becoming a "statement" the parser cannot read.
+   */
+  private static boolean containsCode(String statement) {
+    int length = statement.length();
+    int i = 0;
+    while (i < length) {
+      char c = statement.charAt(i);
+      if (c == '-' && charAtIs(statement, i + 1, '-')) {
+        int newline = statement.indexOf('\n', i);
+        if (newline < 0) {
+          return false;
+        }
+        i = newline + 1;
+      } else if (c == '/' && charAtIs(statement, i + 1, '*')) {
+        int depth = 1;
+        i += 2;
+        while (i < length && depth > 0) {
+          if (charAtIs(statement, i, '/') && charAtIs(statement, i + 1, '*')) {
+            depth++;
+            i += 2;
+          } else if (charAtIs(statement, i, '*') && charAtIs(statement, i + 1, '/')) {
+            depth--;
+            i += 2;
+          } else {
+            i++;
+          }
+        }
+      } else if (!Character.isWhitespace(c)) {
+        return true;
+      } else {
+        i++;
+      }
+    }
+    return false;
+  }
+
+  private static boolean charAtIs(String s, int index, char expected) {
+    return index >= 0 && index < s.length() && s.charAt(index) == expected;
   }
 
   private static final class Cursor {

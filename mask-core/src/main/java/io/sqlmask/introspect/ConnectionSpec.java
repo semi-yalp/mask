@@ -73,9 +73,11 @@ public record ConnectionSpec(String engine, String host, int port, String databa
         boolean require = "require".equalsIgnoreCase(sslmode);
         // trino-jdbc rejects unrecognized URL properties and has no
         // connectTimeout property; spec.connectTimeoutSeconds is not
-        // representable in the Trino URL.
+        // representable in the Trino URL. SSL defaults to false in the
+        // driver, so "require" must say so explicitly or the connection
+        // silently stays plaintext (and the password leaks in the clear).
         yield "jdbc:trino://" + host + ":" + port + "/" + database
-            + (require ? "" : "?SSL=false");
+            + (require ? "?SSL=true" : "?SSL=false");
       }
       default -> throw new IllegalArgumentException("unsupported engine " + engine);
     };

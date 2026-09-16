@@ -2,6 +2,7 @@ package io.sqlmask.rowfilter;
 
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.config.YamlConfigLoader;
+import io.sqlmask.dialect.MysqlDialectAdapter;
 import io.sqlmask.dialect.PostgresqlDialectAdapter;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.YamlCalciteSchemaFactory;
@@ -580,5 +581,73 @@ class RowFilterRewriterTest {
       assertEquals(0, result.injections(), () -> sql);
       assertSame(parsed, result.node(), () -> sql);
     }
+  }
+
+  // --- MySQL dialect awareness (case-insensitive names, two-part names) ---
+
+  private final MysqlDialectAdapter mysqlAdapter = new MysqlDialectAdapter();
+
+  /** Registry and statement must run on the same (MySQL) dialect. */
+  private RowFilterRewriter.Result applyMysql(Fixture f, String sql) {
+    RowFilterRegistry registry = RowFilterRegistry.build(f.loaded(), mysqlAdapter, f.schema());
+    RowFilterRewriter rewriter = new RowFilterRewriter(mysqlAdapter);
+    return rewriter.apply(mysqlAdapter.parse(sql, 1), f.loaded(), registry);
+  }
+
+  @Test
+  void mysqlCaseVariantReferenceStillInjects() {
+    // the MySQL validator matches names case-insensitively, so `Customer`
+    // validates and binds — the injection decision must follow suit or the
+    // row filter is silently skipped (fail-open)
+    Fixture f = fixture(TWO_TABLE_YAML);
+    RowFilterRewriter.Result result = applyMysql(f, "SELECT id FROM Customer");
+    assertEquals(1, result.injections());
+    assertEquals(
+        flat("SELECT id FROM (SELECT * FROM Customer WHERE status = 'active') AS Customer"),
+        flat(mysqlAdapter.unparse(result.node())));
+    mysqlAdapter.validate(result.node(), f.schema());
+  }
+
+  @Test
+  void mysqlTwoPartReferenceInjects() {
+    // `db.table` resolves under the declared catalog for MySQL (pinned by
+    // MysqlSchemaPathPinningTest), so it validates and must be injected
+    Fixture f = fixture(TWO_TABLE_YAML);
+    RowFilterRewriter.Result result = applyMysql(f, "SELECT id FROM public.customer");
+    assertEquals(1, result.injections());
+    assertEquals(
+        flat("SELECT id FROM (SELECT * FROM public.customer WHERE status = 'active') AS customer"),
+        flat(mysqlAdapter.unparse(result.node())));
+    mysqlAdapter.validate(result.node(), f.schema());
+  }
+
+  @Test
+  void mysqlCaseVariantCteScopeShadowsBaseTable() {
+    // the outer reference binds the CTE (case-insensitively); only the
+    // inner reference may receive the injection
+    Fixture f = fixture(TWO_TABLE_YAML);
+    RowFilterRewriter.Result result = applyMysql(f,
+        "WITH Customer AS (SELECT id FROM public.customer) SELECT id FROM customer");
+    assertEquals(1, result.injections());
+    mysqlAdapter.validate(result.node(), f.schema());
+  }
+
+  @Test
+  void mysqlAmbiguousTwoPartNameFailsExplicitly() {
+    Fixture f = fixture(AMBIGUOUS_YAML_TEMPLATE.formatted("a", CUSTOMER_FILTER, "b"));
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> applyMysql(f, "SELECT id FROM public.customer"));
+    assertEquals(SqlMaskException.Code.VALIDATION_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("a.public.customer"), () -> e.getMessage());
+    assertTrue(e.getMessage().contains("b.public.customer"), () -> e.getMessage());
+  }
+
+  @Test
+  void pgTwoPartNameIsStillLeftToTheValidator() {
+    // PostgreSQL rejects two-part names; there is nothing to inject and the
+    // reference keeps its identity
+    Fixture f = fixture(TWO_TABLE_YAML);
+    RowFilterRewriter.Result result = apply(f, "SELECT phone FROM public.customer");
+    assertEquals(0, result.injections());
   }
 }

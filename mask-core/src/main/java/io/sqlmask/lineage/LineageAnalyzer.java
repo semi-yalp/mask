@@ -2,9 +2,7 @@ package io.sqlmask.lineage;
 
 import io.sqlmask.sql.ValidatedSql;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
-import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -29,10 +27,16 @@ import java.util.Set;
  * structures never surface as origins because the analysis tree has CTEs
  * expanded into derived tables.
  *
- * <p>Sub-queries embedded in output expressions are treated as
- * {@link LineageStatus#UNKNOWN}: the metadata layer ignores the relational
- * subtree inside {@link RexSubQuery}, so a "no origin" verdict could hide a
- * masking leak.
+ * <p>Scalar subqueries inside projections make origin tracking unsound: the
+ * metadata layer ignores the relational subtree inside {@link RexSubQuery}
+ * and reports empty origins for the values it produces, so a subquery could
+ * smuggle an unmasked sensitive column into the output (including from a
+ * set-operation branch the root projection guard would never see). Before
+ * analyzing, the whole relational tree is scanned for projections containing
+ * a subquery; if one exists, every output field is reported as
+ * {@link LineageStatus#UNKNOWN} and the statement fails (fail-closed).
+ * Subqueries in other positions (WHERE / HAVING / JOIN conditions) never
+ * contribute values to the output columns and stay allowed.
  */
 public final class LineageAnalyzer {
 
@@ -42,17 +46,17 @@ public final class LineageAnalyzer {
 
   public List<OutputLineage> analyze(RelNode root, RelDataType outputRowType) {
     RelMetadataQuery metadataQuery = root.getCluster().getMetadataQuery();
-    Project rootProject = findRootProject(root);
+    boolean subQueryInProjection = containsProjectSubQuery(root);
     List<OutputLineage> result = new ArrayList<>();
     for (RelDataTypeField field : outputRowType.getFieldList()) {
-      result.add(analyzeField(root, rootProject, field, metadataQuery));
+      result.add(analyzeField(root, field, metadataQuery, subQueryInProjection));
     }
     return result;
   }
 
-  private OutputLineage analyzeField(RelNode root, Project rootProject, RelDataTypeField field,
-      RelMetadataQuery metadataQuery) {
-    if (rootProject != null && containsSubQuery(rootProject.getProjects().get(field.getIndex()))) {
+  private OutputLineage analyzeField(RelNode root, RelDataTypeField field,
+      RelMetadataQuery metadataQuery, boolean subQueryInProjection) {
+    if (subQueryInProjection) {
       return OutputLineage.of(field, Set.of(), LineageStatus.UNKNOWN);
     }
     Set<org.apache.calcite.rel.metadata.RelColumnOrigin> rawOrigins =
@@ -71,26 +75,28 @@ public final class LineageAnalyzer {
   }
 
   /**
-   * Locates the projection that carries the root output expressions,
-   * descending through nodes that never change the output shape.
+   * True when any projection anywhere in the tree contains a scalar subquery.
+   * The walk deliberately does not descend into {@link RexSubQuery#getRel()}:
+   * values produced inside a subquery's own plan never become outer output
+   * columns — only subqueries sitting in a projection of the analyzed tree do.
    */
-  private Project findRootProject(RelNode root) {
-    RelNode node = root;
-    while (true) {
-      if (node instanceof Project project) {
-        return project;
-      }
-      if (node instanceof Sort sort) {
-        node = sort.getInput();
-      } else if (node instanceof Filter filter) {
-        node = filter.getInput();
-      } else {
-        return null;
+  private static boolean containsProjectSubQuery(RelNode node) {
+    if (node instanceof Project project) {
+      for (RexNode expression : project.getProjects()) {
+        if (containsSubQuery(expression)) {
+          return true;
+        }
       }
     }
+    for (RelNode input : node.getInputs()) {
+      if (containsProjectSubQuery(input)) {
+        return true;
+      }
+    }
+    return false;
   }
 
-  private boolean containsSubQuery(RexNode expression) {
+  private static boolean containsSubQuery(RexNode expression) {
     if (expression instanceof RexSubQuery) {
       return true;
     }

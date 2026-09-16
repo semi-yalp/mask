@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Lexical-scope and ownership guarantees of CTE expansion: inner WITH clauses
@@ -71,6 +72,23 @@ class CteExpanderTest {
     SqlNode expanded = new CteExpander().expand(parsed);
     SqlJoin join = (SqlJoin) ((SqlSelect) expanded).getFrom();
     assertNotSame(derivedBody(join.getLeft()), derivedBody(join.getRight()));
+  }
+
+  @Test
+  void orderBySubqueryOverCteIsExpandedInsideTheWithScope() {
+    // Calcite places ORDER BY above the WITH in the parse tree; the order
+    // list must still expand inside the WITH scope (regression: it used to
+    // expand after the scope was popped, leaving the bare `t` reference in
+    // the analysis tree and failing lineage with an unknown table)
+    SqlNode parsed = adapter.parse(
+        "WITH t AS (SELECT id AS v FROM crm.public.customer) "
+            + "SELECT phone FROM crm.public.customer ORDER BY (SELECT max(v) FROM t)", 0);
+    SqlNode expanded = new CteExpander().expand(parsed);
+    String flat = adapter.unparse(expanded).replaceAll("\\s+", " ");
+    assertTrue(flat.contains("ORDER BY (SELECT MAX(v) FROM (SELECT id AS v"
+            + " FROM crm.public.customer) AS t)"),
+        () -> flat);
+    adapter.validate(expanded, schema);
   }
 
   /** Unwraps the derived-table AS wrapper down to the expanded CTE body. */

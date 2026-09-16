@@ -364,7 +364,13 @@ policies: {}
   `UNSUPPORTED_STATEMENT`（fail-closed，不静默放过）；
 - 根级集合操作：维持既有 `UNSUPPORTED_STATEMENT` 拒绝；嵌套在 CTE 体/子查询内的
   集合操作不受影响；
-- 两段名 `schema.table`：不匹配、不注入，维持现状由校验器报错。
+- 两段名 `schema.table`：MySQL 会照常注入行过滤（其校验器经声明 catalog 解析
+  两段名）；多 catalog 声明了同名 `schema.table` 造成歧义时显式
+  `VALIDATION_ERROR`（请改用三段全名）。PostgreSQL / Trino 的校验器不支持
+  两段名，维持原样由校验器报错；
+- 名称匹配与校验器口径一致：MySQL 大小写不敏感（`FROM Customer` 与声明
+  `customer` 视为同一张受控表，照常注入），PostgreSQL / Trino 引号外的引用
+  已折叠小写、引号引用按大小写精确匹配。
 
 API 与页面：`POST /api/rewrite` 的每条语句新增 `"rowFiltered": true|false`
 （true 表示该语句注入了行过滤条件，可与 `masked` 同时为 true）。页面结果卡片按
@@ -417,7 +423,7 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
 | 标识符引号 | 双引号（按需） | 双引号（按需） | 反引号（包装层一律加） |
 | 非引号标识符 | 折叠小写 | 折叠小写 | 不折叠、大小写不敏感匹配 |
 | 字符串字面量 | 单引号 | 单引号 | 单引号；**双引号不是标识符**（直接被拒，fail-closed） |
-| 两段名 `db.table` | 不支持（用三段名或不加限定） | 支持 | 支持（db = 声明的 schema） |
+| 两段名 `db.table` | 不支持（用三段名或不加限定） | 不支持（校验器直接拒绝，用三段名） | 支持（db = 声明的 schema） |
 | 非限定名同名冲突 | 按 schema 名字母序**静默首匹配**（非报错） | 同左 | 同左 |
 
 包装层（最外层投影）的标识符渲染：PostgreSQL/Trino 按需加引号（保留字、大小写、

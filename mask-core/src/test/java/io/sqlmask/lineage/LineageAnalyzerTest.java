@@ -177,6 +177,43 @@ class LineageAnalyzerTest {
   }
 
   @Test
+  void subQueryInSetOpBranchIsNotPassedThroughAsNoOrigin() {
+    // a nested set operation's branch projection can hide a subquery: the
+    // metadata layer reports empty origins for its contribution (no input
+    // refs inside RexSubQuery), which used to classify the column as
+    // NO_ORIGIN and pass the untraced value through unmasked — it must be
+    // UNKNOWN (fail-closed). (Root-level set ops are rejected outright.)
+    List<OutputLineage> lineage = analyze(
+        "SELECT t.id FROM ("
+            + "SELECT c.id FROM crm.public.customer c "
+            + "UNION SELECT (SELECT max(c2.phone) FROM crm.public.customer c2) "
+            + "FROM crm.public.customer c2) AS t");
+    Optional<LineageStatus> unknown = lineage.stream().map(OutputLineage::status)
+        .filter(s -> s == LineageStatus.UNKNOWN).findFirst();
+    assertTrue(unknown.isPresent(), () -> "expected UNKNOWN lineage, got: " + lineage);
+  }
+
+  @Test
+  void subQueryInCteBodyProjectionIsNotPassedThrough() {
+    // CTE expansion inlines this projection into the analyzed tree; its
+    // subquery value flows to the output through plain input refs afterwards
+    List<OutputLineage> lineage = analyze(
+        "WITH x AS (SELECT (SELECT max(c2.phone) FROM crm.public.customer c2) AS v "
+            + "FROM crm.public.customer c) SELECT v FROM x");
+    assertEquals(LineageStatus.UNKNOWN, lineage.get(0).status());
+  }
+
+  @Test
+  void subQueryInWhereClauseKeepsResolvableOutput() {
+    // EXISTS/IN subqueries filter rows but never feed output columns; the
+    // statement stays analyzable
+    List<OutputLineage> lineage = analyze(
+        "SELECT c.id FROM crm.public.customer c WHERE EXISTS ("
+            + "SELECT 1 FROM crm.public.customer c2 WHERE c2.id = c.id)");
+    assertResolvedTo(lineage, 0, "id");
+  }
+
+  @Test
   void unknownEngineFunctionOriginTracedToArguments() {
     // engine-defined functions are opaque, but lineage flows through their args
     List<OutputLineage> lineage = analyze(
