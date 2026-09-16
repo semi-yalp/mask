@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

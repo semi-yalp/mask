@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.policyserver.PolicyService;
 import io.sqlmask.policyserver.model.ColumnDef;

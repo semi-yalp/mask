@@ -1,0 +1,14 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: mask-policy
+  datasource:
+    url: ${POLICY_PG_URL:jdbc:postgresql://127.0.0.1:5432/mask_policy}
+    username: ${POLICY_PG_USER:postgres}
+    password: ${POLICY_PG_PASSWORD:postgres}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql

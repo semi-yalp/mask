@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.PolicyService;
