@@ -578,3 +578,45 @@ users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
 `SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制
 `X-Api-Key` 校验（401），未配置则放行（本地开发）；存量策略自动等价
 `{"users":["*"]}` 全体生效。
+
+## 审计日志（Elasticsearch）
+
+两个服务（sql-mask 8080、mask-metadata 8082）把关键动作以**异步尽力而为**
+方式写入 Elasticsearch：队列满丢弃、ES 故障不影响任何业务请求（恢复后自动
+续写）。三类事件：`REWRITE`（每条改写请求恰好一条，成功/失败）、
+`ADMIN_CHANGE`（实例/策略/UDF/导入/采集等管理面变更）、`EFFECTIVE_PULL`
+（生效配置拉取，`AUDIT_EFFECTIVE_PULL_ENABLED=false` 可关）。索引按 UTC
+日期滚动：`mask-audit-YYYY.MM.dd`（前缀可配）；SQL 文本超长按
+`AUDIT_SQL_MAX_CHARS` 截断并打 `sqlTruncated` 标记。
+
+环境变量（默认值即本地单机起一个无安全特性的 ES 即可工作）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `AUDIT_ENABLED` | `true` | `false` 退化为 Noop，零开销 |
+| `AUDIT_ES_URL` | `http://127.0.0.1:9200` | ES 地址 |
+| `AUDIT_ES_API_KEY` / `AUDIT_ES_USER` / `AUDIT_ES_PASSWORD` | 空 | ES 鉴权（ApiKey 头或 Basic） |
+| `AUDIT_INDEX_PREFIX` | `mask-audit` | 索引前缀 |
+| `AUDIT_QUEUE_CAPACITY` | `10000` | 有界队列容量，满即丢 |
+| `AUDIT_BATCH_SIZE` | `200` | 攒够多少条发一个 `_bulk` |
+| `AUDIT_FLUSH_INTERVAL_MS` | `2000` | 不足一批的冲刷间隔 |
+| `AUDIT_SQL_MAX_CHARS` | `8192` | SQL 截断长度 |
+| `AUDIT_EFFECTIVE_PULL_ENABLED` | `true` | 是否记录 EFFECTIVE_PULL |
+
+查询走内置固定条件接口（不做 DSL 透传；时间范围上限 7 天，size 上限 200；
+ES 不可用时返回 **502 `AUDIT_SEARCH_UNAVAILABLE`**）：
+
+```
+GET /api/audit/events?eventType=&outcome=&instance=&resourceType=&action=&user=&from=&to=&page=&size=
+```
+
+本地开发用 compose 一条命令起齐 ES（只绑 127.0.0.1）：
+
+```bash
+docker compose -f docker-compose.metadata.yml up -d elasticsearch
+curl -s 'http://127.0.0.1:9200/_cat/indices/mask-audit-*?v'
+curl -s 'http://127.0.0.1:8080/api/audit/events?eventType=REWRITE&size=10'
+```
+
+索引保留策略 v1 模板不绑定 ILM，需要时可在 ES 侧手工挂 30 天删除策略
+（`PUT _ilm/policy/mask-audit-30d` 后给模板加 `index.lifecycle.name`）。
