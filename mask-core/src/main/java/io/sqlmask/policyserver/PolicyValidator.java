@@ -123,12 +123,18 @@ public final class PolicyValidator {
           .equals(ColumnKey.normalize(policy.resource().catalog(), "catalog"))) {
         continue;
       }
-      boolean overlap = (policy.policyType() == PolicyType.ROW_FILTER
-          || intersects(other.resource().columns(), policy.resource().columns()))
+      // Overlap rejection is datamask-only now: row filters compose with AND at
+      // compile time, and different-priority datamask overlap resolves by
+      // priority (spec 2026-09-17-policy-priority-design §4).
+      boolean overlap = policy.policyType() == PolicyType.DATAMASK
+          && other.priority() == policy.priority()
+          && intersects(other.resource().columns(), policy.resource().columns())
           && subjectsMayOverlap(other.subjects(), policy.subjects());
       if (overlap) {
-        throw error("policy '" + policy.name() + "' overlaps enabled policy '" + other.name()
-            + "' on table '" + tableKey(policy.resource()) + "'; disable one of them first");
+        throw error("policy '" + policy.name() + "' (priority " + policy.priority()
+            + ") overlaps enabled policy '" + other.name() + "' (priority "
+            + other.priority() + ") on table '" + tableKey(policy.resource())
+            + "'; use a different priority or disable one of them first");
       }
     }
   }
