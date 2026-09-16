@@ -62,10 +62,38 @@ class PgMetadataIntrospectorTest {
     assertEquals("public", customer.schema());
     assertEquals("customer", customer.name());
     assertEquals(2, customer.columns().size());
+    assertEquals("table", customer.kind());
     assertEquals("bigint", customer.columns().get(0).yamlType());
     assertEquals("varchar(20)", customer.columns().get(1).yamlType());
     assertTrue(result.warnings().stream()
         .anyMatch(w -> w.contains("jsonb") && w.contains("crm.sales.facts.id")));
+  }
+
+  @Test
+  void viewKindsAreMappedAndUnknownRelkindDegradesWithWarning() throws SQLException {
+    // 每行: schema, table, relkind, column, pg_type, attnum
+    ResultSet tables = mock(ResultSet.class);
+    when(tables.next()).thenReturn(true, true, true, false);
+    when(tables.getString("schema_name")).thenReturn("public", "public", "sales");
+    when(tables.getString("table_name")).thenReturn("customer_v", "mv_stats", "weird");
+    when(tables.getString("relkind")).thenReturn("v", "m", "x");
+    when(tables.getString("column_name")).thenReturn("id", "id", "id");
+    when(tables.getString("pg_type")).thenReturn("bigint", "bigint", "bigint");
+    when(tables.getInt("attnum")).thenReturn(1, 1, 1);
+
+    Connection conn = fakeConnection(singleStringRow("crm"), tables);
+    PgMetadataIntrospector introspector = new PgMetadataIntrospector() {
+      @Override protected Connection open(ConnectionSpec spec) { return conn; }
+    };
+
+    IntrospectionResult result = introspector.introspect(
+        new ConnectionSpec("postgresql", "h", 5432, "crm", "u", "p", List.of(), true, false, "disable", 10));
+
+    assertEquals("view", result.tables().get(0).kind());
+    assertEquals("materialized_view", result.tables().get(1).kind());
+    assertEquals("table", result.tables().get(2).kind());
+    assertTrue(result.warnings().stream()
+        .anyMatch(w -> w.contains("unknown relkind 'x'") && w.contains("crm.sales.weird")));
   }
 
   @Test

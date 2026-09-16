@@ -8,10 +8,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Pulls table and column metadata from one PostgreSQL database through a
@@ -41,8 +43,8 @@ public class PgMetadataIntrospector implements MetadataIntrospector {
   public IntrospectionResult introspect(ConnectionSpec spec) {
     try (Connection connection = open(spec)) {
       String catalog = queryCurrentDatabase(connection);
-      List<IntrospectionResult.TableInfo> tables = queryTables(connection, spec, catalog);
       List<String> warnings = new ArrayList<>();
+      List<IntrospectionResult.TableInfo> tables = queryTables(connection, spec, catalog, warnings);
       for (IntrospectionResult.TableInfo table : tables) {
         for (IntrospectionResult.ColumnInfo column : table.columns()) {
           if (column.degraded()) {
@@ -81,7 +83,8 @@ public class PgMetadataIntrospector implements MetadataIntrospector {
   }
 
   private List<IntrospectionResult.TableInfo> queryTables(
-      Connection connection, ConnectionSpec spec, String catalog) throws SQLException {
+      Connection connection, ConnectionSpec spec, String catalog,
+      List<String> warnings) throws SQLException {
     String relKinds = spec.includeViews() ? "'r', 'p', 'v', 'm'" : "'r', 'p'";
     List<String> schemas = spec.schemas();
     String sql = TABLES_SQL.formatted(relKinds);
@@ -102,14 +105,15 @@ public class PgMetadataIntrospector implements MetadataIntrospector {
         statement.setString(index++, schema);
       }
       try (ResultSet rs = statement.executeQuery()) {
-        return assemble(rs, catalog);
+        return assemble(rs, catalog, warnings);
       }
     }
   }
 
-  private List<IntrospectionResult.TableInfo> assemble(ResultSet rs, String catalog)
-      throws SQLException {
+  private List<IntrospectionResult.TableInfo> assemble(
+      ResultSet rs, String catalog, List<String> warnings) throws SQLException {
     Map<String, IntrospectionResult.TableInfo> byKey = new LinkedHashMap<>();
+    Set<String> unknownKindTables = new HashSet<>();
     while (rs.next()) {
       String schema = rs.getString("schema_name");
       String name = rs.getString("table_name");
@@ -119,13 +123,32 @@ public class PgMetadataIntrospector implements MetadataIntrospector {
       String key = schema + "." + name;
       IntrospectionResult.TableInfo table = byKey.get(key);
       if (table == null) {
-        table = new IntrospectionResult.TableInfo(catalog, schema, name, new ArrayList<>());
+        String relKind = rs.getString("relkind");
+        String kind = kindOf(relKind);
+        if (kind == null) {
+          kind = TableKind.TABLE;
+          if (unknownKindTables.add(key)) {
+            warnings.add("unknown relkind '" + relKind + "' for "
+                + catalog + "." + schema + "." + name + ", degraded to table");
+          }
+        }
+        table = new IntrospectionResult.TableInfo(catalog, schema, name, kind, new ArrayList<>());
         byKey.put(key, table);
       }
       table.columns().add(new IntrospectionResult.ColumnInfo(
           column, mapped.yamlType(), pgType, mapped.degraded()));
     }
     return new ArrayList<>(byKey.values());
+  }
+
+  /** Maps a pg_class.relkind value; null means unrecognized (caller degrades). */
+  private static String kindOf(String relKind) {
+    return switch (relKind) {
+      case "v" -> TableKind.VIEW;
+      case "m" -> TableKind.MATERIALIZED_VIEW;
+      case "r", "p" -> TableKind.TABLE;
+      default -> null;
+    };
   }
 
   /** Strips anything that may carry connection details from driver messages. */

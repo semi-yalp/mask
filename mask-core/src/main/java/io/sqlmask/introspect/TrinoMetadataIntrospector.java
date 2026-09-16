@@ -9,10 +9,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Pulls table/column metadata from one Trino catalog via information_schema.
@@ -27,7 +29,7 @@ import java.util.Properties;
 public class TrinoMetadataIntrospector implements MetadataIntrospector {
 
   private static final String TABLES_SQL = """
-      SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.ORDINAL_POSITION
+      SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.DATA_TYPE, c.ORDINAL_POSITION
       FROM information_schema.columns c
       JOIN information_schema.tables t
         ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
@@ -40,8 +42,9 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
   @Override
   public IntrospectionResult introspect(ConnectionSpec spec) {
     try (Connection connection = open(spec)) {
-      List<IntrospectionResult.TableInfo> tables = queryTables(connection, spec, spec.database());
       List<String> warnings = new ArrayList<>();
+      List<IntrospectionResult.TableInfo> tables =
+          queryTables(connection, spec, spec.database(), warnings);
       for (IntrospectionResult.TableInfo table : tables) {
         for (IntrospectionResult.ColumnInfo column : table.columns()) {
           if (column.degraded()) {
@@ -82,7 +85,8 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
   }
 
   private List<IntrospectionResult.TableInfo> queryTables(
-      Connection connection, ConnectionSpec spec, String catalog) throws SQLException {
+      Connection connection, ConnectionSpec spec, String catalog,
+      List<String> warnings) throws SQLException {
     // excluding information_schema keeps pseudo-tables out of the default
     // export (mirrors the PG side skipping system schemas); a user who
     // explicitly passes --schema information_schema still gets it via the
@@ -98,7 +102,7 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
         statement.setString(index++, schema);
       }
       try (ResultSet rs = statement.executeQuery()) {
-        return assemble(rs, catalog);
+        return assemble(rs, catalog, warnings);
       }
     }
   }
@@ -107,9 +111,10 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
     return String.join(", ", Collections.nCopies(n, "?"));
   }
 
-  private List<IntrospectionResult.TableInfo> assemble(ResultSet rs, String catalog)
-      throws SQLException {
+  private List<IntrospectionResult.TableInfo> assemble(
+      ResultSet rs, String catalog, List<String> warnings) throws SQLException {
     Map<String, IntrospectionResult.TableInfo> byKey = new LinkedHashMap<>();
+    Set<String> unknownKindTables = new HashSet<>();
     while (rs.next()) {
       String schema = rs.getString("TABLE_SCHEMA");
       String name = rs.getString("TABLE_NAME");
@@ -119,13 +124,31 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
       String key = schema + "." + name;
       IntrospectionResult.TableInfo table = byKey.get(key);
       if (table == null) {
-        table = new IntrospectionResult.TableInfo(catalog, schema, name, new ArrayList<>());
+        String tableType = rs.getString("TABLE_TYPE");
+        String kind = kindOf(tableType);
+        if (kind == null) {
+          kind = TableKind.TABLE;
+          if (unknownKindTables.add(key)) {
+            warnings.add("unknown TABLE_TYPE '" + tableType + "' for "
+                + catalog + "." + schema + "." + name + ", degraded to table");
+          }
+        }
+        table = new IntrospectionResult.TableInfo(catalog, schema, name, kind, new ArrayList<>());
         byKey.put(key, table);
       }
       table.columns().add(new IntrospectionResult.ColumnInfo(column, mapped.yamlType(),
           dataType, mapped.degraded()));
     }
     return new ArrayList<>(byKey.values());
+  }
+
+  /** Maps an information_schema TABLE_TYPE value; null means unrecognized. */
+  private static String kindOf(String tableType) {
+    return switch (tableType) {
+      case "VIEW" -> TableKind.VIEW;
+      case "BASE TABLE" -> TableKind.TABLE;
+      default -> null;
+    };
   }
 
   /** Strips anything that may carry connection details from driver messages. */

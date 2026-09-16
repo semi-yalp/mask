@@ -1,0 +1,23 @@
+metadata:
+  tables:
+    - catalog: crm
+      schema: public
+      name: customer
+      columns:
+        - name: id
+          type: bigint
+    - catalog: crm
+      schema: public
+      name: customer_v
+      kind: view
+      columns:
+        - name: id
+          type: bigint
+    - catalog: crm
+      schema: public
+      name: mv_stats
+      kind: materialized_view
+      columns:
+        - name: day
+          type: date
+policies: {}

@@ -37,6 +37,7 @@ class TrinoMetadataIntrospectorTest {
     when(rows.getString("COLUMN_NAME")).thenReturn("id", "created_at", "tags");
     when(rows.getString("DATA_TYPE"))
         .thenReturn("bigint", "timestamp(3) with time zone", "array(integer)");
+    when(rows.getString("TABLE_TYPE")).thenReturn("BASE TABLE");
     when(c1.executeQuery()).thenReturn(rows);
 
     TrinoMetadataIntrospector introspector = new TrinoMetadataIntrospector() {
@@ -50,10 +51,12 @@ class TrinoMetadataIntrospectorTest {
     ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
     verify(conn, times(1)).prepareStatement(sql.capture());
     assertTrue(sql.getValue().contains("c.TABLE_SCHEMA <> 'information_schema'"));
+    assertTrue(sql.getValue().contains("c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME"));
     assertEquals("shop", result.catalog());
     assertEquals(1, result.tables().size());
     assertEquals("shop", result.tables().get(0).schema());
     assertEquals("customer", result.tables().get(0).name());
+    assertEquals("table", result.tables().get(0).kind());
     assertEquals(3, result.tables().get(0).columns().size());
     assertEquals("bigint", result.tables().get(0).columns().get(0).yamlType());
     assertFalse(result.tables().get(0).columns().get(0).degraded());
@@ -65,6 +68,35 @@ class TrinoMetadataIntrospectorTest {
     assertTrue(result.warnings().stream().anyMatch(w ->
         w.contains("shop.shop.customer.tags") && w.contains("trino type array(integer)")
         && w.endsWith("degraded to varchar")));
+  }
+
+  @Test
+  void viewKindsAreMappedAndUnknownTableTypeDegradesWithWarning() throws SQLException {
+    Connection conn = mock(Connection.class);
+    PreparedStatement c1 = mock(PreparedStatement.class);
+    when(conn.prepareStatement(anyString())).thenReturn(c1);
+
+    ResultSet rows = mock(ResultSet.class);
+    // 每行: TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, COLUMN_NAME, DATA_TYPE
+    when(rows.next()).thenReturn(true, true, true, false);
+    when(rows.getString("TABLE_SCHEMA")).thenReturn("shop", "shop", "shop");
+    when(rows.getString("TABLE_NAME")).thenReturn("customer_v", "orders_v", "weird");
+    when(rows.getString("TABLE_TYPE")).thenReturn("VIEW", "VIEW", "WHATEVER");
+    when(rows.getString("COLUMN_NAME")).thenReturn("id", "id", "id");
+    when(rows.getString("DATA_TYPE")).thenReturn("bigint", "bigint", "bigint");
+    when(c1.executeQuery()).thenReturn(rows);
+
+    TrinoMetadataIntrospector introspector = new TrinoMetadataIntrospector() {
+      @Override protected Connection open(ConnectionSpec spec) { return conn; }
+    };
+    IntrospectionResult result = introspector.introspect(
+        new ConnectionSpec("trino", "h", 8080, "shop", "u", "p", List.of(), true, false, "disable", 10));
+
+    assertEquals("view", result.tables().get(0).kind());
+    assertEquals("view", result.tables().get(1).kind());
+    assertEquals("table", result.tables().get(2).kind());
+    assertTrue(result.warnings().stream()
+        .anyMatch(w -> w.contains("unknown TABLE_TYPE 'WHATEVER'") && w.contains("shop.shop.weird")));
   }
 
   @Test

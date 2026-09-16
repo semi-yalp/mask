@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MetadataYamlGeneratorTest {
@@ -60,6 +61,17 @@ class MetadataYamlGeneratorTest {
         List.of("column crm.public.customer.tags: trino type json is not representable, degraded to varchar"));
   }
 
+  private IntrospectionResult views() {
+    return new IntrospectionResult("crm", List.of(
+        new IntrospectionResult.TableInfo("crm", "public", "customer", List.of(
+            new IntrospectionResult.ColumnInfo("id", "bigint", "bigint", false))),
+        new IntrospectionResult.TableInfo("crm", "public", "customer_v", "view", List.of(
+            new IntrospectionResult.ColumnInfo("id", "bigint", "bigint", false))),
+        new IntrospectionResult.TableInfo("crm", "public", "mv_stats", "materialized_view", List.of(
+            new IntrospectionResult.ColumnInfo("day", "date", "date", false)))),
+        List.of());
+  }
+
   @Test
   void multiTableGolden() throws Exception {
     assertGolden("introspect-multi-table.yaml", multiTable());
@@ -83,6 +95,17 @@ class MetadataYamlGeneratorTest {
   @Test
   void trinoGolden() throws Exception {
     assertGolden("introspect-trino.yaml", trino());
+  }
+
+  @Test
+  void viewsGolden() throws Exception {
+    assertGolden("introspect-views.yaml", views());
+  }
+
+  @Test
+  void kindOmittedForPlainTables() {
+    String out = new MetadataYamlGenerator().generate(multiTable());
+    assertFalse(out.contains("kind:"));
   }
 
   @Test

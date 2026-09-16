@@ -93,8 +93,17 @@ public class SqlMaskServiceApplication {
     org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> registration =
         new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new PolicyApiKeyFilter(
             System.getenv("SQLMASK_ADMIN_API_KEY"), System.getenv("SQLMASK_DATA_API_KEY")));
-    registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
+    registration.addUrlPatterns("/api/instances/*", "/api/effective/*", "/api/audit/*");
     registration.setOrder(1);
     return registration;
+  }
+
+  @Bean
+  io.sqlmask.audit.AuditAdminHelper auditAdminHelper(io.sqlmask.audit.AuditRecorder recorder) {
+    return new io.sqlmask.audit.AuditAdminHelper(recorder,
+        "sql-mask",
+        e -> e instanceof io.sqlmask.error.SqlMaskException sme
+            ? sme.getCode().name()
+            : e.getClass().getSimpleName());
   }
 }

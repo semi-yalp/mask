@@ -3608,6 +3608,15 @@ git commit -m "docs+build: compose 增加单节点 ES 与 README 审计日志章
 
 ### Task 16: 远程主机 ES 集成冒烟（root@47.100.166.158）
 
+> **执行结论（2026-09-17，冒烟中断）**：远端 Docker 可用（29.1.3），按 Step 1
+> 以 `--memory=1g -Xms512m -Xmx512m` 起 ES 后 **OOM 被杀（exit 137）**；降参为
+> `--memory=768m -Xms256m -Xmx256m` 重试后 **宿主机整体内存耗尽**（总内存仅
+> 1.6GB、无 swap、已跑 pg-mask postgres），SSH 无法再建立（ping 通、22 端口
+> banner 超时）。冒烟 Step 2-6 无法执行。**该主机跑不动 ES**；待其恢复后应
+> `docker rm -f mask-audit-es` 清理，并换内存 ≥2GB 的主机或加 swap 再冒烟。
+> 本地全量回归（mask-policy/mask-audit/mask-core/mask-metadata）已全绿，
+> 功能完成度止于无真实 ES 联调。
+
 **Files:** 无代码变更；产物为冒烟结论（写回本文件的 checkbox 与对话汇报）。
 
 **Interfaces:** 消费 Task 1-15 的全部交付物。

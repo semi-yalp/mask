@@ -129,9 +129,10 @@ public class JdbcMetaStore implements MetaStore {
       int tablePosition = 0;
       for (TableStructure table : tables) {
         Long tableId = jdbc.queryForObject(
-            "INSERT INTO meta_table (instance_id, catalog, schema_name, table_name, position) "
-                + "VALUES (?, ?, ?, ?, ?) RETURNING id",
-            Long.class, id, table.catalog(), table.schema(), table.name(), tablePosition++);
+            "INSERT INTO meta_table (instance_id, catalog, schema_name, table_name, kind, position) "
+                + "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+            Long.class, id, table.catalog(), table.schema(), table.name(), table.kind(),
+            tablePosition++);
         int columnPosition = 0;
         for (ColumnStructure column : table.columns()) {
           jdbc.update(
@@ -148,9 +149,10 @@ public class JdbcMetaStore implements MetaStore {
   public List<TableStructure> loadStructure(String name) {
     Long id = jdbc.queryForObject("SELECT id FROM meta_instance WHERE name = ?", Long.class, name);
     List<TableStructure> tables = jdbc.query(
-        "SELECT id, catalog, schema_name, table_name FROM meta_table "
+        "SELECT id, catalog, schema_name, table_name, kind FROM meta_table "
             + "WHERE instance_id = ? ORDER BY position", (rs, i) -> new TableStructure(
             rs.getString("catalog"), rs.getString("schema_name"), rs.getString("table_name"),
+            rs.getString("kind"),
             jdbc.query(
                 "SELECT name, type_declaration FROM meta_column WHERE table_id = ? ORDER BY position",
                 (crs, ci) -> new ColumnStructure(crs.getString("name"),

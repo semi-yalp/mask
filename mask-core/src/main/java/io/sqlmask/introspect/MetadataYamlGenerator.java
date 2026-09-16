@@ -27,6 +27,9 @@ public final class MetadataYamlGenerator {
         out.append("    - catalog: ").append(scalar(table.catalog())).append('\n');
         out.append("      schema: ").append(scalar(table.schema())).append('\n');
         out.append("      name: ").append(scalar(table.name())).append('\n');
+        if (!TableKind.TABLE.equals(table.kind())) {
+          out.append("      kind: ").append(table.kind()).append('\n');
+        }
         out.append("      columns:\n");
         for (IntrospectionResult.ColumnInfo column : table.columns()) {
           out.append("        - name: ").append(scalar(column.name())).append('\n');

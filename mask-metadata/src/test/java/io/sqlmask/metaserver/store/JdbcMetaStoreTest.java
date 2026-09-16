@@ -29,12 +29,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JdbcMetaStoreTest {
 
   private static EmbeddedPostgres embedded;
+  private static javax.sql.DataSource ds;
   private static JdbcTemplate jdbc;
   private static JdbcMetaStore store;
 
   @BeforeAll
   static void setUp() throws Exception {
-    javax.sql.DataSource ds;
     String url = System.getenv("METADATA_PG_URL");
     if (url != null) {
       ds = new SingleConnectionDataSource(url,
@@ -85,5 +85,41 @@ class JdbcMetaStoreTest {
 
     store.deleteInstance(name);
     assertTrue(store.findInstance(name).isEmpty());
+  }
+
+  @Test
+  void kindRoundTripsThroughStore() {
+    String name = "it_" + UUID.randomUUID();
+    store.createInstance(row(name));
+    TableStructure plain = new TableStructure("crm", "public", "customer",
+        List.of(new ColumnStructure("id", "bigint")));
+    TableStructure view = new TableStructure("crm", "public", "customer_v", "view",
+        List.of(new ColumnStructure("id", "bigint")));
+    store.replaceStructure(name, List.of(plain, view));
+    List<TableStructure> loaded = store.loadStructure(name);
+    assertEquals("table", loaded.get(0).kind());
+    assertEquals("view", loaded.get(1).kind());
+  }
+
+  @Test
+  void schemaMigrationRestoresKindColumnWithDefault() throws Exception {
+    // 模拟存量库：删掉 kind 列后重跑全量 DDL，ALTER ... ADD COLUMN IF NOT EXISTS 负责补列
+    jdbc.execute("ALTER TABLE meta_table DROP COLUMN kind");
+    try (Connection connection = ds.getConnection()) {
+      ScriptUtils.executeSqlScript(connection,
+          new ClassPathResource("/metadata-schema.sql", JdbcMetaStoreTest.class));
+    }
+    Integer kindColumns = jdbc.queryForObject(
+        "SELECT COUNT(*) FROM information_schema.columns "
+            + "WHERE table_name = 'meta_table' AND column_name = 'kind'", Integer.class);
+    assertEquals(1, kindColumns);
+
+    // 存量写入路径（INSERT 不带 kind 列）依旧可用，默认值补齐
+    String name = "it_" + UUID.randomUUID();
+    store.createInstance(row(name));
+    jdbc.update("INSERT INTO meta_table (instance_id, catalog, schema_name, table_name, position) "
+        + "SELECT id, 'crm', 'public', 'legacy_t', 0 FROM meta_instance WHERE name = ?", name);
+    assertEquals("table", jdbc.queryForObject(
+        "SELECT kind FROM meta_table WHERE table_name = 'legacy_t'", String.class));
   }
 }

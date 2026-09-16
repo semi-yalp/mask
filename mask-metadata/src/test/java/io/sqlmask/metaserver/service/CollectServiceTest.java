@@ -47,6 +47,19 @@ class CollectServiceTest {
     assertEquals(2, response.metadataVersion());
     List<TableStructure> stored = store.loadStructure("pg_prod");
     assertEquals("bigint", stored.get(0).columns().get(0).type());
+    assertEquals("table", stored.get(0).kind());
+  }
+
+  @Test
+  void tableKindPassesThroughToStoredStructure() {
+    IntrospectionResult viewResult = new IntrospectionResult("db", List.of(
+        new IntrospectionResult.TableInfo("db", "public", "customer_v", "view",
+            List.of(new IntrospectionResult.ColumnInfo("id", "bigint", "int8", false)))),
+        List.of());
+    CollectService viewService = new CollectService(instances, structures, ref -> "pw",
+        engine -> spec -> viewResult);
+    viewService.collect("pg_prod");
+    assertEquals("view", store.loadStructure("pg_prod").get(0).kind());
   }
 
   @Test

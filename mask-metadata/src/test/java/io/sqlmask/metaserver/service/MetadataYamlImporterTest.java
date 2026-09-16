@@ -29,8 +29,64 @@ class MetadataYamlImporterTest {
     List<TableStructure> tables = importer.parse(yaml, "test.yaml");
     assertEquals(1, tables.size());
     assertEquals("crm", tables.get(0).catalog());
+    assertEquals("table", tables.get(0).kind());
     assertEquals(2, tables.get(0).columns().size());
     assertEquals("varchar", tables.get(0).columns().get(1).type());
+  }
+
+  @Test
+  void kindDefaultsToTableWhenAbsent() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns:
+                - { name: id, type: bigint }
+        """;
+    assertEquals("table", importer.parse(yaml, "test.yaml").get(0).kind());
+  }
+
+  @Test
+  void viewAndMaterializedViewKindsAccepted() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer_v
+              kind: view
+              columns:
+                - { name: id, type: bigint }
+            - catalog: crm
+              schema: public
+              name: mv_stats
+              kind: materialized_view
+              columns:
+                - { name: day, type: date }
+        """;
+    List<TableStructure> tables = importer.parse(yaml, "test.yaml");
+    assertEquals("view", tables.get(0).kind());
+    assertEquals("materialized_view", tables.get(1).kind());
+  }
+
+  @Test
+  void unknownKindRejectedNotSilentlyDropped() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer_v
+              kind: viwe
+              columns:
+                - { name: id, type: bigint }
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> importer.parse(yaml, "test.yaml"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("unknown kind 'viwe'"), () -> e.getMessage());
+    assertTrue(e.getMessage().contains("table|view|materialized_view"), () -> e.getMessage());
   }
 
   @Test

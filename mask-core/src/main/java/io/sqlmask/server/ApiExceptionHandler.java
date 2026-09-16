@@ -28,6 +28,15 @@ public class ApiExceptionHandler {
     return ResponseEntity.badRequest().body(new ApiError("CONFIG_ERROR", e.getMessage()));
   }
 
+  /** ES outage behind the audit query surface surfaces as a 502, not a 500. */
+  @ExceptionHandler(io.sqlmask.audit.AuditSearchUnavailableException.class)
+  public ResponseEntity<ApiError> handleAuditUnavailable(
+      io.sqlmask.audit.AuditSearchUnavailableException e) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(new ApiError("AUDIT_SEARCH_UNAVAILABLE",
+            e.getMessage() == null ? "elasticsearch unavailable" : e.getMessage()));
+  }
+
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException e) {
     return ResponseEntity.badRequest().body(new ApiError("BAD_REQUEST",
