@@ -1,8 +1,10 @@
 package io.sqlmask.server;
 
+import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policyserver.PolicyService;
 import io.sqlmask.policyserver.model.UdfDefinition;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -13,11 +15,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * UDF registry CRUD of one engine instance — the policy service's first admin
  * surface. Errors flow through {@link ApiExceptionHandler} (SqlMaskException
- * → 400 + code/message).
+ * → 400 + code/message). Every mutation emits one ADMIN_CHANGE audit event.
  */
 @RestController
 @RequestMapping("/api/instances/{instance}/udfs")
@@ -30,14 +33,20 @@ public class UdfController {
   }
 
   private final PolicyService service;
+  private final AuditAdminHelper audit;
 
-  public UdfController(PolicyService service) {
+  public UdfController(PolicyService service, AuditAdminHelper audit) {
     this.service = service;
+    this.audit = audit;
   }
 
   @PostMapping
-  public UdfDto create(@PathVariable("instance") String instance, @RequestBody UdfDto request) {
-    return toDto(service.createUdf(instance, toModel(request)));
+  public UdfDto create(HttpServletRequest httpRequest, @PathVariable("instance") String instance,
+      @RequestBody UdfDto request) {
+    return audit.adminChange(httpRequest, "REGISTER", "UDF", instance,
+        request == null ? null : request.name(),
+        () -> udfDetail(request),
+        () -> toDto(service.createUdf(instance, toModel(request))));
   }
 
   @GetMapping
@@ -53,14 +62,25 @@ public class UdfController {
   }
 
   @PutMapping("/{name}")
-  public UdfDto replace(@PathVariable("instance") String instance, @PathVariable("name") String name,
-      @RequestBody UdfDto request) {
-    return toDto(service.replaceUdf(instance, name, toModel(request)));
+  public UdfDto replace(HttpServletRequest httpRequest, @PathVariable("instance") String instance,
+      @PathVariable("name") String name, @RequestBody UdfDto request) {
+    return audit.adminChange(httpRequest, "UPDATE", "UDF", instance, name,
+        () -> udfDetail(request),
+        () -> toDto(service.replaceUdf(instance, name, toModel(request))));
   }
 
   @DeleteMapping("/{name}")
-  public void delete(@PathVariable("instance") String instance, @PathVariable("name") String name) {
-    service.deleteUdf(instance, name);
+  public void delete(HttpServletRequest httpRequest, @PathVariable("instance") String instance,
+      @PathVariable("name") String name) {
+    audit.adminChange(httpRequest, "DELETE", "UDF", instance, name, Map::of, () -> {
+      service.deleteUdf(instance, name);
+      return null;
+    });
+  }
+
+  private static Map<String, Object> udfDetail(UdfDto dto) {
+    int signatures = dto == null || dto.signatures() == null ? 0 : dto.signatures().size();
+    return Map.of("signatureCount", signatures);
   }
 
   private static UdfDefinition toModel(UdfDto dto) {
