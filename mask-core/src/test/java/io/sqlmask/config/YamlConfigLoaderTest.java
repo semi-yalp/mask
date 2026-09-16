@@ -388,4 +388,24 @@ class YamlConfigLoaderTest {
             """, "m.yaml", "oracle"));
     assertTrue(e.getMessage().contains("unsupported dialect"), () -> e.getMessage());
   }
+
+  @Test
+  void kindFieldIsToleratedAndIgnored() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer_v
+              kind: view
+              columns:
+                - name: id
+                  type: bigint
+        policies: {}
+        """;
+    LoadedConfig loaded = loader.loadContent(yaml, "test.yaml");
+    var table = loaded.findTable("crm", "public", "customer_v");
+    assertTrue(table.isPresent(), () -> "kind 键不得影响表加载");
+    assertEquals(List.of("id"), table.get().columns().stream().map(c -> c.name()).toList());
+  }
 }
