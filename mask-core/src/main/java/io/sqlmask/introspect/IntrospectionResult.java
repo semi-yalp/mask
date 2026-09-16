@@ -15,12 +15,23 @@ public record IntrospectionResult(String catalog, List<TableInfo> tables, List<S
   }
 
   /**
-   * One captured table. {@code columns} intentionally keeps the list the
-   * introspector appends to while assembling — no defensive copy here, because
+   * One captured table. {@code kind} is the normalized {@link TableKind}
+   * value. {@code columns} intentionally keeps the list the introspector
+   * appends to while assembling — no defensive copy here, because
    * {@code List.copyOf} would reject the adds; the snapshot in the enclosing
    * {@link IntrospectionResult} compact constructor is what freezes the result.
    */
-  public record TableInfo(String catalog, String schema, String name, List<ColumnInfo> columns) {
+  public record TableInfo(String catalog, String schema, String name, String kind,
+      List<ColumnInfo> columns) {
+
+    public TableInfo {
+      kind = kind == null || kind.isBlank() ? TableKind.TABLE : kind;
+    }
+
+    /** Convenience constructor for plain tables (kind defaults to "table"). */
+    public TableInfo(String catalog, String schema, String name, List<ColumnInfo> columns) {
+      this(catalog, schema, name, TableKind.TABLE, columns);
+    }
   }
 
   /** One column with its mapped YAML type and the original PG type it came from. */
