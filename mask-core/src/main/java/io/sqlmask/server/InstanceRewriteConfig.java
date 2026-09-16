@@ -19,27 +19,26 @@ public class InstanceRewriteConfig {
     public record Service(String baseUrl, String apiKey) {}
   }
 
+  /** Null when service mode is unconfigured: the instance-scoped endpoint
+   * then rejects requests at the call path with {@code CONFIG_ERROR} instead
+   * of failing context startup (the same jar also serves the inline rewrite
+   * mode, which needs no upstreams). */
+  private static Upstreams.Service configured(Upstreams.Service service) {
+    return service == null || service.baseUrl() == null || service.baseUrl().isBlank()
+        ? null
+        : service;
+  }
+
   @Bean
   public MetadataClient instanceMetadataClient(Upstreams props) {
-    return new MetadataClient(props.metadataService().baseUrl(), props.metadataService().apiKey());
+    Upstreams.Service service = configured(props.metadataService());
+    return service == null ? null : new MetadataClient(service.baseUrl(), service.apiKey());
   }
 
   @Bean
   public PolicySourceProvider policySourceProvider(Upstreams props) {
-    return new PolicySourceProvider(props.policyService().baseUrl(), props.policyService().apiKey());
-  }
-
-  /**
-   * Validates one upstream's presence at the call path: the beans below are
-   * built eagerly for every deployment (including ones that never serve the
-   * instance-scoped endpoint), so a missing {@code base-url} must not fail
-   * their construction — the endpoint rejects the request instead.
-   */
-  static void require(Upstreams.Service service, String key) {
-    if (service == null || service.baseUrl() == null || service.baseUrl().isBlank()) {
-      throw new IllegalStateException(
-          key + " must be configured for the instance-scoped rewrite endpoint");
-    }
+    Upstreams.Service service = configured(props.policyService());
+    return service == null ? null : new PolicySourceProvider(service.baseUrl(), service.apiKey());
   }
 
   /** One cached PolicyServiceConfigSource per instance name (per-subject LRU lives inside). */
