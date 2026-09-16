@@ -18,7 +18,8 @@
 - 环境变量：服务端 `POLICY_PG_URL` / `POLICY_PG_USER` / `POLICY_PG_PASSWORD`、`SQLMASK_ADMIN_API_KEY` / `SQLMASK_DATA_API_KEY`；core 客户端 `POLICY_SERVICE_URL` / `POLICY_SERVICE_API_KEY` / `POLICY_SERVICE_POLL_INTERVAL_MS`（默认 30000）；
 - 新行为一律 TDD（先写失败测试）；迁移以"迁移测试在新模块全绿 + core 回归全绿"为验收；
 - Windows / Git Bash 环境；模块级测试命令用 `mvn -q -pl <module> -am test`（`-am` 保证依赖模块先构建）；
-- 提交信息用仓库既有 conventional 风格（`feat(policy-server): ...` / `test:` / `docs:`），每任务至少一个提交。
+- 提交信息用仓库既有 conventional 风格（`feat(policy-server): ...` / `test:` / `docs:`），每任务至少一个提交；
+- **执行前预检（Global）**：`git status --porcelain` 除 `?? untitled.md` 外必须干净。存在其他工作线的未提交修改（如审计 WIP：`mask-core/pom.xml` 的 mask-audit 依赖、`PolicyApiKeyFilterTest.java` 的审计测试）时**立即中止并报告**，不执行、不提交、不推送——这些改动与 Task 1 操作对象重叠，强行继续会污染两条工作线。
 
 ---
 
@@ -37,9 +38,11 @@
   - `mask-core/.../server/UdfController.java`
   - `mask-core/.../server/MetadataImportController.java`
   - `mask-core/.../server/MetadataStructureFetcher.java`
-  - `mask-core/.../server/PolicyApiKeyFilter.java`
+- Copy（**不迁**，core 保留原类与注册——审计工作线在 core 扩展该过滤器，见 spec §9）:
+  - `mask-core/.../server/PolicyApiKeyFilter.java` → `mask-policy-server/.../policyserver/web/PolicyApiKeyFilter.java`（仅改 package 声明）
+  - `mask-core/src/test/java/io/sqlmask/server/PolicyApiKeyFilterTest.java` 保留在 core **不动**；另复制一份到 `mask-policy-server/src/test/java/io/sqlmask/policyserver/web/PolicyApiKeyFilterTest.java`（仅改 package 声明，按 HEAD 版本复制，不带任何未提交修改）
 - Move: `mask-core/src/main/resources/schema.sql` → `mask-policy-server/src/main/resources/schema.sql`
-- Move (测试): `mask-core/src/test/java/io/sqlmask/policyserver/` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/`；`mask-core/.../server/{EffectiveConfigEndpointTest,PolicyAdminEndpointTest,UdfEndpointTest,MetadataImportEndpointTest,PolicyApiKeyFilterTest}.java` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/web/`（包名同步改）
+- Move (测试): `mask-core/src/test/java/io/sqlmask/policyserver/` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/`；`mask-core/.../server/{EffectiveConfigEndpointTest,PolicyAdminEndpointTest,UdfEndpointTest,MetadataImportEndpointTest}.java` → `mask-policy-server/src/test/java/io/sqlmask/policyserver/web/`（包名同步改）
 - Modify: `pom.xml`（根，`<modules>` 增加 mask-policy-server）
 - Modify: `mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`（删 5 个 @Bean）
 
@@ -147,33 +150,46 @@
 cd /c/Users/yhh/orca/mask
 # 主代码：policyserver 整包（包名不变）
 git mv mask-core/src/main/java/io/sqlmask/policyserver mask-policy-server/src/main/java/io/sqlmask/policyserver
-# 主代码：6 个 server 类 → web 包
+# 主代码：5 个 server 类 → web 包（注意：PolicyApiKeyFilter 不迁，见 Step 4 复制）
 mkdir -p mask-policy-server/src/main/java/io/sqlmask/policyserver/web
-for f in EffectiveConfigController PolicyAdminController UdfController MetadataImportController MetadataStructureFetcher PolicyApiKeyFilter; do
+for f in EffectiveConfigController PolicyAdminController UdfController MetadataImportController MetadataStructureFetcher; do
   git mv "mask-core/src/main/java/io/sqlmask/server/$f.java" "mask-policy-server/src/main/java/io/sqlmask/policyserver/web/$f.java"
 done
 # schema.sql
 git mv mask-core/src/main/resources/schema.sql mask-policy-server/src/main/resources/schema.sql
 # 测试：policyserver 整包
 git mv mask-core/src/test/java/io/sqlmask/policyserver mask-policy-server/src/test/java/io/sqlmask/policyserver
-# 测试：5 个端点/过滤器测试 → web 包
+# 测试：4 个端点测试 → web 包（PolicyApiKeyFilterTest 保留在 core，不迁）
 mkdir -p mask-policy-server/src/test/java/io/sqlmask/policyserver/web
-for f in EffectiveConfigEndpointTest PolicyAdminEndpointTest UdfEndpointTest MetadataImportEndpointTest PolicyApiKeyFilterTest; do
+for f in EffectiveConfigEndpointTest PolicyAdminEndpointTest UdfEndpointTest MetadataImportEndpointTest; do
   git mv "mask-core/src/test/java/io/sqlmask/server/$f.java" "mask-policy-server/src/test/java/io/sqlmask/policyserver/web/$f.java"
 done
 ```
 
 - [ ] **Step 3: 修正迁移文件的 package 与 import**
 
-对 6 个迁移的主代码类与 5 个测试类：
+对 5 个迁移的主代码类与 4 个迁移的测试类：
 
 1. `package io.sqlmask.server;` → `package io.sqlmask.policyserver.web;`；
-2. 删除这 11 个文件之间因同包化而多余的 `io.sqlmask.server.*` / `io.sqlmask.policyserver.web.*` import（如 `MetadataImportController` 引用 `PolicyAdminController.TableDto`、`PolicyApiKeyFilterTest` 引用 `PolicyApiKeyFilter`）；
+2. 删除这 9 个文件之间因同包化而多余的 `io.sqlmask.server.*` / `io.sqlmask.policyserver.web.*` import（如 `MetadataImportController` 引用 `PolicyAdminController.TableDto`）；
 3. 其余 `io.sqlmask.policyserver.*` import 原样有效（包名未变）。
 
 用 grep 确认无残留：`grep -rn "io\.sqlmask\.server" mask-policy-server/src` → 期望：无输出。
 
-- [ ] **Step 4: 写 PolicyServerApplication、两个 application.yml、异常处理器**
+- [ ] **Step 4: 复制 PolicyApiKeyFilter（不迁移）并写启动类、两个 application.yml、异常处理器**
+
+复制过滤器（core 保留原类与原测试——审计工作线正在 core 扩展它，两份必须逐字节一致）：
+
+```bash
+sed 's/^package io\.sqlmask\.server;/package io.sqlmask.policyserver.web;/' \
+  mask-core/src/main/java/io/sqlmask/server/PolicyApiKeyFilter.java \
+  > mask-policy-server/src/main/java/io/sqlmask/policyserver/web/PolicyApiKeyFilter.java
+git show HEAD:mask-core/src/test/java/io/sqlmask/server/PolicyApiKeyFilterTest.java \
+  | sed 's/^package io\.sqlmask\.server;/package io.sqlmask.policyserver.web;/' \
+  > mask-policy-server/src/test/java/io/sqlmask/policyserver/web/PolicyApiKeyFilterTest.java
+```
+
+（第二份用 `git show HEAD:` 取已提交版本，避免把工作区里审计 WIP 的未提交改动带进 policy-server。）
 
 `mask-policy-server/src/main/java/io/sqlmask/policyserver/PolicyServerApplication.java`：
 
@@ -315,9 +331,9 @@ public class PolicyApiExceptionHandler {
 
 - [ ] **Step 5: 从 SqlMaskServiceApplication 删除内嵌策略服务**
 
-`mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`：删除 import `io.sqlmask.policyserver.PolicyService`、`io.sqlmask.policyserver.PolicyValidator`、`io.sqlmask.policyserver.store.InMemoryPolicyStore`、`io.sqlmask.policyserver.store.PolicyStore`，以及 5 个 @Bean 方法：`policyStore`、`policyValidator`、`policyService`、`metadataStructureFetcher`、`policyApiKeyFilter`。保留：CLI 分派逻辑、`rewriteEngine`、`pgMetadataIntrospector`、类上的 `exclude = DataSourceAutoConfiguration.class`（core 依旧无库）。删完后类体应只剩 `main` / `looksLikeCliInvocation` / `rewriteEngine` / `pgMetadataIntrospector`。
+`mask-core/src/main/java/io/sqlmask/server/SqlMaskServiceApplication.java`：删除 import `io.sqlmask.policyserver.PolicyService`、`io.sqlmask.policyserver.PolicyValidator`、`io.sqlmask.policyserver.store.InMemoryPolicyStore`、`io.sqlmask.policyserver.store.PolicyStore`，以及 4 个 @Bean 方法：`policyStore`、`policyValidator`、`policyService`、`metadataStructureFetcher`。保留：CLI 分派逻辑、`rewriteEngine`、`pgMetadataIntrospector`、`policyApiKeyFilter` 注册（core 的过滤器类原地保留，审计工作线依赖它；其 urlPatterns 照旧，指向已无控制器的 `/api/instances/*`、`/api/effective/*` 无害，后续由审计工作线按需调整）、类上的 `exclude = DataSourceAutoConfiguration.class`（core 依旧无库）。删完后类体应剩 `main` / `looksLikeCliInvocation` / `rewriteEngine` / `pgMetadataIntrospector` / `policyApiKeyFilter`。
 
-再全局确认 core 主代码无残留引用：`grep -rln "policyserver\|PolicyApiKeyFilter\|MetadataStructureFetcher" mask-core/src/main/java` → 期望：无输出。
+再全局确认 core 主代码无残留引用：`grep -rln "io\.sqlmask\.policyserver\|MetadataStructureFetcher" mask-core/src/main/java` → 期望：无输出。
 
 - [ ] **Step 6: 构建与测试（迁移验收）**
 
@@ -330,10 +346,20 @@ Expected: 两个命令全部 BUILD SUCCESS，0 failures。若 policy-server 端�
 
 - [ ] **Step 7: Commit**
 
+显式列出暂存路径，**禁止 `git add -A`**——工作区可能有其他工作线（审计）的未提交文件，绝不能被卷入：
+
 ```bash
-git add -A
+git add pom.xml mask-policy-server \
+        mask-core/src/main/java/io/sqlmask/policyserver \
+        mask-core/src/test/java/io/sqlmask/policyserver \
+        mask-core/src/main/java/io/sqlmask/server \
+        mask-core/src/test/java/io/sqlmask/server \
+        mask-core/src/main/resources/schema.sql
 git commit -m "feat(policy-server): extract standalone policy service module from core"
+git status --porcelain   # 确认未把无关文件（审计 WIP、untitled.md）带进提交
 ```
+
+注意：若 Step 7 前工作区仍存在审计工作线的未提交修改（`git status` 中 `mask-core/pom.xml` 的 mask-audit 依赖、`PolicyApiKeyFilterTest.java` 的审计测试等），**中止执行并报告**——这些文件与 Task 1 操作对象重叠，强行继续会把半成品卷进迁移。
 
 ---
 

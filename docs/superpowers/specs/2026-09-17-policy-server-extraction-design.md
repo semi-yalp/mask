@@ -89,7 +89,7 @@ mask-policy 会形成 `core → mask-policy → core` 循环，被迫再拆一�
 | `server/UdfController` | `io.sqlmask.policyserver.web` |
 | `server/MetadataImportController` | `io.sqlmask.policyserver.web` |
 | `server/MetadataStructureFetcher` | `io.sqlmask.policyserver.web`（与使用它的导入控制器同包） |
-| `server/PolicyApiKeyFilter` | `io.sqlmask.policyserver.web` |
+| `server/PolicyApiKeyFilter` | **复制**到 `io.sqlmask.policyserver.web`；core 保留原类与注册（见 §9 变更记录） |
 | core `resources/schema.sql` | policy-server `resources/schema.sql` |
 | `policyserver.*` 与上述 controller 的全部测试 | 对应测试包 |
 
@@ -140,8 +140,8 @@ spring:
 
 - `io.sqlmask.policyserver` 包整包及测试；
 - `io.sqlmask.server` 中：`EffectiveConfigController`、`PolicyAdminController`、
-  `UdfController`、`MetadataImportController`、`MetadataStructureFetcher`、
-  `PolicyApiKeyFilter`（随迁）；
+  `UdfController`、`MetadataImportController`、`MetadataStructureFetcher`（随迁）；
+  `PolicyApiKeyFilter` 类与注册保留在 core（同 §9 变更记录）；
 - `SqlMaskServiceApplication` 的 `policyStore` / `policyValidator` / `policyService` /
   `metadataStructureFetcher` / `policyApiKeyFilter` 五个 @Bean（保留 `RewriteEngine`、
   `PgMetadataIntrospector`）；datasource 排除注解保留（core 依旧无库）。
@@ -231,3 +231,12 @@ CLI 为一次性进程，无缓存与调度，直接拉取。
 5. **端到端**：`docker-compose.policy.yml` 起 policy + PG → 管理面建实例 / 注册
    UDF / 建带主体策略 → core 以 `instance` 模式按主体改写成功；切换 isEnabled 后
    一个轮询周期内生效。
+
+## 9. 变更记录
+
+- **2026-09-17（计划期）**：`PolicyApiKeyFilter` 由"迁移"改为"复制"。原因：分支上
+  并行的审计工作线（未提交 WIP：mask-core 引入 mask-audit、`PolicyApiKeyFilterTest`
+  新增 `/api/audit/events` 守卫测试）表明 core 还要继续用该过滤器守护自己的管理面
+  （审计事件端点），迁移会折断审计工作；过滤器为自包含小类，两服务各持一份、
+  行为逐字节一致，避免为此新拆共享模块。core 的注册 bean 保留（守护路径由审计
+  工作线定义；指向无控制器的路径无害）。
