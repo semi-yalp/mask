@@ -58,7 +58,8 @@ public class CollectService {
       for (IntrospectionResult.ColumnInfo column : table.columns()) {
         columns.add(new TableStructure.ColumnStructure(column.name(), column.yamlType()));
       }
-      tables.add(new TableStructure(table.catalog(), table.schema(), table.name(), columns));
+      tables.add(new TableStructure(table.catalog(), table.schema(), table.name(),
+          table.kind(), columns));
     }
     return tables;
   }
