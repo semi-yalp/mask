@@ -1,6 +1,7 @@
 package io.sqlmask.metaserver.service;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.introspect.TableKind;
 import io.sqlmask.metaserver.model.TableStructure;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -53,6 +54,7 @@ public class MetadataYamlImporter {
     String catalog = requiredString(tableMap, "catalog", path);
     String schema = requiredString(tableMap, "schema", path);
     String name = requiredString(tableMap, "name", path);
+    String kind = optionalKind(tableMap, path);
     if (!(tableMap.get("columns") instanceof List<?> columnList) || columnList.isEmpty()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           path + ".columns must be a non-empty list");
@@ -69,7 +71,21 @@ public class MetadataYamlImporter {
           requiredString(columnMap, "name", columnPath),
           requiredString(columnMap, "type", columnPath)));
     }
-    return new TableStructure(catalog, schema, name, columns);
+    return new TableStructure(catalog, schema, name, kind, columns);
+  }
+
+  /** Optional normalized kind; an illegal value is a config error, never silently dropped. */
+  private static String optionalKind(Map<?, ?> tableMap, String path) {
+    Object node = tableMap.get("kind");
+    if (node == null) {
+      return TableKind.TABLE;
+    }
+    if (!(node instanceof String s) || !TableKind.isKnown(s)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          path + ".kind: unknown kind '" + node + "' "
+              + "(expected table|view|materialized_view)");
+    }
+    return s;
   }
 
   private static String requiredString(Map<?, ?> map, String key, String path) {
