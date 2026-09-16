@@ -127,7 +127,7 @@ public final class PolicyValidator {
       // compile time, and different-priority datamask overlap resolves by
       // priority (spec 2026-09-17-policy-priority-design §4).
       boolean overlap = policy.policyType() == PolicyType.DATAMASK
-          && other.priority() == policy.priority()
+          && other.priority().intValue() == policy.priority().intValue()
           && intersects(other.resource().columns(), policy.resource().columns())
           && subjectsMayOverlap(other.subjects(), policy.subjects());
       if (overlap) {
