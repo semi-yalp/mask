@@ -32,7 +32,8 @@ public final class FakeEsServer implements Closeable {
       new AtomicReference<>("{\"errors\":false,\"items\":[]}");
   public final AtomicReference<Integer> templateStatus = new AtomicReference<>(200);
   public final AtomicReference<String> searchBody = new AtomicReference<>("""
-      {"hits":{"total":{"value":0},"hits":[]}}""");
+      {"took":1,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},
+       "hits":{"total":{"value":0,"relation":"eq"},"max_score":null,"hits":[]}}""");
 
   private final HttpServer server;
   private final List<RestClientTransport> transports = new CopyOnWriteArrayList<>();

@@ -12,10 +12,11 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 /**
- * Wires the audit pipeline (spec §2/§4): enabled (default) builds the ES
- * client from {@code audit.elasticsearch.*} and starts the background writer;
- * disabled falls back to a Noop recorder. Nothing here connects eagerly and
- * nothing here can fail application startup.
+ * Wires the audit pipeline (spec §2/§4): enabled (default) builds a shared ES
+ * rest client (+ Java client) from {@code audit.elasticsearch.*}, starts the
+ * background writer and exposes the search client; disabled falls back to a
+ * Noop recorder. Nothing here connects eagerly and nothing here can fail
+ * application startup.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(AuditProperties.class)
@@ -24,8 +25,8 @@ public class AuditAutoConfiguration {
   @Bean(destroyMethod = "close")
   @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true",
       matchIfMissing = true)
-  EsAuditRecorder esAuditRecorder(AuditProperties properties) {
-    RestClient rest = RestClient.builder(
+  RestClient auditRestClient(AuditProperties properties) {
+    return RestClient.builder(
             org.apache.http.HttpHost.create(properties.getElasticsearch().getUrl()))
         .setHttpClientConfigCallback(builder -> {
           if (!properties.getElasticsearch().getApiKey().isBlank()) {
@@ -45,9 +46,30 @@ public class AuditAutoConfiguration {
           return builder;
         })
         .build();
-    ElasticsearchClient client = new ElasticsearchClient(
-        new RestClientTransport(rest, new JacksonJsonpMapper(new ObjectMapper())));
-    return new EsAuditRecorder(client, properties);
+  }
+
+  @Bean
+  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
+  ElasticsearchClient auditElasticsearchClient(RestClient auditRestClient) {
+    return new ElasticsearchClient(
+        new RestClientTransport(auditRestClient, new JacksonJsonpMapper(new ObjectMapper())));
+  }
+
+  @Bean(destroyMethod = "close")
+  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
+  EsAuditRecorder esAuditRecorder(ElasticsearchClient auditElasticsearchClient,
+      AuditProperties properties) {
+    return new EsAuditRecorder(auditElasticsearchClient, properties);
+  }
+
+  @Bean
+  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
+  AuditSearchClient auditSearchClient(ElasticsearchClient auditElasticsearchClient,
+      AuditProperties properties) {
+    return new AuditSearchClient(auditElasticsearchClient, properties.getIndexPrefix());
   }
 
   @Bean
