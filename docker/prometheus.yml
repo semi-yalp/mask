@@ -1,0 +1,12 @@
+scrape_interval: 15s
+
+scrape_configs:
+  # 默认形态：服务跑在宿主机、Prometheus 跑容器
+  - job_name: sql-mask
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+  - job_name: mask-metadata
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+  # 若服务也在 compose 网络内，把 targets 换成服务名:
+  #   sql-mask:8080 / metadata:8082

@@ -620,3 +620,17 @@ curl -s 'http://127.0.0.1:8080/api/audit/events?eventType=REWRITE&size=10'
 
 索引保留策略 v1 模板不绑定 ILM，需要时可在 ES 侧手工挂 30 天删除策略
 （`PUT _ilm/policy/mask-audit-30d` 后给模板加 `index.lifecycle.name`）。
+
+## 指标（Prometheus）
+
+两个服务在同端口暴露 Prometheus 抓取端点：mask-core `http://localhost:8080/actuator/prometheus`、
+metaserver `http://localhost:8082/actuator/prometheus`。指标端点无鉴权，仅供内网使用，
+不要暴露公网。指标目录与 label 纪律见
+`docs/superpowers/specs/2026-09-17-prometheus-metrics-design.md`。
+
+本地快速验证（Prometheus 抓宿主机的 8080/8082）：
+
+    docker compose -f docker-compose.metrics.yml up -d
+    curl -s localhost:8080/actuator/prometheus | grep sqlmask_
+
+部署侧可用 `management.server.port` 把指标端口与业务端口隔离（可选，默认同端口）。
