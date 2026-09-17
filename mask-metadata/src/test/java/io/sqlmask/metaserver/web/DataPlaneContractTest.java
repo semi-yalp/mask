@@ -50,7 +50,7 @@ class DataPlaneContractTest {
     @Primary
     InMemoryMetaStore inMemoryMetaStore() {
       InMemoryMetaStore store = new InMemoryMetaStore();
-      store.createInstance(new InstanceRow("pg_prod", "postgresql", null, 3));
+      store.createInstance(new InstanceRow("pg_prod", "postgresql", null, null, 3));
       store.replaceStructure("pg_prod", List.of(new TableStructure("crm", "public", "customer",
           List.of(new TableStructure.ColumnStructure("id", "bigint"),
               new TableStructure.ColumnStructure("phone", "varchar(20)")))));

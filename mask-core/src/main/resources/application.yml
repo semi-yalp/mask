@@ -32,3 +32,11 @@ management:
     key:
       values:
         application: ${spring.application.name}
+
+sqlmask:
+  metadata-service:
+    base-url: ${SQLMASK_METADATA_BASE_URL:}
+    api-key: ${SQLMASK_METADATA_API_KEY:}
+  policy-service:
+    base-url: ${SQLMASK_POLICY_BASE_URL:}
+    api-key: ${SQLMASK_POLICY_API_KEY:}

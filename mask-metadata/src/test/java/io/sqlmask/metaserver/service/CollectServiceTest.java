@@ -35,10 +35,10 @@ class CollectServiceTest {
       ref -> "resolved-password", engine -> spec -> result, new CollectMetrics(registry));
 
   CollectServiceTest() {
-    store.createInstance(new InstanceRow("pg_prod", "postgresql",
+    store.createInstance(new InstanceRow("pg_prod", "postgresql", null,
         new ConnectionInfo("127.0.0.1", 5432, "db", "user", "SQLMASK_PG_PASSWORD", "disable",
             10, List.of("public"), false), 1));
-    store.createInstance(new InstanceRow("no_conn", "postgresql", null, 1));
+    store.createInstance(new InstanceRow("no_conn", "postgresql", null, null, 1));
   }
 
   @Test

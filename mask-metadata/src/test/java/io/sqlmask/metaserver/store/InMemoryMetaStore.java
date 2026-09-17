@@ -36,7 +36,7 @@ public class InMemoryMetaStore implements MetaStore {
   @Override
   public void updateInstance(String name, ConnectionInfo connection) {
     InstanceRow row = instances.get(name);
-    instances.put(name, new InstanceRow(row.name(), row.dialect(), connection,
+    instances.put(name, new InstanceRow(row.name(), row.dialect(), row.engine(), connection,
         row.metadataVersion() + 1));
     versionBumps.merge(name, 1, Integer::sum);
   }
@@ -51,8 +51,8 @@ public class InMemoryMetaStore implements MetaStore {
   public void replaceStructure(String name, List<TableStructure> tables) {
     structures.put(name, new ArrayList<>(tables));
     InstanceRow row = instances.get(name);
-    instances.put(name, new InstanceRow(row.name(), row.dialect(), row.connection(),
-        row.metadataVersion() + 1));
+    instances.put(name, new InstanceRow(row.name(), row.dialect(), row.engine(),
+        row.connection(), row.metadataVersion() + 1));
     versionBumps.merge(name, 1, Integer::sum);
   }
 

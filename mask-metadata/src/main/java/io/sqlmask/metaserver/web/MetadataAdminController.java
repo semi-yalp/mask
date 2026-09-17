@@ -63,7 +63,7 @@ public class MetadataAdminController {
     return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
         () -> Map.of("dialect", request.dialect()),
         () -> {
-          InstanceRow row = instances.create(request.name(), request.dialect(),
+          InstanceRow row = instances.create(request.name(), request.dialect(), request.engine(),
               ofNullable(request.connection()));
           return detail(row);
         });
@@ -73,7 +73,7 @@ public class MetadataAdminController {
   public List<MetadataDtos.InstanceSummaryResponse> list() {
     return instances.list().stream()
         .map(row -> new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-            row.metadataVersion()))
+            row.effectiveEngine(), row.metadataVersion()))
         .toList();
   }
 
@@ -111,7 +111,7 @@ public class MetadataAdminController {
           InstanceRow row = instances.get(name);
           instances.delete(name);
           return new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-              row.metadataVersion());
+              row.effectiveEngine(), row.metadataVersion());
         });
   }
 
@@ -141,7 +141,7 @@ public class MetadataAdminController {
 
   private MetadataDtos.ImportResponse doImportYaml(MetadataDtos.InstanceImportRequest request,
       List<TableStructure> tables) {
-    instances.create(request.name(), request.dialect(),
+    instances.create(request.name(), request.dialect(), null,
         ofNullable(request.connection()));
     long version = structures.replace(request.name().trim(), tables);
     int columnCount = tables.stream().mapToInt(t -> t.columns().size()).sum();
@@ -157,6 +157,7 @@ public class MetadataAdminController {
 
   private MetadataDtos.InstanceDetailResponse detail(InstanceRow row) {
     return new MetadataDtos.InstanceDetailResponse(row.name(), row.dialect(),
-        row.metadataVersion(), row.connection(), structures.load(row.name()));
+        row.effectiveEngine(), row.metadataVersion(), row.connection(),
+        structures.load(row.name()));
   }
 }

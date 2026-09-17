@@ -31,7 +31,7 @@ public class MetadataDataController {
   public List<MetadataDtos.InstanceSummaryResponse> list() {
     return instances.list().stream()
         .map(row -> new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-            row.metadataVersion()))
+            row.effectiveEngine(), row.metadataVersion()))
         .toList();
   }
 

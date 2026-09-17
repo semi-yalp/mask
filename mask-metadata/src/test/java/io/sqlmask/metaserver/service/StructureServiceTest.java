@@ -18,9 +18,9 @@ class StructureServiceTest {
   private final StructureService service = new StructureService(store);
 
   StructureServiceTest() {
-    store.createInstance(new InstanceRow("pg_prod", "postgresql",
+    store.createInstance(new InstanceRow("pg_prod", "postgresql", null,
         new ConnectionInfo("h", 5432, "d", "u", "R", "disable", 10, List.of(), false), 1));
-    store.createInstance(new InstanceRow("my_prod", "mysql", null, 1));
+    store.createInstance(new InstanceRow("my_prod", "mysql", null, null, 1));
   }
 
   private static TableStructure table(String name, String[][] columns) {

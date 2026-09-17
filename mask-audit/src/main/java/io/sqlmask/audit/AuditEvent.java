@@ -37,6 +37,7 @@ public record AuditEvent(
   public static final String REWRITE = "REWRITE";
   public static final String ADMIN_CHANGE = "ADMIN_CHANGE";
   public static final String EFFECTIVE_PULL = "EFFECTIVE_PULL";
+  public static final String QUERY = "QUERY";
   public static final String SUCCESS = "SUCCESS";
   public static final String FAILURE = "FAILURE";
 
@@ -69,5 +70,15 @@ public record AuditEvent(
     return new AuditEvent(null, EFFECTIVE_PULL, service, outcome, durationMs, sourceIp, user,
         groups, authKind, errorCode, errorMessage, null, null, null, null, null, null,
         null, null, instance, null, null);
+  }
+
+  /** Data-plane query execution (mask-query). detail carries engine/rowCount/truncated. */
+  public static AuditEvent query(String service, String outcome, Long durationMs, String sourceIp,
+      String authKind, String user, List<String> groups, String instance, String dialect,
+      Boolean masked, Boolean rowFiltered, String originalSql, String errorCode,
+      String errorMessage, Map<String, Object> detail) {
+    return new AuditEvent(null, QUERY, service, outcome, durationMs, sourceIp, user, groups,
+        authKind, errorCode, errorMessage, dialect, 1, masked, rowFiltered, originalSql, null,
+        null, null, instance, null, detail);
   }
 }

@@ -1,0 +1,51 @@
+# mask-query 验收套件（golden 查询清单见 docs/query-acceptance/golden-queries.md）。
+# 全部服务挂在 query-acceptance profile 下：默认 up 不启动任何容器，需
+#   docker compose -f docker-compose.query.yml --profile query-acceptance up
+# mask-metadata(8082) 与 mask-core(8080, 服务模式) 不在本文件内，跑在宿主侧。
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: shop
+    ports:
+      - "3306:3306"
+    profiles: [query-acceptance]
+
+  trino:
+    image: trinodb/trino:446
+    ports:
+      # 宿主侧映射 18080：8080 留给宿主上的 mask-core（其缺省端口）
+      - "18080:8080"
+    profiles: [query-acceptance]
+
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.2
+    ports:
+      - "9030:9030"   # MySQL 协议查询端口
+      - "8030:8030"   # HTTP 端口
+    # allin1 镜像吃内存，部署侧建议给容器 ≥8G
+    profiles: [query-acceptance]
+
+  mask-query:
+    build:
+      context: .
+      dockerfile: docker/query.Dockerfile
+    environment:
+      SQLMASK_QUERY_API_KEY: local-dev-query-key
+      # 上游跑在宿主：mask-metadata 用 docker-compose.metadata.yml 起，
+      # mask-core 服务模式用 mask-core/target/sql-mask.jar 起（见 golden 清单）
+      SQLMASK_METADATA_BASE_URL: http://host.docker.internal:8082
+      SQLMASK_METADATA_API_KEY: local-dev-key
+      SQLMASK_REWRITE_BASE_URL: http://host.docker.internal:8080
+      SQLMASK_REWRITE_API_KEY: local-dev-rewrite-key
+      # passwordRef 指向的环境变量由部署侧注入，例如：
+      # SQLMASK_DS_MYSQL_SHOP_PASSWORD: mysql
+      # SQLMASK_DS_TRINO_CRM_PASSWORD: x
+      # SQLMASK_DS_SR_WAREHOUSE_PASSWORD: s3cret
+    extra_hosts:
+      # Linux 宿主上 host.docker.internal 需要 host-gateway
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8083:8083"
+    profiles: [query-acceptance]

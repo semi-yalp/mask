@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS meta_instance (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
   dialect VARCHAR(64) NOT NULL,
+  engine VARCHAR(64),
+  -- 存量部署需手动: ALTER TABLE meta_instance ADD COLUMN engine VARCHAR(64);
   host VARCHAR(255),
   port INT,
   database VARCHAR(255),

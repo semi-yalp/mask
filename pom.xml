@@ -15,6 +15,7 @@
     <module>mask-sqlparser</module>
     <module>mask-core</module>
     <module>mask-audit</module>
+    <module>mask-query</module>
     <module>mask-policy</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>

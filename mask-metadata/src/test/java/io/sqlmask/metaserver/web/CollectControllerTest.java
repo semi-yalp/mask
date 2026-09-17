@@ -54,8 +54,8 @@ class CollectControllerTest {
     store.instances.clear();
     store.structures.clear();
     store.createInstance(new io.sqlmask.metaserver.model.InstanceRow("pg_prod", "postgresql",
-        new io.sqlmask.metaserver.model.ConnectionInfo("127.0.0.1", 5432, "db", "user",
-            "SQLMASK_PG_PASSWORD", "disable", 10, List.of(), false), 1));
+        null, new io.sqlmask.metaserver.model.ConnectionInfo("127.0.0.1", 5432, "db", "user",
+        "SQLMASK_PG_PASSWORD", "disable", 10, List.of(), false), 1));
   }
 
   @Test

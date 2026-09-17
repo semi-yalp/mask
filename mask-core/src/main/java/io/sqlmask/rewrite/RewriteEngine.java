@@ -43,14 +43,22 @@ public final class RewriteEngine {
    * row filter, when applied, lives only in {@code rewrittenSql} so callers
    * can always diff input vs output. {@code masked} is true when the
    * statement got an outer masking wrapper; {@code rowFiltered} is true when
-   * at least one row-filter condition was injected.
+   * at least one row-filter condition was injected. {@code kind} is the
+   * coarse statement class (SELECT / INSERT_SELECT / CTAS) — the query data
+   * plane rejects everything but SELECT.
    */
   public record StatementRewrite(int ordinal, String originalSql, String rewrittenSql,
-      boolean masked, boolean rowFiltered) {
+      boolean masked, boolean rowFiltered, StatementKind kind) {
 
     /** Convenience constructor for statements without a row filter. */
     public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked) {
       this(ordinal, originalSql, rewrittenSql, masked, false);
+    }
+
+    /** Convenience constructor: read statements default to {@link StatementKind#SELECT}. */
+    public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked,
+        boolean rowFiltered) {
+      this(ordinal, originalSql, rewrittenSql, masked, rowFiltered, StatementKind.SELECT);
     }
 
     /** Serialized into API responses; the web UI keys the original-SQL view off it. */
@@ -196,8 +204,10 @@ public final class RewriteEngine {
     // new tables that need no metadata declaration)
     if (parsed.getKind() == org.apache.calcite.sql.SqlKind.INSERT
         || parsed.getKind() == org.apache.calcite.sql.SqlKind.CREATE_TABLE) {
+      StatementKind writeKind = parsed.getKind() == org.apache.calcite.sql.SqlKind.INSERT
+          ? StatementKind.INSERT_SELECT : StatementKind.CTAS;
       if (dialect.isPassThroughWrite(parsed)) {
-        return new StatementRewrite(ordinal, statementText, statementText, false);
+        return new StatementRewrite(ordinal, statementText, statementText, false, false, writeKind);
       }
       SqlNode source = dialect.querySourceOf(parsed);
       if (source == null) {
@@ -219,14 +229,14 @@ public final class RewriteEngine {
       if (!plan.requiresWrapper()) {
         if (filtered.injections() > 0) {
           return new StatementRewrite(ordinal, statementText,
-              dialect.composeWriteStatement(parsed, filteredSourceSql), false, true);
+              dialect.composeWriteStatement(parsed, filteredSourceSql), false, true, writeKind);
         }
-        return new StatementRewrite(ordinal, statementText, statementText, false);
+        return new StatementRewrite(ordinal, statementText, statementText, false, false, writeKind);
       }
       String wrappedSource = rewriteService.rewrite(validated, plan, dialect);
       String rewritten = dialect.composeWriteStatement(parsed, wrappedSource);
       return new StatementRewrite(ordinal, statementText, rewritten, true,
-          filtered.injections() > 0);
+          filtered.injections() > 0, writeKind);
     }
 
     // read statement: snapshot the statement as written before the row

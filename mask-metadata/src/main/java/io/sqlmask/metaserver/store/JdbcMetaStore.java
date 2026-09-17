@@ -37,6 +37,7 @@ public class JdbcMetaStore implements MetaStore {
       (ResultSet rs, int i) -> new InstanceRow(
           rs.getString("name"),
           rs.getString("dialect"),
+          rs.getString("engine"),
           connectionOf(rs),
           rs.getLong("metadata_version"));
 
@@ -63,11 +64,12 @@ public class JdbcMetaStore implements MetaStore {
   public void createInstance(InstanceRow row) {
     ConnectionInfo c = row.connection();
     jdbc.update("""
-        INSERT INTO meta_instance (name, dialect, host, port, database, db_user, password_ref,
-                                   sslmode, connect_timeout_seconds, schemas, include_views)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+        INSERT INTO meta_instance (name, dialect, engine, host, port, database, db_user,
+                                   password_ref, sslmode, connect_timeout_seconds, schemas,
+                                   include_views)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
         """,
-        row.name(), row.dialect(),
+        row.name(), row.dialect(), row.engine(),
         c == null ? null : c.host(), c == null ? null : c.port(),
         c == null ? null : c.database(), c == null ? null : c.dbUser(),
         c == null ? null : c.passwordRef(), c == null ? null : c.sslmode(),
@@ -78,7 +80,7 @@ public class JdbcMetaStore implements MetaStore {
   @Override
   public Optional<InstanceRow> findInstance(String name) {
     List<InstanceRow> rows = jdbc.query(
-        "SELECT name, dialect, host, port, database, db_user, password_ref, sslmode, "
+        "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
             + "connect_timeout_seconds, schemas::text AS schemas, include_views, metadata_version "
             + "FROM meta_instance WHERE name = ?", INSTANCE_ROW, name);
     return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -87,7 +89,7 @@ public class JdbcMetaStore implements MetaStore {
   @Override
   public List<InstanceRow> listInstances() {
     return jdbc.query(
-        "SELECT name, dialect, host, port, database, db_user, password_ref, sslmode, "
+        "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
             + "connect_timeout_seconds, schemas::text AS schemas, include_views, metadata_version "
             + "FROM meta_instance ORDER BY name", INSTANCE_ROW);
   }

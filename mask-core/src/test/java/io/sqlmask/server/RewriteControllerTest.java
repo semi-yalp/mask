@@ -201,6 +201,22 @@ class RewriteControllerTest {
   }
 
   @Test
+  void rewriteResponseCarriesStatementKinds() throws Exception {
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", YAML,
+                "sql", "SELECT phone FROM customer;\n"
+                    + "INSERT INTO arch (phone) SELECT phone FROM customer;\n"
+                    + "CREATE TABLE t AS SELECT phone FROM customer;",
+                "dialect", "postgresql"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.statements[0].kind").value("SELECT"))
+        .andExpect(jsonPath("$.statements[1].kind").value("INSERT_SELECT"))
+        .andExpect(jsonPath("$.statements[2].kind").value("CTAS"));
+  }
+
+  @Test
   void indexPageIsServed() throws Exception {
     mvc.perform(get("/index.html"))
         .andExpect(status().isOk())

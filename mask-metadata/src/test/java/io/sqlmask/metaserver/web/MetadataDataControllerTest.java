@@ -42,7 +42,7 @@ class MetadataDataControllerTest {
     store.instances.clear();
     store.structures.clear();
     store.createInstance(new io.sqlmask.metaserver.model.InstanceRow("pg_prod", "postgresql",
-        null, 1));
+        null, null, 1));
     store.replaceStructure("pg_prod", List.of(
         new io.sqlmask.metaserver.model.TableStructure("crm", "public", "customer",
             List.of(new io.sqlmask.metaserver.model.TableStructure.ColumnStructure("id", "bigint"),

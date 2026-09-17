@@ -16,7 +16,8 @@ public final class MetadataDtos {
       boolean includeViews) {
   }
 
-  public record InstanceCreateRequest(String name, String dialect, ConnectionRequest connection) {
+  public record InstanceCreateRequest(String name, String dialect, String engine,
+      ConnectionRequest connection) {
   }
 
   public record InstanceUpdateRequest(ConnectionRequest connection) {
@@ -26,11 +27,12 @@ public final class MetadataDtos {
       String metadataYaml) {
   }
 
-  public record InstanceSummaryResponse(String name, String dialect, long metadataVersion) {
+  public record InstanceSummaryResponse(String name, String dialect, String engine,
+      long metadataVersion) {
   }
 
-  public record InstanceDetailResponse(String name, String dialect, long metadataVersion,
-      ConnectionInfo connection, List<TableStructure> tables) {
+  public record InstanceDetailResponse(String name, String dialect, String engine,
+      long metadataVersion, ConnectionInfo connection, List<TableStructure> tables) {
   }
 
   public record ImportResponse(String name, int tableCount, int columnCount,

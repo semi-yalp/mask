@@ -84,4 +84,15 @@ public class SqlMaskServiceApplication {
             ? sme.getCode().name()
             : e.getClass().getSimpleName());
   }
+
+  @Bean
+  org.springframework.boot.web.servlet.FilterRegistrationBean<InstanceRewriteApiKeyFilter>
+  instanceRewriteApiKeyFilter() {
+    org.springframework.boot.web.servlet.FilterRegistrationBean<InstanceRewriteApiKeyFilter> registration =
+        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+            new InstanceRewriteApiKeyFilter(System.getenv("SQLMASK_REWRITE_API_KEY")));
+    registration.addUrlPatterns("/api/rewrite/instances/*");
+    registration.setOrder(2);
+    return registration;
+  }
 }
