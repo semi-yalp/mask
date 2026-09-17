@@ -143,11 +143,15 @@
                 <!-- Multiple jars ship these same-named resources (spring-boot,
                      spring-boot-autoconfigure, actuator, mask-audit, micrometer,
                      spring-aop, ...); shade's default first-wins keeps only one,
-                     silently dropping the rest: losing spring.factories kills
-                     ConfigDataEnvironmentPostProcessor (application.yml never
-                     loads) and EventPublishingRunListener; losing the .imports
-                     file disables auto-configuration. AppendingTransformer
-                     concatenates them instead. -->
+                     silently dropping the rest: losing the .imports file disables
+                     auto-configuration, so AppendingTransformer (line-based) is
+                     used for it. For spring.factories appending is only half the
+                     job: it yields ONE properties file with duplicated keys, which
+                     java.util.Properties resolves last-wins — dropping every
+                     factory declared by all but the last jar
+                     (ConfigDataEnvironmentPostProcessor being the famous casualty:
+                     application.yml silently stops loading). The exec run below
+                     rewrites the entry with per-key union. -->
                 <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
                   <resource>META-INF/spring.factories</resource>
                 </transformer>
@@ -165,6 +169,24 @@
                   <mainClass>io.sqlmask.server.SqlMaskServiceApplication</mainClass>
                 </transformer>
               </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.6.4</version>
+        <executions>
+          <execution>
+            <id>merge-spring-factories</id>
+            <phase>package</phase>
+            <goals><goal>java</goal></goals>
+            <configuration>
+              <mainClass>io.sqlmask.build.MergeSpringFactories</mainClass>
+              <arguments>
+                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+              </arguments>
             </configuration>
           </execution>
         </executions>
