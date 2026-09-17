@@ -655,13 +655,18 @@ PUT _ilm/policy/mask-audit-30d
   }
 }
 
-# 用更高优先级的独立模板把策略绑到审计索引（不要改动服务端安装的 mask-audit 模板）
 PUT _index_template/mask-audit-ilm
 {
   "index_patterns": ["mask-audit-*"],
+  "composed_of": ["mask-audit"],
   "priority": 200,
   "template": { "settings": { "index.lifecycle.name": "mask-audit-30d" } }
 }
 ```
 
+绑定模板必须 `composed_of` 引用服务端安装的 `mask-audit` 模板（其名 = 索引前缀）：
+ES 8 的可组合索引模板**不跨模板合并**，同一匹配下高优先级者整体胜出——只带
+lifecycle 设置的高优先级模板会遮蔽服务端模板，丢掉全部 mapping（keyword 字段消失，
+`/api/audit/events` 的 term 过滤会查不到数据）；`composed_of` 组合的各模板才会按序
+合并，本模板因此只追加 lifecycle 一项设置。
 </details>
