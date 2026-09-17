@@ -14,6 +14,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -29,8 +30,12 @@ public final class FakeEsServer implements Closeable {
   public final List<RecordedRequest> requests = new CopyOnWriteArrayList<>();
   public final AtomicReference<Integer> bulkStatus = new AtomicReference<>(200);
   public final AtomicReference<String> bulkBody =
-      new AtomicReference<>("{\"errors\":false,\"items\":[]}");
+      new AtomicReference<>("{\"took\":1,\"errors\":false,\"items\":[]}");
   public final AtomicReference<Integer> templateStatus = new AtomicReference<>(200);
+  /** When set, every /_bulk handler waits on it before answering (holds the writer). */
+  public final AtomicReference<CountDownLatch> bulkGate = new AtomicReference<>();
+  /** Per /_bulk artificial server-side delay in ms (simulates a slow ES). */
+  public final AtomicReference<Integer> bulkDelayMs = new AtomicReference<>(0);
   public final AtomicReference<String> searchBody = new AtomicReference<>("""
       {"took":1,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},
        "hits":{"total":{"value":0,"relation":"eq"},"max_score":null,"hits":[]}}""");
@@ -56,6 +61,11 @@ public final class FakeEsServer implements Closeable {
       int status = 200;
       String response = "{}";
       if (path.equals("/_bulk")) {
+        fake.awaitBulkGate();
+        int delay = fake.bulkDelayMs.get();
+        if (delay > 0) {
+          fake.sleepQuietly(delay);
+        }
         status = fake.bulkStatus.get();
         response = fake.bulkBody.get();
       } else if (path.startsWith("/_index_template")) {
@@ -79,6 +89,26 @@ public final class FakeEsServer implements Closeable {
     return server.getAddress().getPort();
   }
 
+  private void awaitBulkGate() {
+    CountDownLatch gate = bulkGate.get();
+    if (gate == null) {
+      return;
+    }
+    try {
+      gate.await();
+    } catch (InterruptedException ignored) {
+      // hold until released; server teardown unblocks the test anyway
+    }
+  }
+
+  private void sleepQuietly(int delayMs) {
+    try {
+      Thread.sleep(delayMs);
+    } catch (InterruptedException ignored) {
+      // fall through and answer with the configured status/body
+    }
+  }
+
   public ElasticsearchClient client() {
     RestClient rest = RestClient.builder(
         org.apache.http.HttpHost.create("http://127.0.0.1:" + port())).build();
@@ -99,7 +129,7 @@ public final class FakeEsServer implements Closeable {
 
   public void resetBulk() {
     bulkStatus.set(200);
-    bulkBody.set("{\"errors\":false,\"items\":[]}");
+    bulkBody.set("{\"took\":1,\"errors\":false,\"items\":[]}");
   }
 
   public void setTemplateFailure() {

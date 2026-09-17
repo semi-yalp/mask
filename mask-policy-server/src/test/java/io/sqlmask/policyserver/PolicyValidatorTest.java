@@ -22,9 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PolicyValidatorTest {
 
   // `status`/`id` are declared because the row-filter cases below use them:
-  // "status = 'active'" must be an ACCEPTED baseline filter and "id > 0" must
-  // fail on the overlap rule, not on an unknown column (the RowFilterRegistry
-  // whitelist rejects filters referencing undeclared columns).
+  // "status = 'active'" is an ACCEPTED baseline filter and "id > 0" is a second
+  // accepted filter — row-filter overlap is allowed and the filters compose
+  // with AND at compile time. Both columns must stay declared: the
+  // RowFilterRegistry whitelist rejects filters referencing undeclared columns.
   private static final EngineInstance INSTANCE = new EngineInstance("pg_prod", "postgresql",
       List.of(new TableDef("crm", "public", "customer", List.of(
           new ColumnDef("phone", "varchar"), new ColumnDef("email", "varchar"),
@@ -70,6 +71,56 @@ class PolicyValidatorTest {
   }
 
   @Test
+  void rejectsSamePriorityOverlapWithPrioritiesInMessage() {
+    PolicyEntity existing = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    PolicyEntity overlapping = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
+    assertTrue(e.getMessage().contains("a_mask") && e.getMessage().contains("b_mask"));
+    assertTrue(e.getMessage().contains("priority 0"));
+  }
+
+  @Test
+  void rejectsSamePriorityOverlapAboveIntegerCache() {
+    PolicyEntity existing = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 200,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    PolicyEntity overlapping = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 200,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
+  }
+
+  @Test
+  void allowsOverlapWithDifferentPriority() {
+    PolicyEntity existing = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 10,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    PolicyEntity overlapping = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(3, 4), null);
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, overlapping, List.of(existing)));
+  }
+
+  @Test
+  void allowsSamePriorityWhenSubjectsDisjoint() {
+    PolicyEntity aliceOnly = new PolicyEntity("a_mask", PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("alice"), Set.of()), "mask_phone", List.of(3, 4), null);
+    PolicyEntity bobOnly = new PolicyEntity("b_mask", PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("bob"), Set.of()), "mask_phone", List.of(3, 4), null);
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, bobOnly, List.of(aliceOnly)));
+  }
+
+  @Test
   void disabledPoliciesDoNotBlock() {
     PolicyEntity disabled = new PolicyEntity("a_mask", PolicyType.DATAMASK, false,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),
@@ -78,16 +129,17 @@ class PolicyValidatorTest {
         validator.validatePolicy(INSTANCE, UDFS, datamask("b_mask", "customer", List.of("phone")), List.of(disabled)));
   }
 
+  private PolicyEntity rowFilter(String name, String expr) {
+    return new PolicyEntity(name, PolicyType.ROW_FILTER, true,
+        new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(), expr);
+  }
+
   @Test
-  void rejectsRowFilterOverlapAndUnknownTable() {
-    PolicyEntity rf = new PolicyEntity("rf", PolicyType.ROW_FILTER, true,
-        new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
-        "status = 'active'");
+  void allowsRowFilterOverlap() {
+    PolicyEntity rf = rowFilter("rf", "status = 'active'");
     assertDoesNotThrow(() -> validator.validatePolicy(INSTANCE, UDFS, rf, List.of()));
-    PolicyEntity rf2 = new PolicyEntity("rf2", PolicyType.ROW_FILTER, true,
-        new ResourceSelector("crm", "public", "customer", List.of()), null, List.of(),
-        "id > 0");
-    assertThrows(SqlMaskException.class, () -> validator.validatePolicy(INSTANCE, UDFS, rf2, List.of(rf)));
+    PolicyEntity rf2 = rowFilter("rf2", "id > 0");
+    assertDoesNotThrow(() -> validator.validatePolicy(INSTANCE, UDFS, rf2, List.of(rf)));
   }
 
   @Test

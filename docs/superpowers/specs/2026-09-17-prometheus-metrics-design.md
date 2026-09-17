@@ -29,7 +29,7 @@ mask-metadata 接入 Prometheus 指标。
 | 技术选型 | 方案 A：`spring-boot-starter-actuator` + `micrometer-registry-prometheus`，版本由 spring-boot-dependencies 3.3.5 BOM 管理 |
 | 审计管道指标 | 一并纳入本次设计（契约），实现随 mask-audit 模块交付；取代审计 spec §1.2 "运行状态走限频日志"的口径（限频日志保留，指标为聚合视角） |
 | 主体维度 | user/groups **不进任何指标 label**（无界基数风险）；按主体归因走 ES 审计日志 |
-| 暴露方式 | 同端口（mask-core 8080 / mask-metadata 8082）暴露 `/actuator/prometheus`；`management.server.port` 作为部署侧可选隔离手段，文档说明、不设默认 |
+| 暴露方式 | 同端口（mask-core 8080 / mask-metadata 8082）暴露 `/actuator/prometheus`；`management.server.port` 作为部署侧可选隔离手段，文档说明、不设默认。实现口径：公共 tag 必须用 `management.metrics.tags.application: ${spring.application.name}`（`observations.key.values` 只作用于 Observation API、不会给 MeterRegistry 打 tag；两服务 application.yml 实际两者都有） |
 | 鉴权 | 指标端点不加鉴权（与数据面 `/api/rewrite` 现状一致），靠内网隔离，**不得暴露公网** |
 | 部署配套 | 端点 + `docker/prometheus.yml` 抓取配置 + `docker-compose.metrics.yml` 示例；Grafana / Alertmanager 不做 |
 
@@ -89,7 +89,9 @@ postgresql/mysql/trino，未命中一律记固定哨兵值 `invalid`；`instance
 注意：metaserver 的引擎采集（审计 `action=COLLECT`）走 §3.4 的
 `sqlmask.metadata.collect`（需要 `engine` 维度），不计入 `admin.requests`，
 故 action 枚举不含 COLLECT；审计侧仍记 ADMIN_CHANGE 事件，两者职责不同、
-互不影响。
+互不影响。另补一条口径：UDF 的 create 与 replace 在指标侧都记
+`action=REGISTER`（upsert 语义；与审计侧 UPDATE 不同——指标不做
+create/replace 区分）。
 
 ### 3.3 生效配置（mask-core 策略服务 `GET /api/effective/{instance}`）
 
@@ -99,6 +101,10 @@ postgresql/mysql/trino，未命中一律记固定哨兵值 `invalid`；`instance
 | `sqlmask.effective.compile` | `sqlmask_effective_compile_seconds_*` | timer | `instance` | 逐主体编译耗时 |
 | `sqlmask.effective.config_version` | `sqlmask_effective_config_version` | gauge | `instance` | 当前编译产物版本号。回答"策略改了、引擎拉到没有"：版本不涨 + pull 在涨 = 引擎在拉旧配置 |
 | `sqlmask.effective.policies` | `sqlmask_effective_policies` | gauge | `instance` | 当前生效策略条数（实例级，非逐主体） |
+
+实现约定两条：(a) 实例已解析但编译等其他环节失败的路径，`dialect` label 记
+哨兵 `(unknown)`；(b) 实例删除后，其 gauge/counter series 保留至进程重启
+（量级=历史实例数，可接受的取舍）。
 
 ### 3.4 元数据采集（metaserver `CollectController`）
 
@@ -196,17 +202,26 @@ management:
     web:
       exposure:
         include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}   # 公共 tag（MeterRegistry 层面，实现口径）
   observations:
     key:
       values:
-        application: ${spring.application.name}   # sql-mask / mask-metadata 公共 tag
+        application: ${spring.application.name}   # Observation API 层面，不给 MeterRegistry 打 tag
 ```
+
+实现口径：公共 tag 必须用 `management.metrics.tags.application`（MeterRegistry
+层面）；`observations.key.values` 只作用于 Observation API、不会给 MeterRegistry
+打 tag。两服务 application.yml 实际两者都有，此处按实现形态完整列出。
 
 - 暴露路径 `/actuator/prometheus`，同端口（8080 / 8082）；文档注明部署侧可用
   `management.server.port` 单独隔离指标端口（可选，不设默认）；
 - 指标端点不加鉴权：与数据面 `/api/rewrite` 现状一致，靠网络隔离，**不得暴露
   公网**（label 含实例名与错误码，属于内部信息）；
-- timer 直方图桶（代码显式给定，Prometheus 侧可算任意分位）：
+- timer 直方图桶（代码显式给定，Prometheus 侧可算任意分位；实现注记：
+  Micrometer 1.13 的 Timer SLO 仅 `Duration[]` 重载，桶以 `Duration.ofNanos`
+  显式给定）：
   - `sqlmask.rewrite.duration`：1ms / 5ms / 10ms / 25ms / 50ms / 100ms / 250ms /
     500ms / 1s / 5s / 10s；
   - `sqlmask.admin.duration`、`sqlmask.effective.compile`：同档位；
@@ -220,7 +235,8 @@ management:
 `docker/prometheus.yml`（新增）：
 
 ```yaml
-scrape_interval: 15s
+global:
+  scrape_interval: 15s
 
 scrape_configs:
   # 服务跑在宿主机、Prometheus 跑容器的本地开发形态（默认）
@@ -266,9 +282,10 @@ services:
   - 元数据采集：计数/耗时/告警三项与采集结果一致；
   - 审计管道六项随 mask-audit 的实施计划测试（队列满丢弃 → `dropped{QUEUE_FULL}`，
     批写失败 → `dropped{ES_FAILURE}` + `es.batches{FAILURE}`）。
-- 冒烟（MockMvc）：`GET /actuator/prometheus` 返回体包含
-  `sqlmask_rewrite_requests_total`、`sqlmask_audit_queue_depth` 等关键序列与
-  `application` 公共 tag。
+- 冒烟（MockMvc，实现断言口径）：`GET /actuator/prometheus` 返回体包含
+  `jvm_memory_used_bytes` 与 `application="sql-mask"` 公共 tag；
+  `sqlmask_audit_queue_depth` 等审计管道序列随 §3.5 延期到 mask-audit 实施计划，
+  当前冒烟不出现。
 - 部署物验证按 §6 验证路径人工走一遍。
 
 ## 8. 实施顺序说明

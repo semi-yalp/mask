@@ -1,3 +1,19 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.sqlmask.server;
 
 import io.sqlmask.audit.AuditEvent;
@@ -13,18 +29,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
 import java.util.List;
 
 /**
- * SQL rewriting endpoint, two mutually exclusive configuration modes:
- * inline {@code metadataYaml} (+ optional Ranger-style {@code policyYaml})
- * or a policy-service {@code instance} name whose compiled effective config
- * is fetched per request subject (cached per instance; stale-but-available
- * while the service is down, fail-closed on a cold cache). The whole input
- * is processed atomically; any failure is reported as a structured error.
+ * Rewrites customer SQL through the masking engine. Each request is processed
+ * atomically; any failure is reported as a structured error.
  * Every request emits exactly one REWRITE audit event (spec §5.1) — success
- * or failure — and failures are rethrown untouched.
+ * or failure — and failures are rethrown untouched. Metrics (spec §3.1):
+ * every request counts duration, every outcome counts success/failure.
  */
 @RestController
 @RequestMapping("/api")
@@ -33,70 +45,85 @@ public class RewriteController {
   private final RewriteEngine engine;
   private final InstanceConfigSources sources;
   private final AuditRecorder audit;
+  private final RewriteMetrics metrics;
 
   public RewriteController(RewriteEngine engine, InstanceConfigSources sources,
-      AuditRecorder audit) {
+      AuditRecorder audit, RewriteMetrics metrics) {
     this.engine = engine;
     this.sources = sources;
     this.audit = audit;
+    this.metrics = metrics;
   }
 
   @PostMapping("/rewrite")
   public RewriteResponse rewrite(@RequestBody RewriteRequest request,
       HttpServletRequest httpRequest) {
     long start = System.nanoTime();
-    if (request == null || request.sql() == null || request.sql().isBlank()) {
-      throw fail(httpRequest, start, null, SqlMaskException.Code.CONFIG_ERROR,
-          "sql is required: provide at least one SELECT statement");
-    }
-    boolean hasInstance = request.instance() != null && !request.instance().isBlank();
-    boolean hasYaml = request.metadataYaml() != null && !request.metadataYaml().isBlank();
-    if (hasInstance == hasYaml) {
-      throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
-          "exactly one of metadataYaml or instance is required: metadataYaml is required "
-              + "for inline YAML mode, or pass the policy-service instance name to "
-              + "rewrite with the compiled effective config");
-    }
-    Subject subject = Subject.of(request.user(), request.groups());
-    if (hasInstance) {
-      if (request.policyYaml() != null && !request.policyYaml().isBlank()) {
-        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
-            "policyYaml cannot be combined with instance: instance mode uses the "
-                + "policies already compiled into the effective config");
-      }
-      if (!sources.configured()) {
-        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
-            "policy.service.url (env POLICY_SERVICE_URL) is not configured: "
-                + "instance mode requires the policy service location");
-      }
-    }
-    String dialect;
-    List<StatementRewrite> statements;
+    // Determined during the flow (instance mode resolves it from the config);
+    // failures before that point record the "invalid" sentinel via normalize().
+    String dialect = null;
     try {
-      if (hasInstance) {
-        ConfigSource.ResolvedConfig resolved = sources.get(request.instance()).load(subject);
-        dialect = resolved.dialect();
-        statements = engine.rewrite(resolved.config(), null, request.sql(), dialect, subject);
-      } else {
-        dialect = request.dialect() == null || request.dialect().isBlank()
-            ? "postgresql"
-            : request.dialect();
-        statements = engine.rewrite(request.metadataYaml(), request.policyYaml(),
-            request.sql(), dialect, subject);
+      if (request == null || request.sql() == null || request.sql().isBlank()) {
+        throw fail(httpRequest, start, null, SqlMaskException.Code.CONFIG_ERROR,
+            "sql is required: provide at least one SELECT statement");
       }
+      boolean hasInstance = request.instance() != null && !request.instance().isBlank();
+      boolean hasYaml = request.metadataYaml() != null && !request.metadataYaml().isBlank();
+      if (hasInstance == hasYaml) {
+        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+            "exactly one of metadataYaml or instance is required: metadataYaml is required "
+                + "for inline YAML mode, or pass the policy-service instance name to "
+                + "rewrite with the compiled effective config");
+      }
+      Subject subject = Subject.of(request.user(), request.groups());
+      if (hasInstance) {
+        if (request.policyYaml() != null && !request.policyYaml().isBlank()) {
+          throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+              "policyYaml cannot be combined with instance: instance mode uses the "
+                  + "policies already compiled into the effective config");
+        }
+        if (!sources.configured()) {
+          throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+              "policy.service.url (env POLICY_SERVICE_URL) is not configured: "
+                  + "instance mode requires the policy service location");
+        }
+      }
+      List<StatementRewrite> statements;
+      try {
+        if (hasInstance) {
+          ConfigSource.ResolvedConfig resolved = sources.get(request.instance()).load(subject);
+          dialect = resolved.dialect();
+          statements = engine.rewrite(resolved.config(), null, request.sql(), dialect, subject);
+        } else {
+          dialect = request.dialect() == null || request.dialect().isBlank()
+              ? "postgresql"
+              : request.dialect();
+          statements = engine.rewrite(request.metadataYaml(), request.policyYaml(),
+              request.sql(), dialect, subject);
+        }
+      } catch (SqlMaskException e) {
+        throw recorded(httpRequest, start, request, e.getCode(), e);
+      } catch (RuntimeException e) {
+        throw recorded(httpRequest, start, request, null, e);
+      }
+      metrics.success(dialect, statements);
+      audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.SUCCESS,
+          elapsedMs(start), AuditEvents.sourceIp(httpRequest),
+          AuditEvents.authKind(httpRequest), request.user(), request.groups(), dialect,
+          statements.size(),
+          statements.stream().anyMatch(StatementRewrite::masked),
+          statements.stream().anyMatch(StatementRewrite::rowFiltered),
+          request.sql(), RewriteEngine.join(statements), null, null));
+      return new RewriteResponse(statements, RewriteEngine.join(statements));
     } catch (SqlMaskException e) {
-      throw recorded(httpRequest, start, request, e.getCode(), e);
+      metrics.failure(dialect, e.getCode().name());
+      throw e;
     } catch (RuntimeException e) {
-      throw recorded(httpRequest, start, request, null, e);
+      metrics.failure(dialect, "REWRITE_ERROR");
+      throw e;
+    } finally {
+      metrics.duration(dialect, start);
     }
-    audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.SUCCESS,
-        elapsedMs(start), AuditEvents.sourceIp(httpRequest),
-        AuditEvents.authKind(httpRequest), request.user(), request.groups(), dialect,
-        statements.size(),
-        statements.stream().anyMatch(StatementRewrite::masked),
-        statements.stream().anyMatch(StatementRewrite::rowFiltered),
-        request.sql(), RewriteEngine.join(statements), null, null));
-    return new RewriteResponse(statements, RewriteEngine.join(statements));
   }
 
   /** Guards path: record the FAILURE event then raise the 400. */

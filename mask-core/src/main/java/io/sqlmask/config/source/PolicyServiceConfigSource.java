@@ -3,6 +3,7 @@ package io.sqlmask.config.source;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
+import io.sqlmask.server.EffectiveMetrics;
 
 import java.io.IOException;
 import java.net.URI;
@@ -42,6 +43,7 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   private final String baseUrl;
   private final String apiKey;
   private final String instanceName;
+  private final EffectiveMetrics metrics;
   private final Map<SubjectKey, ResolvedConfig> cache =
       new LinkedHashMap<>(16, 0.75f, true) {
         @Override
@@ -51,9 +53,16 @@ public final class PolicyServiceConfigSource implements ConfigSource {
       };
 
   public PolicyServiceConfigSource(String baseUrl, String apiKey, String instanceName) {
+    this(baseUrl, apiKey, instanceName, null);
+  }
+
+  /** {@code metrics} may be null (CLI runs without a meter registry). */
+  public PolicyServiceConfigSource(String baseUrl, String apiKey, String instanceName,
+      EffectiveMetrics metrics) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.instanceName = instanceName;
+    this.metrics = metrics;
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
   }
 
@@ -93,6 +102,7 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   }
 
   private ResolvedConfig fetchAndAssemble(SubjectKey key) {
+    long start = System.nanoTime();
     URI effectiveUri = effectiveUri(key);
     HttpRequest request = HttpRequest.newBuilder(effectiveUri)
         .header("Accept", "application/json")
@@ -104,23 +114,38 @@ public final class PolicyServiceConfigSource implements ConfigSource {
     try {
       response = http.send(request, HttpResponse.BodyHandlers.ofString());
     } catch (IOException e) {
+      if (metrics != null) {
+        metrics.failure(instanceName, start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE,
           "policy service unreachable at '" + effectiveUri + "': " + e.getMessage(), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      if (metrics != null) {
+        metrics.failure(instanceName, start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE,
           "interrupted while calling the policy service", e);
     }
     int code = response.statusCode();
     if (code == 404) {
+      if (metrics != null) {
+        metrics.notFound(start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
           "policy instance '" + instanceName + "' does not exist on the policy service");
     }
     if (code == 401) {
+      if (metrics != null) {
+        metrics.failure(instanceName, start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "policy service rejected the configured API key (HTTP 401)");
     }
     if (code != 200) {
+      if (metrics != null) {
+        metrics.failure(instanceName, start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE,
           "policy service returned HTTP " + code + " for instance '" + instanceName + "'");
     }
@@ -128,8 +153,14 @@ public final class PolicyServiceConfigSource implements ConfigSource {
     try {
       payload = JSON.readValue(response.body(), EffectiveConfigResponse.class);
     } catch (IOException e) {
+      if (metrics != null) {
+        metrics.failure(instanceName, start);
+      }
       throw new SqlMaskException(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE,
           "policy service returned an unreadable effective config: " + e.getMessage(), e);
+    }
+    if (metrics != null) {
+      metrics.success(instanceName, payload, start);
     }
     return new ResolvedConfig(
         new EffectiveConfigAssembler().assemble(payload), payload.dialect(), payload.configVersion());

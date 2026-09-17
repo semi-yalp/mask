@@ -4,6 +4,7 @@ import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadataclient.MetadataClient;
 import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.metrics.AdminMetrics;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.TableDef;
@@ -36,26 +37,30 @@ public class MetadataImportController {
   private final PolicyService service;
   private final MetadataStructureFetcher fetcher;
   private final AuditAdminHelper audit;
+  private final AdminMetrics adminMetrics;
 
   public MetadataImportController(PolicyService service, MetadataStructureFetcher fetcher,
-      AuditAdminHelper audit) {
+      AuditAdminHelper audit, AdminMetrics adminMetrics) {
     this.service = service;
     this.fetcher = fetcher;
     this.audit = audit;
+    this.adminMetrics = adminMetrics;
   }
 
   @PostMapping("/api/instances/{name}/import-metadata")
   public ImportResponse importMetadata(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @RequestBody ImportRequest request) {
-    if (request == null || request.metadataBaseUrl() == null
-        || request.metadataBaseUrl().isBlank() || request.metadataInstance() == null
-        || request.metadataInstance().isBlank()) {
-      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          "metadataBaseUrl and metadataInstance are required");
-    }
-    return audit.adminChange(httpRequest, "IMPORT", "TABLES", name, name,
-        () -> Map.of("sourceInstance", request.metadataInstance()),
-        () -> doImport(name, request));
+    return adminMetrics.record("INSTANCE", "IMPORT", () -> {
+      if (request == null || request.metadataBaseUrl() == null
+          || request.metadataBaseUrl().isBlank() || request.metadataInstance() == null
+          || request.metadataInstance().isBlank()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "metadataBaseUrl and metadataInstance are required");
+      }
+      return audit.adminChange(httpRequest, "IMPORT", "TABLES", name, name,
+          () -> Map.of("sourceInstance", request.metadataInstance()),
+          () -> doImport(name, request));
+    });
   }
 
   private ImportResponse doImport(String name, ImportRequest request) {

@@ -1,7 +1,6 @@
 package io.sqlmask.policyserver.compile;
 
 import io.sqlmask.config.source.EffectiveConfigResponse;
-import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.model.ColumnDef;
@@ -12,6 +11,7 @@ import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,27 +36,22 @@ public final class EffectiveConfigCompiler {
     List<PolicyEntity> enabled = policies.stream()
         .filter(PolicyEntity::enabled)
         .filter(p -> p.subjects().matchLevel(subject) > 0)
+        .sorted(Comparator.comparingInt(PolicyEntity::priority).reversed()
+            .thenComparing(PolicyEntity::name))
         .toList();
     int disabled = policies.size() - enabled.size();
 
     List<EffectiveConfigResponse.ColumnBinding> bindings = new ArrayList<>();
     List<EffectiveConfigResponse.TablePayload> tables = new ArrayList<>();
     for (TableDef table : instance.tables()) {
-      String rowFilter = null;
-      String rowFilterPolicy = null;
+      List<String> filterParts = new ArrayList<>();
       Set<String> emittedColumns = new HashSet<>();
       for (PolicyEntity policy : enabled) {
         if (!targets(policy.resource(), table)) {
           continue;
         }
         if (policy.policyType() == PolicyType.ROW_FILTER) {
-          if (rowFilter != null) {
-            throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "table '"
-                + tableKey(table) + "': multiple enabled row_filter policies ('"
-                + rowFilterPolicy + "', '" + policy.name() + "')");
-          }
-          rowFilter = policy.filterExpr();
-          rowFilterPolicy = policy.name();
+          filterParts.add(policy.filterExpr());
         } else {
           for (String column : policy.resource().columns()) {
             if (emittedColumns.add(ColumnKey.normalize(column, "column"))) {
@@ -65,6 +60,13 @@ public final class EffectiveConfigCompiler {
             }
           }
         }
+      }
+      String rowFilter = null;
+      if (filterParts.size() == 1) {
+        rowFilter = filterParts.get(0);
+      } else if (filterParts.size() > 1) {
+        rowFilter = filterParts.stream().map(f -> "(" + f + ")")
+            .reduce((a, b) -> a + " AND " + b).orElseThrow();
       }
       List<EffectiveConfigResponse.ColumnPayload> columns = new ArrayList<>();
       for (ColumnDef column : table.columns()) {
@@ -97,11 +99,5 @@ public final class EffectiveConfigCompiler {
             .equals(ColumnKey.normalize(table.schema(), "schema"))
         && ColumnKey.normalize(selector.table(), "table")
             .equals(ColumnKey.normalize(table.name(), "table"));
-  }
-
-  private static String tableKey(TableDef table) {
-    return ColumnKey.normalize(table.catalog(), "catalog") + "."
-        + ColumnKey.normalize(table.schema(), "schema") + "."
-        + ColumnKey.normalize(table.name(), "table");
   }
 }

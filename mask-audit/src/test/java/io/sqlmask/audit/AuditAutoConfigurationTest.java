@@ -1,5 +1,6 @@
 package io.sqlmask.audit;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -9,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuditAutoConfigurationTest {
 
   private final ApplicationContextRunner runner = new ApplicationContextRunner()
+      .withBean(SimpleMeterRegistry.class)
       .withConfiguration(AutoConfigurations.of(AuditAutoConfiguration.class));
 
   @Test

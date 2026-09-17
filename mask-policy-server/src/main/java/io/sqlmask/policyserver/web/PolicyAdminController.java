@@ -4,6 +4,7 @@ import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.metrics.AdminMetrics;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -53,27 +54,32 @@ public class PolicyAdminController {
   public record ResourceDto(String catalog, String schema, String table, List<String> columns) {
   }
 
-  public record PolicyDto(String name, String policyType, boolean isEnabled,
+  public record PolicyDto(String name, String policyType, boolean isEnabled, Integer priority,
       ResourceDto resource, SubjectDto subjects, String udf, List<Object> arguments,
       String filterExpr) {
   }
 
   private final PolicyService service;
   private final AuditAdminHelper audit;
+  private final AdminMetrics adminMetrics;
 
-  public PolicyAdminController(PolicyService service, AuditAdminHelper audit) {
+  public PolicyAdminController(PolicyService service, AuditAdminHelper audit,
+      AdminMetrics adminMetrics) {
     this.service = service;
     this.audit = audit;
+    this.adminMetrics = adminMetrics;
   }
 
   @PostMapping
   public InstanceDto create(HttpServletRequest httpRequest, @RequestBody InstanceDto request) {
-    requireText(request.name(), "instance name");
-    requireText(request.dialect(), "instance dialect");
-    List<TableDef> tables = toTables(request.tables());
-    return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
-        () -> Map.of("dialect", request.dialect(), "tableCount", tables.size()),
-        () -> toDto(service.createInstance(request.name(), request.dialect(), tables)));
+    return adminMetrics.record("INSTANCE", "CREATE", () -> {
+      requireText(request.name(), "instance name");
+      requireText(request.dialect(), "instance dialect");
+      List<TableDef> tables = toTables(request.tables());
+      return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
+          () -> Map.of("dialect", request.dialect(), "tableCount", tables.size()),
+          () -> toDto(service.createInstance(request.name(), request.dialect(), tables)));
+    });
   }
 
   @GetMapping
@@ -89,28 +95,33 @@ public class PolicyAdminController {
   @PutMapping("/{name}/tables")
   public InstanceDto replaceTables(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @RequestBody TablesDto request) {
-    List<TableDef> tables = toTables(request == null ? null : request.tables());
-    return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
-        () -> Map.of("tableCount", tables.size()),
-        () -> toDto(service.updateInstanceTables(name, tables)));
+    return adminMetrics.record("TABLES", "REPLACE_TABLES", () -> {
+      List<TableDef> tables = toTables(request == null ? null : request.tables());
+      return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
+          () -> Map.of("tableCount", tables.size()),
+          () -> toDto(service.updateInstanceTables(name, tables)));
+    });
   }
 
   @DeleteMapping("/{name}")
   public void delete(HttpServletRequest httpRequest, @PathVariable("name") String name) {
-    audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name,
-        Map::of, () -> {
-          service.deleteInstance(name);
-          return null;
-        });
+    adminMetrics.record("INSTANCE", "DELETE", () -> {
+      audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name,
+          Map::of, () -> {
+            service.deleteInstance(name);
+            return null;
+          });
+    });
   }
 
   @PostMapping("/{name}/policies")
   public PolicyDto createPolicy(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @RequestBody PolicyDto request) {
-    return audit.adminChange(httpRequest, "CREATE", "POLICY", name,
-        request == null ? null : request.name(),
-        () -> policyDetail(request),
-        () -> toDto(service.createPolicy(name, toModel(request))));
+    return adminMetrics.record("POLICY", "CREATE", () ->
+        audit.adminChange(httpRequest, "CREATE", "POLICY", name,
+            request == null ? null : request.name(),
+            () -> policyDetail(request),
+            () -> toDto(service.createPolicy(name, toModel(request)))));
   }
 
   @GetMapping("/{name}/policies")
@@ -130,17 +141,20 @@ public class PolicyAdminController {
   public PolicyDto updatePolicy(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @PathVariable("policy") String policy,
       @RequestBody PolicyDto request) {
-    return audit.adminChange(httpRequest, "UPDATE", "POLICY", name, policy,
-        () -> policyDetail(request),
-        () -> toDto(service.updatePolicy(name, policy, toModel(request))));
+    return adminMetrics.record("POLICY", "UPDATE", () ->
+        audit.adminChange(httpRequest, "UPDATE", "POLICY", name, policy,
+            () -> policyDetail(request),
+            () -> toDto(service.updatePolicy(name, policy, toModel(request)))));
   }
 
   @DeleteMapping("/{name}/policies/{policy}")
   public void deletePolicy(HttpServletRequest httpRequest, @PathVariable("name") String name,
       @PathVariable("policy") String policy) {
-    audit.adminChange(httpRequest, "DELETE", "POLICY", name, policy, Map::of, () -> {
-      service.deletePolicy(name, policy);
-      return null;
+    adminMetrics.record("POLICY", "DELETE", () -> {
+      audit.adminChange(httpRequest, "DELETE", "POLICY", name, policy, Map::of, () -> {
+        service.deletePolicy(name, policy);
+        return null;
+      });
     });
   }
 
@@ -195,6 +209,7 @@ public class PolicyAdminController {
     SubjectSelector subjects = dto.subjects() == null ? null
         : new SubjectSelector(dto.subjects().users(), dto.subjects().groups());
     return new PolicyEntity(dto.name(), parseType(dto.policyType()), dto.isEnabled(),
+        dto.priority(),
         new ResourceSelector(dto.resource().catalog(), dto.resource().schema(),
             dto.resource().table(), dto.resource().columns() == null
                 ? List.of() : dto.resource().columns()),
@@ -236,7 +251,7 @@ public class PolicyAdminController {
 
   private static PolicyDto toDto(PolicyEntity p) {
     return new PolicyDto(p.name(), p.policyType().name().toLowerCase(Locale.ROOT),
-        p.enabled(),
+        p.enabled(), p.priority(),
         new ResourceDto(p.resource().catalog(), p.resource().schema(),
             p.resource().table(), p.resource().columns()),
         new SubjectDto(p.subjects().users(), p.subjects().groups()),
