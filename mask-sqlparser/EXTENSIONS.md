@@ -113,7 +113,7 @@ Baseline = **calcite-babel 1.42.0 codegen data on core 1.42.0's template**
 |---|---|---|
 | Task 3 | `includes/maskParserImpls.ftl` (mask-owned) | `SqlMaskInsertOverwrite()` production; gated by `SqlMaskConformance.isInsertOverwriteAllowed()`, node `io.sqlmask.parser.SqlInsertOverwrite` |
 | Task 3 | `config.fmpp` override layer | `keywords += OVERWRITE`; `nonReservedKeywordsToAdd += OVERWRITE`; `imports += SqlInsertOverwrite, SqlMaskConformance`; `statementParserMethods += SqlMaskInsertOverwrite()`; `implementationFiles += maskParserImpls.ftl` |
-| Task 4 | `templates/Parser.jj` | Two patches on core's template: (a) `SqlSelect()` — optional `topFetch = SqlMaskTopN()` after select list, LOOKAHEAD guarded on `<TOP> (<LPAREN>|<UNSIGNED_INTEGER_LITERAL>)`, result wired into the select's `fetch` slot; (b) `OrderByLimitOpt()` conflict guard — if the sub-query already carries a fetch (i.e. TOP) and OFFSET/FETCH also present, throw `ParseException("TOP cannot be combined with OFFSET/LIMIT/FETCH ...")` |
+| Task 4 | `templates/Parser.jj` | Two patches on core's template, line anchors valid for the vendored 1.42.0 template (re-check on upgrade): (a) `SqlSelect()` — `SqlNode topFetch = null;` declared at **line 1387**; after `SqlSelectKeywords`/`AllOrDistinct` an optional `topFetch = SqlMaskTopN()` at **lines 1405–1410**, guarded by semantic LOOKAHEAD `getToken(1).kind == TOP && (getToken(2).kind == LPAREN \|\| getToken(2).kind == UNSIGNED_INTEGER_LITERAL)`; result wired into the select's `fetch` slot in `new SqlSelect(...)` at **line 1439**; (b) `OrderByLimitOpt()` conflict guard at **lines 742–751** — if the sub-query already carries a fetch (i.e. TOP) and OFFSET/FETCH also present, throw `ParseException("TOP cannot be combined with OFFSET/LIMIT/FETCH ...")` |
 | Task 4 | `includes/maskParserImpls.ftl` (mask-owned) | `SqlMaskTopN()` production: `TOP (expr | literal)`, rejects `TOP ... PERCENT` and `TOP ... WITH TIES`, gated by `SqlMaskConformance.isTopNAllowed()` |
 | Task 4 | `config.fmpp` override layer | `keywords += TOP`; `nonReservedKeywordsToAdd += TOP` |
 | Task 5 | `config.fmpp` override layer | switched from core baseline to **babel merged values**: `keywords`/`nonReservedKeywordsToAdd`/`imports`/`statementParserMethods`/`implementationFiles` became "babel originals + mask items" (see rows above); all other babel-only keys carried verbatim |
@@ -123,6 +123,46 @@ Baseline = **calcite-babel 1.42.0 codegen data on core 1.42.0's template**
 Nothing else: `SqlMaskInsertOverwrite`/`SqlMaskTopN` only rely on
 `this.conformance` and base-grammar productions, so they compile unchanged on
 the babel base.
+
+### Override-layer key checklist (config.fmpp `data.parser`, whole-key replacement)
+
+The mask-owned override layer touches exactly these keys (everything else is
+babel-carried verbatim or resolved via the nested `default:` layer):
+
+| Key | Content |
+|---|---|
+| `package` / `class` | `io.sqlmask.parser` / `SqlMaskParserImpl` |
+| `implementationFiles` | babel's `parserImpls.ftl`, `parserPostgresImpls.ftl` + mask's `maskParserImpls.ftl` |
+| `keywords` | babel originals (ANTI, DISCARD, IF, PLANS, SEED, SEMI, SEQUENCES, SNAPSHOT, TEMP, VOLATILE) + mask `TOP`, `OVERWRITE` |
+| `nonReservedKeywordsToAdd` | babel's full list + mask `TOP`, `OVERWRITE` (kept non-reserved so identifier usages keep working) |
+| `imports` | babel originals (SqlBabelCreateTable, postgres nodes, ...) + mask `SqlInsertOverwrite`, `SqlMaskConformance` |
+| `statementParserMethods` | babel's postgres statements + mask `SqlMaskInsertOverwrite()` (SqlStmt first-alternative hook, LOOKAHEAD(2), before base `SqlInsert()`) |
+
+### Status write-back (2026-09-17, after Tasks 6–7)
+
+- Production switch is complete: MySQL (`MYSQL_5`), PostgreSQL and Trino
+  (`DEFAULT`) all parse with `SqlMaskParserImpl.FACTORY` via
+  `SqlMaskConformance.of(<enum>, false, false)` — both extension switches off,
+  differential-equivalent to Babel (`BabelEquivalenceTest`, 40-statement corpus
+  with a >= 40 size lower-bound assertion).
+- spec §11.3 conclusion: the `SqlValidatorImpl` subclass-dispatch risk does not
+  exist. `SqlInsertOverwrite` (extends `SqlInsert`, kind stays `INSERT`) and
+  `SqlBabelCreateTable` (extends `SqlCreateTable`) flow through the pipeline
+  without any tree replacement; `AbstractCalciteDialectAdapter.validate` is
+  query-root-scoped and the production pipeline (`RewriteEngine.rewriteOne`)
+  validates the query extracted by `querySourceOf` — proven end to end by
+  `mask-core` `MaskParserPipelineTest` (3 cases: OVERWRITE parse → source
+  validate → compose → round-trip; TOP validate; rejection list).
+- Known boundary (class-agnostic, pre-existing): feeding a multi-field
+  `INSERT ... SELECT` root directly into `AbstractCalciteDialectAdapter.validate`
+  trips the adapter's ORDER BY shape-guard (`RelOptUtil.createProject`
+  misfire, `IndexOutOfBoundsException`); plain `INSERT INTO` behaves
+  identically, so this is a write-root-vs-query-root contract matter, not a
+  `SqlInsertOverwrite` dispatch problem. The pipeline never does this.
+- Rejection list with switches on (`MaskParserPipelineTest`, fail-closed):
+  `INSERT OVERWRITE ... PARTITION (...)`, `TOP ... PERCENT`,
+  `TOP n ... LIMIT/FETCH`. `top(x)` function-call boundary is pinned by
+  `IdentifierRegressionTest` (`SELECT top(1) FROM t` fails closed).
 
 ## Calcite upgrade runbook
 

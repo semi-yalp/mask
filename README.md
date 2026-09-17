@@ -424,6 +424,14 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
 三个方言共享同一条解析→校验→血缘→改写→渲染管线，差异集中在方言 profile
 （引号风格、标识符大小写语义、类型命名、内置函数库、输出渲染）：
 
+解析层现状：三方言已统一切换到 `mask-sqlparser` 模块的自定义解析器
+（`SqlMaskParserImpl`，以 Babel 等价语法为基底，方言扩展开关全关，行为与原
+Babel 路径差分等价）。SQL Server 风格 `SELECT TOP (n)` 与 Hive/Spark 风格
+`INSERT OVERWRITE` 语法已在解析器中实现，但当前三方言的开关均为关闭状态——
+这两类写法一律按 `PARSE_ERROR` 安全失败；明确的拒绝清单见
+`mask-sqlparser/EXTENSIONS.md` 与
+`docs/superpowers/specs/2026-09-17-custom-parser-design.md`（§4/§6）。
+
 | 维度 | PostgreSQL | Trino | MySQL |
 |---|---|---|---|
 | 标识符引号 | 双引号（按需） | 双引号（按需） | 反引号（包装层一律加） |

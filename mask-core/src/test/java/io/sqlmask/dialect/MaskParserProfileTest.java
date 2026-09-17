@@ -37,8 +37,12 @@ class MaskParserProfileTest {
       DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
       new DialectCapabilities(false));
 
-  private final AbstractCalciteDialectAdapter openAdapter =
-      new AbstractCalciteDialectAdapter(OPEN_PROFILE) {};
+  private final AbstractCalciteDialectAdapter openAdapter = openAdapter();
+
+  /** 开关全开的测试适配器（端到端管线测试复用；生产三方言开关全关，spec §5）。 */
+  static AbstractCalciteDialectAdapter openAdapter() {
+    return new AbstractCalciteDialectAdapter(OPEN_PROFILE) {};
+  }
 
   @Test
   void insertOverwriteClassifiesAsInsertAndComposesWithOverwriteHeader()
