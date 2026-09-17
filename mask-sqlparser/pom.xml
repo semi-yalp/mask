@@ -16,6 +16,16 @@
       <artifactId>calcite-core</artifactId>
       <version>${calcite.version}</version>
     </dependency>
+    <!-- 语法基底（main scope）：本项目 codegen 以 calcite-babel 1.42.0 的
+         codegen 数据（config.fmpp + includes）为基底生成解析器，产生的
+         SqlMaskParserImpl 引用 org.apache.calcite.sql.babel.* 节点类，
+         运行期必需；BabelEquivalenceTest 另用其 SqlBabelParserImpl 做差分
+         基准（spec §7.2）。 -->
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-babel</artifactId>
+      <version>${calcite.version}</version>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -47,6 +57,18 @@
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>javacc-maven-plugin</artifactId>
         <version>2.6</version>
+        <dependencies>
+          <!-- 上游 calcite 1.42 的 Gradle 构建固定用 javacc 4.0
+               （buildSrc JavaCCPlugin.kt 硬编码）；插件 2.6 自带的 5.0 会把
+               switch 的 case 动作块摊平进同一作用域，babel 产生式
+               （InfixCast / SelectExpression 的 EXCLUDE/REPLACE 分支）里
+               同名局部变量声明两次导致编译失败。 -->
+          <dependency>
+            <groupId>net.java.dev.javacc</groupId>
+            <artifactId>javacc</artifactId>
+            <version>4.0</version>
+          </dependency>
+        </dependencies>
         <executions>
           <execution>
             <goals><goal>javacc</goal></goals>
@@ -56,6 +78,8 @@
           <sourceDirectory>target/generated-sources/fmpp</sourceDirectory>
           <includes><include>**/Parser.jj</include></includes>
           <outputDirectory>target/generated-sources/javacc</outputDirectory>
+          <!-- 上游 JavaCCTask 以 -LOOKAHEAD:2 运行（babel/build.gradle.kts） -->
+          <lookAhead>2</lookAhead>
         </configuration>
       </plugin>
     </plugins>
