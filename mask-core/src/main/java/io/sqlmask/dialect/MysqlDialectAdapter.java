@@ -1,6 +1,8 @@
 package io.sqlmask.dialect;
 
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.parser.SqlMaskConformance;
+import io.sqlmask.parser.SqlMaskParserImpl;
 import org.apache.calcite.avatica.util.Casing;
 import org.apache.calcite.avatica.util.Quoting;
 import org.apache.calcite.sql.SqlLiteral;
@@ -8,7 +10,6 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.babel.SqlBabelCreateTable;
 import org.apache.calcite.sql.babel.TableCollectionType;
 import org.apache.calcite.sql.parser.SqlParser;
-import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
 
 import java.util.List;
@@ -16,8 +17,9 @@ import java.util.List;
 /**
  * MySQL: backtick identifiers, no case folding, case-insensitive matching
  * (column names are case-insensitive in MySQL), MYSQL_5 conformance. Uses
- * the babel parser factory because Calcite's standard parser carries no DDL
- * grammar (plain CREATE TABLE AS SELECT could not parse); the babel-only
+ * the mask parser factory (babel-grammar derived, dialect extensions gated
+ * off) because Calcite's standard parser carries no DDL grammar (plain
+ * CREATE TABLE AS SELECT could not parse); the babel-only
  * CREATE TABLE variants (REPLACE / VOLATILE / SET / MULTISET) are refused
  * via {@link #checkCreateTableVariant} so only plain CTAS reaches the
  * composer.
@@ -30,12 +32,12 @@ public final class MysqlDialectAdapter extends AbstractCalciteDialectAdapter {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
-            .withParserFactory(SqlBabelParserImpl.FACTORY)
+            .withParserFactory(SqlMaskParserImpl.FACTORY)
             .withQuoting(Quoting.BACK_TICK)
             .withUnquotedCasing(Casing.UNCHANGED)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(false)
-            .withConformance(SqlConformanceEnum.MYSQL_5),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.MYSQL_5, false, false)),
         SqlConformanceEnum.MYSQL_5,
         false,
         MysqlFunctions.TABLE,
