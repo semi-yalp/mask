@@ -3616,6 +3616,27 @@ git commit -m "docs+build: compose 增加单节点 ES 与 README 审计日志章
 > `docker rm -f mask-audit-es` 清理，并换内存 ≥2GB 的主机或加 swap 再冒烟。
 > 本地全量回归（mask-policy/mask-audit/mask-core/mask-metadata）已全绿，
 > 功能完成度止于无真实 ES 联调。
+>
+> **补充结论（2026-09-18，本地真实 ES 冒烟通过）**：远端主机持续失联，改在
+> 本地（16GB 内存，ES 8.13.4 官方 zip 直跑，绑 127.0.0.1）完成 Step 2-4 等效
+> 冒烟，**全部通过**：
+> - 模板安装 + 事件落地：UTC 日索引（如 `mask-audit-2026.09.17`）自动创建；
+> - 矩阵（独立前缀 `smoke19-*` 隔离计数）：改写成功/失败、建实例、生效配置
+>   拉取成功/失败共 5 请求 → REWRITE=2、ADMIN_CHANGE=1、EFFECTIVE_PULL=2，
+>   **一条不丢一条不重**；文档字段与 spec §3 一致（actor/error/原文 SQL/
+>   masked/rowFiltered/statementCount/@timestamp epoch 毫秒）；
+> - 查询 API：`total/page/size/events` 正确、时间倒序、全空过滤走 match_all；
+> - 降级语义：**停 ES 后改写业务仍 200**（尽力而为丢弃 + 限频 WARN）；
+>   ES 恢复中（red/503 窗口）查询 API 返回 **502 AUDIT_SEARCH_UNAVAILABLE**；
+>   ES 恢复后新事件自动续写入库（失败限频 WARN 的 down-since 毫秒数随真实
+>   停机时长累计，恢复窗口语义正确）。
+> - **顺带发现两个与审计无关的问题**：① `sql-mask.jar`（shade fat jar）丢失
+>   Spring Boot `AutoConfiguration.imports`（多 jar 同名资源未做合并），
+>   `java -jar` 启动 Web 服务必失败（README 宣称的方式当前不可用）；需为
+>   shade 配 `ResourceTransformer`/`AppendingTransformer` 或改用
+>   spring-boot-maven-plugin。② 并行会话共享同一本地/工作区时的构件污染
+>   （~/.m2 SNAPSHOT 被半成品覆盖）会干扰他人构建，建议并行工作一律用独立
+>   worktree + 独立 `mvn -Dmaven.repo.local`。
 
 **Files:** 无代码变更；产物为冒烟结论（写回本文件的 checkbox 与对话汇报）。
 
