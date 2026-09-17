@@ -34,6 +34,10 @@ SqlNode SqlMaskInsertOverwrite() :
         LOOKAHEAD(2)
         p = ParenthesizedCompoundIdentifierList()
         {
+            if (!p.right.isEmpty()) {
+                throw new ParseException(
+                    "compound insert columns are not supported");
+            }
             columnList = p.left.isEmpty() ? null : p.left;
         }
     |   { columnList = null; }

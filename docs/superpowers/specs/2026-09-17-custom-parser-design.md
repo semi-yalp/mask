@@ -282,9 +282,11 @@ SELECT / WITH…SELECT / INSERT…SELECT / CTAS，DDL 与工具语句的关键�
 2. **插件版本与构建正确性**：fmpp/javacc 插件版本选定；生成类可编译且 §7.2
    差分全绿即为正确性证明。
 
-   **状态回写（2026-09-17 实现完成后）**：定版 `fmpp-maven-plugin 1.0` +
-   `javacc-maven-plugin 2.6`（3.0.3 不存在于 Maven Central，2.6 为
-   Flink 验证过的回退），并在插件内钉 `net.java.dev.javacc:javacc:4.0` +
+   **状态回写（2026-09-17 实现完成后；同日勘误：3.0.3 实际存在于 Maven
+   Central）**：定版 `fmpp-maven-plugin 1.0` + `javacc-maven-plugin 2.6`
+   ——3.0.3 存在，但其默认绑定的 javacc 7.x 会把 switch case 动作块摊平进
+   同一作用域（babel 产生式在 javacc 5+ 即触发变量重复声明编译失败），故选
+   2.6，并在插件内钉 `net.java.dev.javacc:javacc:4.0` +
    `lookAhead 2`——复刻 calcite 1.42.0 Gradle 构建的 javacc 参数。正确性
    证明：`BabelEquivalenceTest` 40 条语料（25 curated + golden 切分）差分
    全绿 + 规模下限断言（§11.5）。

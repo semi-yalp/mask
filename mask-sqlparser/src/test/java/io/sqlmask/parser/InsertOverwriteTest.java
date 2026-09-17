@@ -60,6 +60,17 @@ class InsertOverwriteTest {
   }
 
   @Test
+  void rejectsCompoundInsertColumns() {
+    // p.right（列类型 extend 列表）仅在列名带类型注解时非空（基语法
+    // AddCompoundIdentifierType）；裸复合名 (a.b) 落入 p.left、与基语法
+    // INSERT INTO 行为一致，不在本拒绝范围。此用例钉住 fail-closed：
+    // mask 产生式丢弃基语法会 extend 回表引用的 p.right，故非空即拒。
+    SqlParseException e = assertThrows(SqlParseException.class,
+        () -> parse("INSERT OVERWRITE TABLE t (a.b VARCHAR(10)) SELECT 1", true));
+    assertTrue(e.getMessage().contains("compound insert columns"), () -> e.getMessage());
+  }
+
+  @Test
   void failsWithClearMessageWhenDialectDisallows() {
     SqlParseException e = assertThrows(SqlParseException.class,
         () -> parse("INSERT OVERWRITE TABLE t SELECT id FROM t", false));

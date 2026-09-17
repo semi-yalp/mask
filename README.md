@@ -431,6 +431,9 @@ Babel 路径差分等价）。SQL Server 风格 `SELECT TOP (n)` 与 Hive/Spark 
 这两类写法一律按 `PARSE_ERROR` 安全失败；明确的拒绝清单见
 `mask-sqlparser/EXTENSIONS.md` 与
 `docs/superpowers/specs/2026-09-17-custom-parser-design.md`（§4/§6）。
+例外——`top`/`overwrite` 作函数调用的写法（如 `SELECT top(1) FROM t`，
+切换前 Babel 可解析为函数调用）现按 `PARSE_ERROR` fail-closed 拒绝
+（`top` 被 TOP 子句前瞻优先匹配）。
 
 | 维度 | PostgreSQL | Trino | MySQL |
 |---|---|---|---|

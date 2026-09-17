@@ -99,7 +99,11 @@ babel's config.fmpp sets must appear in the override layer with
 `fmpp-maven-plugin 1.0` expands `templates/Parser.jj` with `config.fmpp` data
 into `target/generated-sources/fmpp/Parser.jj`; `javacc-maven-plugin 2.6`
 compiles that into `target/generated-sources/javacc/io/sqlmask/parser/SqlMaskParserImpl.java`
-(the `3.0.3` plugin version does not exist in Maven Central; 2.6 is the Flink-proven fallback).
+(plugin `3.0.3` does exist on Maven Central, but its default-bound javacc 7.x
+flattens switch-case action blocks into a single scope — babel's productions
+trip duplicate-variable-declaration compile errors on javacc 5+; 2.6 is
+therefore pinned with `net.java.dev.javacc:javacc:4.0` inside the plugin,
+matching the upstream Gradle build, plus `lookAhead 2`).
 
 Public interface produced: `io.sqlmask.parser.SqlMaskParserImpl.FACTORY`
 (`org.apache.calcite.sql.parser.SqlParserImplFactory`).
@@ -163,6 +167,15 @@ babel-carried verbatim or resolved via the nested `default:` layer):
   `INSERT OVERWRITE ... PARTITION (...)`, `TOP ... PERCENT`,
   `TOP n ... LIMIT/FETCH`. `top(x)` function-call boundary is pinned by
   `IdentifierRegressionTest` (`SELECT top(1) FROM t` fails closed).
+- Compound insert columns in `INSERT OVERWRITE` (fail-closed, parser
+  production): the mask production drops the base grammar's `p.right`
+  (column-type extend list) that `SqlInsert()` folds back into the table
+  reference, so a non-empty `p.right` is rejected outright — pinned by
+  `InsertOverwriteTest.rejectsCompoundInsertColumns`
+  (`INSERT OVERWRITE TABLE t (a.b VARCHAR(10)) SELECT 1` fails with
+  "compound insert columns are not supported"; `p.right` fills only when a
+  column carries a type annotation — a bare compound name like `(a.b)`
+  lands in `p.left` unchanged, same as base `INSERT INTO`, and is accepted).
 
 ## Calcite upgrade runbook
 
