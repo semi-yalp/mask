@@ -50,6 +50,11 @@ class GoldenOutputTest {
       Path.of("src/test/resources/golden/tpcds-oneline.sql");
   private static final Path TPCDS_CRLF_GOLDEN =
       Path.of("src/test/resources/golden/tpcds-crlf.sql");
+  private static final Path COMBINED_GOLDEN =
+      Path.of("src/test/resources/golden/masked-row-filter.sql");
+
+  private static final Path COMBINED_METADATA =
+      Path.of("src/test/resources/metadata/masked-row-filter.yaml");
 
   private static final String WRITE_STATEMENTS = String.join(";\n", List.of(
       "INSERT INTO archive SELECT id, phone FROM customer WHERE status = 'ACTIVE'",
@@ -103,6 +108,33 @@ class GoldenOutputTest {
   void tpcdsCrlfRendersIdenticallyByteForByte() throws Exception {
     // CRLF input must split cleanly without leaking carriage returns
     assertMatchesGolden(TPCDS_CRLF_GOLDEN, renderTpcds("tpcds_crlf.sql"));
+  }
+
+  @Test
+  void maskedRowFilterCombinedRendersIdenticallyByteForByte() throws Exception {
+    // both features on: row filter injected as the innermost derived table,
+    // masking UDFs only in the outermost projection — locks the layering for
+    // reads (star/aggregate/join/self-join/CTE/set-op/order), writes and the
+    // pass-through statements of the all-features configuration
+    String statements = String.join(";\n", List.of(
+        "SELECT c.id, c.phone FROM crm.public.customer AS c WHERE c.phone = '13800138000'",
+        "SELECT * FROM crm.public.customer",
+        "SELECT region, COUNT(*) AS cnt, SUM(amount) AS total FROM crm.public.orders GROUP BY region",
+        "SELECT c.phone, o.amount FROM crm.public.customer c JOIN crm.public.orders o "
+            + "ON o.customer_id = c.id",
+        "SELECT c1.phone AS p1, c2.phone AS p2 FROM crm.public.customer c1 "
+            + "JOIN crm.public.customer c2 ON c1.id = c2.id",
+        "WITH active AS (SELECT phone FROM crm.public.customer WHERE email IS NOT NULL) "
+            + "SELECT phone FROM active",
+        "SELECT phone FROM (SELECT phone FROM crm.public.customer "
+            + "UNION ALL SELECT phone FROM crm.public.customer) AS t",
+        "SELECT phone FROM crm.public.customer WHERE id < 100 ORDER BY phone LIMIT 5",
+        "INSERT INTO archive SELECT c.id, c.phone FROM crm.public.customer c",
+        "CREATE TABLE IF NOT EXISTS archive AS SELECT phone FROM crm.public.customer",
+        "SELECT 1 AS constant",
+        "SELECT action FROM crm.public.audit")) + ";\n";
+    assertMatchesGolden(COMBINED_GOLDEN, engine.rewrite(
+        readFile(COMBINED_METADATA), statements, "postgresql"));
   }
 
   /**

@@ -64,6 +64,23 @@ class SqlMaskRunnerTest {
   }
 
   @Test
+  void maskingAndRowFilterComposeInCliOutput() {
+    Path metadata = Path.of("src/test/resources/metadata/masked-row-filter.yaml");
+    String result = runner.run(new CliOptions(metadata,
+        "SELECT c.phone, o.amount FROM crm.public.customer c "
+            + "JOIN crm.public.orders o ON o.customer_id = c.id", null, null, "postgresql"));
+    String flattened = flat(result);
+    assertTrue(flattened.contains("mask_phone(r.phone, 3, 4) AS phone"), () -> result);
+    assertTrue(flattened.contains("mask_amount(r.amount) AS amount"), () -> result);
+    assertTrue(flattened.contains("WHERE status = 'active'"), () -> result);
+    assertTrue(flattened.contains("WHERE region = 'north'"), () -> result);
+    // the injections live inside the wrapper's inner query, the UDFs outside
+    assertTrue(flattened.indexOf("WHERE status = 'active'") < flattened.indexOf(") AS r"),
+        () -> result);
+    assertTrue(result.endsWith(";"), () -> result);
+  }
+
+  @Test
   void failsAtomicallyOnUnsupportedStatement() {
     String sql = """
         SELECT phone FROM crm.public.customer;
