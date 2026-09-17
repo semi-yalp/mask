@@ -54,8 +54,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = "query.timeout-seconds=2")
 @AutoConfigureMockMvc(addFilters = false)
-@Import(QueryEndToEndIT.Stubs.class)
-class QueryEndToEndIT {
+@Import(QueryEndToEndTest.Stubs.class)
+class QueryEndToEndTest {
 
   private static final ObjectMapper JSON = new ObjectMapper();
 

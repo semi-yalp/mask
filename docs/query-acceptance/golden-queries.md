@@ -6,11 +6,10 @@ StarRocks 的承诺即「MySQL 方言改写产物的可执行子集，以本清�
 
 约定：
 
-- 「改写后 SQL」列为**形态示意**——外层脱敏包装的标识符引号、分页渲染按方言
-  （MySQL 反引号、PostgreSQL 的 `LIMIT` 渲染为 `FETCH NEXT n ROWS ONLY`），
-  内层是原始查询的原文快照；验收比对以「期望脱敏结果」列为准（比对
-  `POST /api/v1/query` 响应的 `rows` / `rowCount` / `masked` / `rowFiltered` /
-  `truncated`）；
+- 「改写后 SQL」列为**形态示意**——外层脱敏包装的标识符引号按方言渲染
+  （如 MySQL 反引号），内层是原始查询的原文快照；验收比对以「期望脱敏结果」
+  列为准（比对 `POST /api/v1/query` 响应的 `rows` / `rowCount` / `masked` /
+  `rowFiltered` / `truncated`）；
 - Hive / SparkSQL 属批 2（方言另立 spec），本清单不含；CI 无这些引擎服务时
   按清单手工/按需执行（与 `docker-compose.query.yml` 的 `query-acceptance`
   profile 一致）。
@@ -164,8 +163,10 @@ Trino 脱敏函数以 Java 插件交付（SPI 函数，见
 
 ## Golden：PostgreSQL
 
-实例 `pg_dev`（复用 `docker-compose.metadata.yml` 的存储 PG 时，样例表建在
-`mask_metadata` 库，catalog/schema 为 `postgres/public`）。
+实例 `pg_dev`（复用 `docker-compose.metadata.yml` 的存储 PG：先在其中建独立库
+`crm`——`docker compose -f docker-compose.metadata.yml exec postgres createdb -U postgres crm`，
+样例表与 UDF 建在 `crm.public`；实例登记 `database: crm`，表目录
+catalog/schema = `crm/public`，与本节 SQL 的库名口径一致）。
 
 ### 阶段 A（仅 DATAMASK：`mask_phone(phone, 3, 4)`）
 
@@ -173,7 +174,7 @@ Trino 脱敏函数以 Java 插件交付（SPI 函数，见
 |---|---|---|
 | `SELECT phone FROM customer` | `SELECT mask_phone(r.phone, 3, 4) AS phone FROM (SELECT phone FROM customer) AS r` | `rows = [["138****5678"], ["139****1111"], ["137****2222"]]`，`rowCount=3`，`masked=true`，`rowFiltered=false`，`truncated=false` |
 | `SELECT count(phone) FROM customer` | `SELECT mask_phone(r.EXPR$0, 3, 4) AS EXPR$0 FROM (SELECT COUNT(phone) AS EXPR$0 FROM customer) AS r`（无别名聚合的输出列名由改写器生成，实际以 `includeRewrittenSql` 回显为准） | `rows = [["3****3"]]`，`rowCount=1`，`masked=true`。**类型重载前提**：聚合列的包装目标是 bigint，引擎侧 UDF 必须有能接收 bigint 的签名（见上文 DDL），否则引擎报「函数不存在」——属 UDF 部署前提缺失，不判为改写缺陷 |
-| `SELECT phone FROM customer ORDER BY id LIMIT 2` | `SELECT mask_phone(r.phone, 3, 4) AS phone FROM (SELECT phone FROM customer ORDER BY id LIMIT 2) AS r`（内层保留原文；外层分页按 PG 渲染） | `rows = [["138****5678"], ["139****1111"]]`，`rowCount=2`，`truncated=false` |
+| `SELECT phone FROM customer ORDER BY id LIMIT 2` | `SELECT mask_phone(r.phone, 3, 4) AS phone FROM (SELECT phone FROM customer ORDER BY id LIMIT 2) AS r`（内层原文快照，`LIMIT` 原样保留） | `rows = [["138****5678"], ["139****1111"]]`，`rowCount=2`，`truncated=false` |
 | `SELECT phone FROM customer` + 请求 `maxRows: 1` | 同第 1 行 | `rows = [["138****5678"]]`，`rowCount=1`，**`truncated=true`**（不是错误） |
 
 ### 阶段 B（追加 ROW_FILTER：`status = 'active'`）

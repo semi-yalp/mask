@@ -114,7 +114,8 @@ Hive / Spark 传 JAR 注册，StarRocks 3.x Java UDF，Trino 写 Java 插件。
 
 ### 错误契约
 
-沿用全系统惯例 `{code, message}`，HTTP 400（鉴权失败 401）：
+沿用全系统惯例 `{code, message, details[]}`（与 mask-metadata 错误体同构），
+HTTP 400（鉴权失败 401）：
 
 | 来源 | 错误码 |
 |---|---|

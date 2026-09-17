@@ -598,8 +598,8 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 
 ### 错误码
 
-业务错误统一 HTTP 400（`{code, message}`）；鉴权失败 401；容器兜底超时
-（`onTimeout` → 取消语句）返回 503。
+业务错误统一 HTTP 400，错误体为 `{code, message, details[]}`（与 mask-metadata
+同构）；鉴权失败 401；容器兜底超时（`onTimeout` → 取消语句）返回 503。
 
 - mask-query 自有：`MULTI_STATEMENT`、`WRITE_STATEMENT`（只读数据面，非
   `SELECT` 拒绝）、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（YAML 导入
@@ -657,14 +657,15 @@ mvn -pl mask-query -am package
 java -jar mask-query/target/mask-query-0.1.0-SNAPSHOT.jar
 ```
 
-### 全链路 IT 运行方式
+### 全链路测试运行方式
+
+默认 `mvn test` 即包含全链路用例 `QueryEndToEndTest`：嵌入式 PostgreSQL 真库 +
+真 UDF 脱敏的完整链路验证（HTTP 入口 → 改写 → 执行 → 护栏 → 审计），
+约 +2 分钟。需要单独运行时：
 
 ```bash
-mvn -pl mask-query -am test -Dtest=QueryEndToEndIT -Dsurefire.failIfNoSpecifiedTests=false
+mvn -pl mask-query test -Dtest=QueryEndToEndTest
 ```
-
-嵌入式 PostgreSQL 真库 + 真 UDF 脱敏的完整链路验证（HTTP 入口 → 改写 →
-执行 → 护栏 → 审计），约 2-3 分钟。
 
 ## UDF 注册表（策略服务）
 
