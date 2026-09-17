@@ -90,6 +90,24 @@ class MetadataYamlImporterTest {
   }
 
   @Test
+  void nonStringKindRejected() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer_v
+              kind: 123
+              columns:
+                - { name: id, type: bigint }
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> importer.parse(yaml, "test.yaml"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("unknown kind '123'"), () -> e.getMessage());
+    assertTrue(e.getMessage().contains("table|view|materialized_view"), () -> e.getMessage());
+  }
+
+  @Test
   void rowFilterFieldRejectedWithGuidance() {
     String yaml = """
         metadata:

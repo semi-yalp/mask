@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.PolicyService;
@@ -55,7 +55,7 @@ class EffectiveConfigEndpointTest {
   @Test
   void unknownInstanceMapsToNotFound() throws Exception {
     mvc.perform(get("/api/effective/nope").param("user", "alice"))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("POLICY_INSTANCE_NOT_FOUND"));
   }
 

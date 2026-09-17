@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.audit.AuditEvent;
 import io.sqlmask.audit.AuditRecorder;
@@ -69,7 +69,7 @@ class AdminAuditTest {
                  "resource": {"catalog": "c", "schema": "s", "table": "t", "columns": ["x"]},
                  "subjects": {"users": ["*"]}, "udf": "mask", "arguments": []}
                 """))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isNotFound());
     AuditEvent e = recorded().stream()
         .filter(x -> x.outcome().equals(AuditEvent.FAILURE))
         .findFirst().orElseThrow();

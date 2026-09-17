@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -123,7 +123,7 @@ class PolicyAdminEndpointTest {
         .andExpect(status().isOk());
     mvc.perform(delete("/api/instances/pg_prod")).andExpect(status().isOk());
     mvc.perform(get("/api/instances/pg_prod"))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("POLICY_INSTANCE_NOT_FOUND"));
   }
 
@@ -134,11 +134,11 @@ class PolicyAdminEndpointTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
     mvc.perform(get("/api/instances/nope/policies"))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("POLICY_INSTANCE_NOT_FOUND"));
     mvc.perform(post("/api/instances/nope/policies").contentType(MediaType.APPLICATION_JSON)
             .content(POLICY_BODY))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("POLICY_INSTANCE_NOT_FOUND"));
   }
 

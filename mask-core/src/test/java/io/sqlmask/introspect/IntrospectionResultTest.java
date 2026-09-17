@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IntrospectionResultTest {
 
@@ -28,5 +30,15 @@ class IntrospectionResultTest {
         "crm", "public", "t", (String) null, List.of()).kind());
     assertEquals("table", new IntrospectionResult.TableInfo(
         "crm", "public", "t", "  ", List.of()).kind());
+  }
+
+  @Test
+  void isKnownMatchesOnlyTheThreeLowercaseConstants() {
+    assertTrue(TableKind.isKnown("table"));
+    assertTrue(TableKind.isKnown("view"));
+    assertTrue(TableKind.isKnown("materialized_view"));
+    assertFalse(TableKind.isKnown("TABLE"));
+    assertFalse(TableKind.isKnown("viwe"));
+    assertFalse(TableKind.isKnown(null));
   }
 }

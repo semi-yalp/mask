@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;

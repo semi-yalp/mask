@@ -1,5 +1,7 @@
 package io.sqlmask.cli;
 
+import io.sqlmask.config.source.ConfigSource;
+import io.sqlmask.config.source.PolicyServiceConfigSource;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.rewrite.RewriteEngine;
@@ -26,16 +28,32 @@ public final class SqlMaskRunner {
    * formatting.
    */
   public String run(CliOptions options) {
-    String metadataYaml = readUtf8(options.metadataPath(), "metadata file");
-    String policyYaml = options.policiesPath() == null
-        ? null
-        : readUtf8(options.policiesPath(), "policies file");
     String sqlText = options.sql() != null
         ? options.sql()
         : readUtf8(options.inputPath(), "SQL input file");
-    List<StatementRewrite> statements = new RewriteEngine().rewrite(
-        metadataYaml, policyYaml, sqlText, options.dialect(),
-        Subject.of(options.user(), options.groups()));
+    List<StatementRewrite> statements;
+    if (options.instanceMode()) {
+      String baseUrl = options.policyServiceUrl() != null && !options.policyServiceUrl().isBlank()
+          ? options.policyServiceUrl()
+          : System.getenv("POLICY_SERVICE_URL");
+      if (baseUrl == null || baseUrl.isBlank()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "policy service URL is required: pass --policy-service or set "
+                + "$POLICY_SERVICE_URL");
+      }
+      Subject subject = Subject.of(options.user(), options.groups());
+      ConfigSource.ResolvedConfig resolved = new PolicyServiceConfigSource(baseUrl,
+          System.getenv("POLICY_SERVICE_API_KEY"), options.instance()).load(subject);
+      statements = new RewriteEngine().rewrite(resolved.config(), null, sqlText,
+          resolved.dialect(), subject);
+    } else {
+      String metadataYaml = readUtf8(options.metadataPath(), "metadata file");
+      String policyYaml = options.policiesPath() == null
+          ? null
+          : readUtf8(options.policiesPath(), "policies file");
+      statements = new RewriteEngine().rewrite(metadataYaml, policyYaml, sqlText,
+          options.dialect(), Subject.of(options.user(), options.groups()));
+    }
     return RewriteEngine.join(statements);
   }
 

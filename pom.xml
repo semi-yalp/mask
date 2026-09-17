@@ -17,6 +17,7 @@
     <module>mask-audit</module>
     <module>mask-policy</module>
     <module>mask-metadata</module>
+    <module>mask-policy-server</module>
   </modules>
 
   <properties>
