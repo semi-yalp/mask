@@ -3,6 +3,7 @@ package io.sqlmask.server;
 import io.sqlmask.audit.AuditEvent;
 import io.sqlmask.audit.AuditEvents;
 import io.sqlmask.audit.AuditRecorder;
+import io.sqlmask.config.source.ConfigSource;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.rewrite.RewriteEngine;
@@ -16,23 +17,27 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * SQL rewriting endpoint. The request carries its own YAML metadata and SQL
- * text; the whole input is processed atomically and any failure is reported
- * as a structured error. An optional Ranger-style {@code policyYaml} and
- * query subject ({@code user}/{@code groups}) select subject-aware policies;
- * when given, the metadata's own policy sections must be empty. Every request
- * emits exactly one REWRITE audit event (spec §5.1) — success or failure —
- * and failures are rethrown untouched.
+ * SQL rewriting endpoint, two mutually exclusive configuration modes:
+ * inline {@code metadataYaml} (+ optional Ranger-style {@code policyYaml})
+ * or a policy-service {@code instance} name whose compiled effective config
+ * is fetched per request subject (cached per instance; stale-but-available
+ * while the service is down, fail-closed on a cold cache). The whole input
+ * is processed atomically; any failure is reported as a structured error.
+ * Every request emits exactly one REWRITE audit event (spec §5.1) — success
+ * or failure — and failures are rethrown untouched.
  */
 @RestController
 @RequestMapping("/api")
 public class RewriteController {
 
   private final RewriteEngine engine;
+  private final InstanceConfigSources sources;
   private final AuditRecorder audit;
 
-  public RewriteController(RewriteEngine engine, AuditRecorder audit) {
+  public RewriteController(RewriteEngine engine, InstanceConfigSources sources,
+      AuditRecorder audit) {
     this.engine = engine;
+    this.sources = sources;
     this.audit = audit;
   }
 
@@ -40,23 +45,45 @@ public class RewriteController {
   public RewriteResponse rewrite(@RequestBody RewriteRequest request,
       HttpServletRequest httpRequest) {
     long start = System.nanoTime();
-    if (request == null || request.metadataYaml() == null || request.metadataYaml().isBlank()) {
+    if (request == null || request.sql() == null || request.sql().isBlank()) {
       throw fail(httpRequest, start, null, SqlMaskException.Code.CONFIG_ERROR,
-          "metadataYaml is required: paste the YAML configuration declaring tables, "
-              + "columns and masking policies");
-    }
-    if (request.sql() == null || request.sql().isBlank()) {
-      throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
           "sql is required: provide at least one SELECT statement");
     }
-    String dialect = request.dialect() == null || request.dialect().isBlank()
-        ? "postgresql"
-        : request.dialect();
+    boolean hasInstance = request.instance() != null && !request.instance().isBlank();
+    boolean hasYaml = request.metadataYaml() != null && !request.metadataYaml().isBlank();
+    if (hasInstance == hasYaml) {
+      throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+          "exactly one of metadataYaml or instance is required: metadataYaml is required "
+              + "for inline YAML mode, or pass the policy-service instance name to "
+              + "rewrite with the compiled effective config");
+    }
+    Subject subject = Subject.of(request.user(), request.groups());
+    if (hasInstance) {
+      if (request.policyYaml() != null && !request.policyYaml().isBlank()) {
+        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+            "policyYaml cannot be combined with instance: instance mode uses the "
+                + "policies already compiled into the effective config");
+      }
+      if (!sources.configured()) {
+        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
+            "policy.service.url (env POLICY_SERVICE_URL) is not configured: "
+                + "instance mode requires the policy service location");
+      }
+    }
+    String dialect;
     List<StatementRewrite> statements;
     try {
-      statements = engine.rewrite(
-          request.metadataYaml(), request.policyYaml(), request.sql(), dialect,
-          Subject.of(request.user(), request.groups()));
+      if (hasInstance) {
+        ConfigSource.ResolvedConfig resolved = sources.get(request.instance()).load(subject);
+        dialect = resolved.dialect();
+        statements = engine.rewrite(resolved.config(), null, request.sql(), dialect, subject);
+      } else {
+        dialect = request.dialect() == null || request.dialect().isBlank()
+            ? "postgresql"
+            : request.dialect();
+        statements = engine.rewrite(request.metadataYaml(), request.policyYaml(),
+            request.sql(), dialect, subject);
+      }
     } catch (SqlMaskException e) {
       throw recorded(httpRequest, start, request, e.getCode(), e);
     } catch (RuntimeException e) {
@@ -100,8 +127,8 @@ public class RewriteController {
   }
 
   /** Per-statement rewrite request. */
-  public record RewriteRequest(String metadataYaml, String policyYaml, String sql,
-      String dialect, String user, List<String> groups) {
+  public record RewriteRequest(String metadataYaml, String policyYaml, String instance,
+      String sql, String dialect, String user, List<String> groups) {
   }
 
   /** Per-statement rewrite response plus the combined script. */

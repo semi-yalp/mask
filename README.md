@@ -19,6 +19,25 @@ UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从�
 资源通配与 `priority`），后者通过 `--policies` / 请求字段 `policyYaml` 提供并携带
 查询主体（`--user`/`--groups` 或请求字段 `user`/`groups`）。
 
+注意：单 jar（mask-core）不再内嵌策略管理面；实例/策略/UDF 的 REST 由
+mask-policy-server 在 8081 提供。
+
+## 服务形态
+
+同一仓库产出三个微服务（CLI 内置于改写服务 jar）：
+
+| 服务 | 模块 | 端口 | 职责 |
+|---|---|---|---|
+| 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、内置页面、CLI |
+| 策略服务 | mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
+| 元数据服务 | mask-metadata | 8082 | 库表结构采集与存储 |
+
+改写服务的 instance 模式按实例名从策略服务拉取编译配置：`POLICY_SERVICE_URL` +
+`POLICY_SERVICE_API_KEY` 两个环境变量接入；进程内按主体缓存（LRU 256），每
+`POLICY_SERVICE_POLL_INTERVAL_MS`（默认 30000）轮询刷新，策略服务短暂不可用时
+继续用缓存改写（stale-but-available），无缓存时绝不降级（fail closed）。紧急
+止血可 `POST /admin/cache/refresh`（可带 `{"instance": "..."}`）立即清缓存。
+
 ## 元数据采集（--pull-metadata）
 
 `--pull-metadata` 连接一个 PostgreSQL、MySQL 或 Trino 数据库，把库表结构拉取成
@@ -101,6 +120,17 @@ mvn package
 `io.trino:trino-parser:446` 保持同一版本对齐（升级 JDBC 驱动时同步升级测试用
 parser，保证 golden 校验与驱动行为一致）。另注：CLI 的 `--connect-timeout` 对
 Trino 无效（446 驱动不支持该 URL 属性，Trino 连接使用驱动默认超时）。
+
+本地起策略服务 + PG：
+
+```bash
+mvn -pl mask-policy-server -am package
+docker compose -f docker-compose.policy.yml up -d
+```
+
+环境变量：`POLICY_PG_URL/USER/PASSWORD`（PG 连接）、`SQLMASK_ADMIN_API_KEY`
+（管理面 `/api/instances/**`）、`SQLMASK_DATA_API_KEY`（数据面 `/api/effective/**`），
+未配置 Key 则不拦截。
 
 ## Web 服务与页面
 
@@ -406,7 +436,7 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
   --user alice --groups devs,ops --sql "SELECT phone FROM customer;"
 ```
 
-- `--metadata`（必填）：YAML 表结构配置路径；
+- `--metadata`：YAML 表结构配置路径（instance 模式下可省，与 `--instance` 互斥）；
 - `--policies`：可选，Ranger 式 policies.yaml 路径；给出时 metadata 不得再声明
   `policies`/`columns`/`rowFilter`（互斥，违反报 `CONFIG_ERROR`，退出码 1）；
 - `--user`：按模式复用——`--pull-metadata` 模式下为数据库用户，改写模式下为查询
@@ -418,6 +448,16 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
 - `--dialect`：可选，`postgresql`（默认）/ `trino` / `mysql`，未知名报用法错误
   （退出码 2）并列出支持列表；输入 SQL 必须落在「Calcite 可解析的该引擎语法
   子集」内，引擎特有语法超出部分按 `PARSE_ERROR` 安全失败。
+
+instance 模式（配置来自策略服务，与 `--metadata` 互斥）：
+
+```bash
+java -jar mask-core/target/sql-mask.jar --instance pg_prod \
+  --policy-service http://localhost:8081 \
+  --user alice --sql "SELECT phone FROM customer"
+```
+
+`--policy-service` 缺省读 `$POLICY_SERVICE_URL`；API Key 读 `$POLICY_SERVICE_API_KEY`。
 
 ## 方言支持
 
@@ -565,8 +605,10 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 策略微服务的实例可登记脱敏 UDF 签名（名称 + 有序参数类型 + 返回类型，
 首参数绑定被脱敏列的值，对齐 PG 以「名字+参数类型」标识函数、同名重载
 按调用点解析）。REST：`POST/GET /api/instances/{instance}/udfs`、
-`GET/PUT/DELETE /api/instances/{instance}/udfs/{name}`（web 应用内置
-InMemory 存储，部署侧可换 JdbcPolicyStore + schema.sql 的 instance_udf 表）。
+`GET/PUT/DELETE /api/instances/{instance}/udfs/{name}`（REST 在独立策略服务
+mask-policy-server（8081）上，服务默认使用 JdbcPolicyStore——application.yml 常驻
+配置 PostgreSQL datasource 并执行 schema.sql（含 instance_udf 表）；无 datasource
+时（如测试）才回退内置 InMemory 存储）。
 
 DATAMASK 策略写入时按注册表校验：UDF 存在、参数个数（= arguments + 1
 个列值）、标量类型（number→整数/浮点/numeric 族，string→字符族，
@@ -583,7 +625,8 @@ users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
 按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。表列
 资源可从元数据服务一键导入：`POST /api/instances/{i}/import-metadata`。
 同表同类型策略的重叠校验按主体相交放宽——不同人群可各配各的脱敏列与
-行过滤。
+行过滤。instance 模式（改写请求的 `instance` 字段、CLI `--instance`）忽略请求
+传入的 `dialect`：目标方言以生效配置返回的实例 dialect 为准。
 
 鉴权：环境变量 `SQLMASK_ADMIN_API_KEY`（管 `/api/instances/**`）与
 `SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制

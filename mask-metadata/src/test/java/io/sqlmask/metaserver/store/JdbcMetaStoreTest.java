@@ -99,6 +99,7 @@ class JdbcMetaStoreTest {
     List<TableStructure> loaded = store.loadStructure(name);
     assertEquals("table", loaded.get(0).kind());
     assertEquals("view", loaded.get(1).kind());
+    store.deleteInstance(name);
   }
 
   @Test
@@ -119,7 +120,9 @@ class JdbcMetaStoreTest {
     store.createInstance(row(name));
     jdbc.update("INSERT INTO meta_table (instance_id, catalog, schema_name, table_name, position) "
         + "SELECT id, 'crm', 'public', 'legacy_t', 0 FROM meta_instance WHERE name = ?", name);
+    // 按 instance 收敛查询：共享外部库（METADATA_PG_URL）多次运行时同名表可能多行
     assertEquals("table", jdbc.queryForObject(
-        "SELECT kind FROM meta_table WHERE table_name = 'legacy_t'", String.class));
+        "SELECT t.kind FROM meta_table t JOIN meta_instance i ON i.id = t.instance_id "
+            + "WHERE t.table_name = 'legacy_t' AND i.name = ?", String.class, name));
   }
 }

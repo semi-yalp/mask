@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
 import io.sqlmask.metadataclient.MetadataClient;
 import org.junit.jupiter.api.BeforeEach;

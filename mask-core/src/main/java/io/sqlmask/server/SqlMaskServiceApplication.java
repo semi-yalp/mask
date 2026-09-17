@@ -2,14 +2,11 @@ package io.sqlmask.server;
 
 import io.sqlmask.cli.SqlMaskApplication;
 import io.sqlmask.introspect.PgMetadataIntrospector;
-import io.sqlmask.policyserver.PolicyService;
-import io.sqlmask.policyserver.PolicyValidator;
-import io.sqlmask.policyserver.store.InMemoryPolicyStore;
-import io.sqlmask.policyserver.store.PolicyStore;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.List;
 
@@ -35,11 +32,12 @@ import java.util.List;
  */
 @SpringBootApplication(scanBasePackages = "io.sqlmask",
     exclude = org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class)
+@EnableScheduling
 public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
       "--metadata", "--policies", "--groups", "--sql", "--input", "--output", "--dialect",
-      "--help", "--version", "--pull-metadata");
+      "--help", "--version", "--pull-metadata", "--instance", "--policy-service");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {
@@ -66,26 +64,6 @@ public class SqlMaskServiceApplication {
   @Bean
   PgMetadataIntrospector pgMetadataIntrospector() {
     return new PgMetadataIntrospector();
-  }
-
-  @Bean
-  PolicyStore policyStore() {
-    return new InMemoryPolicyStore();
-  }
-
-  @Bean
-  PolicyValidator policyValidator() {
-    return new PolicyValidator();
-  }
-
-  @Bean
-  PolicyService policyService(PolicyStore store, PolicyValidator validator) {
-    return new PolicyService(store, validator);
-  }
-
-  @Bean
-  MetadataStructureFetcher metadataStructureFetcher() {
-    return new MetadataStructureFetcher.HttpMetadataStructureFetcher();
   }
 
   @Bean
