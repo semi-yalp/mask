@@ -3,6 +3,7 @@ package io.sqlmask.query;
 import io.sqlmask.query.config.UpstreamProperties;
 import io.sqlmask.query.metadata.MetadataServiceClient;
 import io.sqlmask.query.rewrite.RewriteServiceClient;
+import io.sqlmask.query.service.QueryService;
 import io.sqlmask.query.web.QueryApiKeyFilter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,6 +25,18 @@ public class QueryServerApplication {
   @Bean
   RewriteServiceClient rewriteServiceClient(UpstreamProperties props) {
     return new RewriteServiceClient(props.rewriteBaseUrl(), props.rewriteApiKey());
+  }
+
+  /** Backs InstanceDirectory with the metadata client (same fetch contract). */
+  @Bean
+  QueryService.InstanceDirectory queryInstanceDirectory(MetadataServiceClient metadata) {
+    return metadata::fetch;
+  }
+
+  @Bean
+  QueryService.ConnectionFactory queryConnectionFactory() {
+    return (engine, c, password) -> java.sql.DriverManager.getConnection(
+        engine.jdbcUrl(c), c.dbUser(), password);
   }
 
   @Bean
