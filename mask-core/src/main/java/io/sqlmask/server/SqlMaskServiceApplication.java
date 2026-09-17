@@ -6,6 +6,7 @@ import io.sqlmask.rewrite.RewriteEngine;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.List;
 
@@ -31,6 +32,7 @@ import java.util.List;
  */
 @SpringBootApplication(scanBasePackages = "io.sqlmask",
     exclude = org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class)
+@EnableScheduling
 public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
