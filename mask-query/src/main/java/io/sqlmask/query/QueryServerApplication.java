@@ -2,6 +2,7 @@ package io.sqlmask.query;
 
 import io.sqlmask.query.config.UpstreamProperties;
 import io.sqlmask.query.metadata.MetadataServiceClient;
+import io.sqlmask.query.rewrite.RewriteServiceClient;
 import io.sqlmask.query.web.QueryApiKeyFilter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -18,6 +19,11 @@ public class QueryServerApplication {
   @Bean
   MetadataServiceClient metadataServiceClient(UpstreamProperties props) {
     return new MetadataServiceClient(props.metadataBaseUrl(), props.metadataApiKey());
+  }
+
+  @Bean
+  RewriteServiceClient rewriteServiceClient(UpstreamProperties props) {
+    return new RewriteServiceClient(props.rewriteBaseUrl(), props.rewriteApiKey());
   }
 
   @Bean
