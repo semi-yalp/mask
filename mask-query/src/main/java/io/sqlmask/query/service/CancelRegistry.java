@@ -7,9 +7,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Tracks in-flight statements so an async disconnect/timeout can cancel the
- * running query instead of letting it finish unobserved. cancel() on an
- * unknown id is a no-op. */
+/** Tracks in-flight statements so the container-side async timeout
+ * (WebAsyncTask onTimeout → cancel) can stop the running query instead of
+ * letting it finish unobserved — Servlet async has no portable disconnect
+ * callback, so cancellation rides the statement/container timeouts.
+ * cancel() on an unknown id is a no-op. */
 @Component
 public class CancelRegistry {
 

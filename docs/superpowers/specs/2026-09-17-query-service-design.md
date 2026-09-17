@@ -118,8 +118,10 @@ Hive / Spark 传 JAR 注册，StarRocks 3.x Java UDF，Trino 写 Java 插件。
 
 | 来源 | 错误码 |
 |---|---|
-| mask-query 自有 | `MULTI_STATEMENT`、`WRITE_STATEMENT`、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（实例无连接信息，YAML 导入的实例不可执行）、`QUERY_BUSY`（该实例并发已达上限，快速失败不排队）、`QUERY_TIMEOUT`、`QUERY_ERROR`（引擎执行失败，message 带 SQLState 与引擎原始消息，不含凭据）、`CONFIG_ERROR`（请求参数问题） |
+| mask-query 自有 | `MULTI_STATEMENT`、`WRITE_STATEMENT`、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（实例无连接信息，YAML 导入的实例不可执行）、`QUERY_BUSY`（该实例并发已达上限，快速失败不排队）、`QUERY_TIMEOUT`、`QUERY_ERROR`（引擎执行失败，message 带 SQLState 与引擎原始消息，不含凭据）、`REWRITE_SERVICE_UNAVAILABLE`（mask-core 不可达或返回不可用响应，fail closed）、`CREDENTIAL_UNAVAILABLE`（passwordRef 指向的环境变量未设置）、`UNSUPPORTED_ENGINE`（实例 engine 超出批 1 引擎目录）、`CONFIG_ERROR`（请求参数问题） |
 | 改写阶段透传 mask-core | `CONFIG_ERROR` / `PARSE_ERROR` / `VALIDATION_ERROR` / `UNSUPPORTED_STATEMENT` / `LINEAGE_UNKNOWN` / `REWRITE_ERROR` / `METADATA_INSTANCE_NOT_FOUND` / `METADATA_SERVICE_UNAVAILABLE` / `POLICY_SERVICE_UNAVAILABLE`（依赖不可达一律 fail closed） |
+
+本表与实现同步于 2026-09-17 计划执行期（以 `mask-query` 的 `QueryException` 实现为准）。
 
 ## 5. mask-core：按实例改写端点
 
@@ -200,8 +202,10 @@ body: { "sql": "...", "user": "alice", "groups": ["devs"] }
    引擎细节：PostgreSQL 需 `autoCommit=false` 才真流式（只读事务读完
    rollback，无副作用）；MySQL 走流式游标参数（`useCursorFetch` 或
    `Integer.MIN_VALUE`，实现取一，spec 不锁定）；Trino 驱动天然分页拉取；
-5. **断连取消**：Servlet 异步请求 + 监听器，客户端断开即
-   `statement.cancel()`，不占着连接跑完无人认领的查询。
+5. **断连取消**：Servlet 异步 API 无可移植的断连回调，一期以「语句超时 +
+   WebAsyncTask 容器兜底超时（`onTimeout` → `statement.cancel()`）」近似达成
+   ——无人认领的查询至多多跑一个兜底窗口即被取消；真正的「客户端断开即取消」
+   留待容器特定方案（Tomcat NIO 事件 / Jetty error dispatch）。
 
 ### 执行时序
 

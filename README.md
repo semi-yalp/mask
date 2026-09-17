@@ -549,6 +549,123 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 - 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
   字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略
 
+## 查询服务（mask-query，8083）
+
+统一查询 API 数据面：调用方提交「原始 SQL + 目标实例 + 查询主体」，服务内部
+依次完成「拉实例连接信息（mask-metadata）→ 按实例改写（mask-core 服务模式，
+改写不可绕过）→ JDBC 执行改写产物 → 只返回脱敏后结果集」。自身无状态、无数据库。
+批 1 引擎：`postgresql` / `mysql` / `trino` / `starrocks`（StarRocks 复用 MySQL
+方言改写产物）；Hive / SparkSQL 为批 2 范围（方言 profile、元数据枚举与执行器
+另立 spec）。
+
+### POST /api/v1/query
+
+请求（`X-Api-Key` 鉴权）：
+
+```json
+{
+  "instance": "pg_prod",
+  "sql": "SELECT phone FROM customer",
+  "user": "alice",
+  "groups": ["devs", "ops"],
+  "maxRows": 1000,
+  "includeRewrittenSql": false
+}
+```
+
+- `instance`、`sql` 必填，仅单条语句；`user`/`groups` 是查询主体（上游声明值，
+  缺省匿名主体，仅 `*` 策略命中）；`maxRows` 高于硬上限（10000）时钳制执行，
+  不报错；`includeRewrittenSql: true` 时响应回显改写后 SQL（调试用）。
+
+成功 200：
+
+```json
+{
+  "instance": "pg_prod",
+  "engine": "postgresql",
+  "columns": [ { "name": "phone", "type": "varchar" } ],
+  "rows": [ ["138****1234"], ["139****5678"] ],
+  "rowCount": 2,
+  "truncated": false,
+  "masked": true,
+  "rowFiltered": false,
+  "elapsedMs": 123
+}
+```
+
+- `rows` 按列位置对齐；`truncated: true` 表示命中行数上限被截断（不是错误）；
+  `masked` / `rowFiltered` 如实标注这条语句发生了什么。
+
+### 错误码
+
+业务错误统一 HTTP 400（`{code, message}`）；鉴权失败 401；容器兜底超时
+（`onTimeout` → 取消语句）返回 503。
+
+- mask-query 自有：`MULTI_STATEMENT`、`WRITE_STATEMENT`（只读数据面，非
+  `SELECT` 拒绝）、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（YAML 导入
+  的实例无连接信息，不可执行）、`QUERY_BUSY`（该实例并发已达上限，快速失败）、
+  `QUERY_TIMEOUT`、`QUERY_ERROR`（引擎执行失败，message 带 SQLState，不含凭据）、
+  `REWRITE_SERVICE_UNAVAILABLE`（mask-core 不可达，fail closed）、
+  `CREDENTIAL_UNAVAILABLE`（passwordRef 环境变量缺失）、`UNSUPPORTED_ENGINE`、
+  `CONFIG_ERROR`；
+- 改写阶段透传 mask-core：`CONFIG_ERROR` / `PARSE_ERROR` / `VALIDATION_ERROR` /
+  `UNSUPPORTED_STATEMENT` / `LINEAGE_UNKNOWN` / `REWRITE_ERROR` /
+  `METADATA_INSTANCE_NOT_FOUND` / `METADATA_SERVICE_UNAVAILABLE` /
+  `POLICY_SERVICE_UNAVAILABLE`。
+
+### 配置项（前缀 `query.`）
+
+| 配置 | 缺省 | 说明 |
+|---|---|---|
+| `query.timeout-seconds` | 30 | 单语句超时（纯服务端配置，请求级不开放超时覆盖） |
+| `query.max-rows` | 1000 | 请求未传 maxRows 时的生效值 |
+| `query.max-rows-hard` | 10000 | maxRows 钳制硬上限 |
+| `query.fetch-size` | 500 | 流式读取批大小 |
+| `query.max-concurrent-per-instance` | 10 | 每实例并发信号量（超出快速失败 `QUERY_BUSY`） |
+
+### 环境变量
+
+- `SQLMASK_QUERY_API_KEY`：本服务 `X-Api-Key` 校验 Key，**未配置 = 全 401**
+  （fail closed——这是直接导出真实数据的服务）；
+- `SQLMASK_METADATA_BASE_URL` / `SQLMASK_METADATA_API_KEY`：mask-metadata
+  地址与 Key；
+- `SQLMASK_REWRITE_BASE_URL` / `SQLMASK_REWRITE_API_KEY`：mask-core 按实例
+  改写端点地址与可选 Key（未配置放行）；
+- 数据库密码沿用 passwordRef 约定：实例只登记环境变量名
+  `SQLMASK_DS_<INSTANCE>_PASSWORD`，执行前由本服务本地解析；密码不落库、
+  不进日志、不进错误消息。
+
+### 引擎侧 UDF 部署前提
+
+列脱敏用「引擎内 UDF」，改写产物直接可执行的前提是各引擎侧已安装脱敏函数
+——这是部署前提，不是本服务职责：
+
+| 引擎 | UDF 安装方式 |
+|---|---|
+| PostgreSQL | `CREATE FUNCTION` 建 SQL/PL/pgSQL 函数 |
+| MySQL | `CREATE FUNCTION` 建存储函数 |
+| Hive / Spark | 上传 JAR 并注册函数（批 2 随方言一并交付） |
+| StarRocks | StarRocks 3.x Java UDF |
+| Trino | Java 插件（SPI 函数包，部署进 plugin 目录后重启） |
+
+各引擎最小 DDL 与全链路验收步骤见 `docs/query-acceptance/golden-queries.md`。
+
+### 构建运行
+
+```bash
+mvn -pl mask-query -am package
+java -jar mask-query/target/mask-query-0.1.0-SNAPSHOT.jar
+```
+
+### 全链路 IT 运行方式
+
+```bash
+mvn -pl mask-query -am test -Dtest=QueryEndToEndIT -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+嵌入式 PostgreSQL 真库 + 真 UDF 脱敏的完整链路验证（HTTP 入口 → 改写 →
+执行 → 护栏 → 审计），约 2-3 分钟。
+
 ## UDF 注册表（策略服务）
 
 策略微服务的实例可登记脱敏 UDF 签名（名称 + 有序参数类型 + 返回类型，
