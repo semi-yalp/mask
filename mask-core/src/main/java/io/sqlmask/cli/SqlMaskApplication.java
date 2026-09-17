@@ -117,6 +117,17 @@ public final class SqlMaskApplication implements Callable<Integer> {
       description = "Target dialect: postgresql, trino or mysql.")
   private String dialect;
 
+  @Option(names = "--instance", paramLabel = "<name>",
+      description = "Policy-service instance name: rewrite with the compiled effective "
+          + "config fetched from the policy service. Mutually exclusive with --metadata "
+          + "and --policies.")
+  private String instance;
+
+  @Option(names = "--policy-service", paramLabel = "<url>",
+      description = "Policy service base URL for --instance (default $POLICY_SERVICE_URL). "
+          + "API key is read from $POLICY_SERVICE_API_KEY.")
+  private String policyService;
+
   private PrintStream outStream = System.out;
   private PrintStream errStream = System.err;
 
@@ -169,7 +180,16 @@ public final class SqlMaskApplication implements Callable<Integer> {
       }
       return executePullMetadata(out, err);
     }
-    if (metadataPath == null) {
+    if (instance != null && !instance.isBlank()) {
+      if (metadataPath != null) {
+        err.println("sql-mask: --instance cannot be combined with --metadata");
+        return 2;
+      }
+      if (policiesPath != null) {
+        err.println("sql-mask: --policies cannot be combined with --instance");
+        return 2;
+      }
+    } else if (metadataPath == null) {
       err.println("sql-mask: --metadata is required for rewriting");
       return 2;
     }
@@ -185,7 +205,7 @@ public final class SqlMaskApplication implements Callable<Integer> {
     }
 
     CliOptions options = new CliOptions(metadataPath, policiesPath, user, groups,
-        sql, inputPath, outputPath, dialect);
+        sql, inputPath, outputPath, dialect, instance, policyService);
     // the runner aborts on the first failing statement, so this returns only
     // when the entire input succeeded; output happens after that point
     String result = new SqlMaskRunner().run(options);

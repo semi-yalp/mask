@@ -37,7 +37,7 @@ public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
       "--metadata", "--policies", "--groups", "--sql", "--input", "--output", "--dialect",
-      "--help", "--version", "--pull-metadata");
+      "--help", "--version", "--pull-metadata", "--instance", "--policy-service");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {
