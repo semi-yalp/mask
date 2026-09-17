@@ -11,7 +11,7 @@ import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 class BabelEquivalenceTest {
@@ -58,7 +58,12 @@ class BabelEquivalenceTest {
 
   @Test
   void newParserMatchesBabelWhenFlagsClosed() throws IOException {
-    for (String sql : corpus()) {
+    List<String> statements = corpus();
+    // 差分规模下限：golden 路径 Files.exists 不成立时会静默跳过合并，
+    // 差分规模会无声缩水——用下限断言钉死（语料 25 + golden >= 15）。
+    assertTrue(statements.size() >= 40,
+        "differential corpus shrank: " + statements.size());
+    for (String sql : statements) {
       try {
         SqlNode base = SqlParser.create(sql, babel()).parseStmt();
         SqlNode masked = SqlParser.create(sql, ours()).parseStmt();
@@ -69,6 +74,5 @@ class BabelEquivalenceTest {
         fail("both parsers must accept corpus statement: " + sql + " -> " + e.getMessage());
       }
     }
-    assertNotNull(corpus());
   }
 }
