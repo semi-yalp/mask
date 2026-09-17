@@ -572,3 +572,96 @@ users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
 `SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制
 `X-Api-Key` 校验（401），未配置则放行（本地开发）；存量策略自动等价
 `{"users":["*"]}` 全体生效。
+
+## 审计日志
+
+两个服务（sql-mask 8080 与 mask-metadata 8082）把审计事件写入 Elasticsearch：
+按天索引 `<AUDIT_INDEX_PREFIX>-YYYY.MM.dd`（UTC 日期），索引模板在服务启动时自动
+安装（失败每 60s 重试一次，绝不阻塞启动与业务请求）。写入是尽力而为（best-effort）：
+内存队列满则丢弃新事件，ES 故障只降级不拦截业务请求（限频 WARN 日志，恢复时一条
+INFO），无重试、无本地缓冲。
+
+三类事件：
+
+| eventType | 记什么 | 说明 |
+|---|---|---|
+| `REWRITE` | 每次 `POST /api/rewrite` 一条 | 成功与失败都记（`outcome` = `SUCCESS`/`FAILURE`）；`rewrittenSql` 是全部语句改写后拼接的全文，超过 `AUDIT_SQL_MAX_CHARS`（默认 8192）字符截断并置 `sqlTruncated: true` |
+| `ADMIN_CHANGE` | 管理面变更一条 | 实例/策略/UDF/表结构导入（mask-metadata 侧还有采集 `COLLECT`）；只记动作摘要（`action`、`resourceType`、`resourceName`、`outcome`、错误码），不携带请求体与 UDF 参数 |
+| `EFFECTIVE_PULL` | 每次 `GET /api/effective/{i}` 拉取一条 | 可用 `AUDIT_EFFECTIVE_PULL_ENABLED=false` 整体关闭 |
+
+环境变量（两个服务共用同一套；全部有内置缺省——application.yml 占位符直接解析同名
+环境变量，按下表拼写配置即可）：
+
+| 环境变量 | 缺省 | 说明 |
+|---|---|---|
+| `AUDIT_ENABLED` | `true` | 总开关，`false` 时完全不审计 |
+| `AUDIT_ES_URL` | `http://127.0.0.1:9200` | ES 地址；生产指向远端集群时改这里（compose 里的单节点 ES 只是本地开发便利） |
+| `AUDIT_ES_API_KEY` | 空 | ES API Key 认证（与下面的用户名/密码二选一） |
+| `AUDIT_ES_USER` / `AUDIT_ES_PASSWORD` | 空 | ES Basic 认证 |
+| `AUDIT_INDEX_PREFIX` | `mask-audit` | 索引前缀（同时是服务端安装的索引模板名） |
+| `AUDIT_QUEUE_CAPACITY` | `10000` | 内存队列容量，满即丢弃新事件（计数进 WARN 日志） |
+| `AUDIT_BATCH_SIZE` | `200` | 批量 bulk 提交的批大小 |
+| `AUDIT_FLUSH_INTERVAL_MS` | `2000` | 未攒满一批时的最长刷写间隔 |
+| `AUDIT_SQL_MAX_CHARS` | `8192` | REWRITE 事件中 SQL 字段的截断长度 |
+| `AUDIT_EFFECTIVE_PULL_ENABLED` | `true` | `false` 时不再产生 `EFFECTIVE_PULL` 事件 |
+
+### 查询 API：GET /api/audit/events
+
+固定条件查询：条件全是 keyword 精确（term）过滤，按 `@timestamp` 倒序、offset 分页；
+不接受自由查询 DSL——自由探索请用 Kibana 直连 `<前缀>-*` 索引。
+
+| 参数 | 缺省 | 说明 |
+|---|---|---|
+| `eventType` | 不过滤 | `REWRITE` / `ADMIN_CHANGE` / `EFFECTIVE_PULL` |
+| `outcome` | 不过滤 | `SUCCESS` / `FAILURE` |
+| `instance` / `resourceType` / `action` | 不过滤 | 管理面事件的实例、资源类型（`INSTANCE`/`POLICY`/`UDF`/`TABLES`）与动作（`CREATE`/`UPDATE`/`DELETE`/`REGISTER`/`IMPORT`/`REPLACE_TABLES`/`COLLECT`） |
+| `user` | 不过滤 | 精确匹配 `actor.user`（REWRITE / EFFECTIVE_PULL 事件携带查询主体） |
+| `from` / `to` | `to`=当前时刻，`from`=`to`-24h | ISO-8601（如 `2026-09-16T00:00:00Z`），区间最长 7 天 |
+| `page` | `0` | 从 0 起 |
+| `size` | `50` | 1–200 |
+
+返回 `{ "total": …, "page": …, "size": …, "events": [ … ] }`。ES 不可达或查询报错时
+返回 **502 `AUDIT_SEARCH_UNAVAILABLE`**——审计存储是本接口的上游依赖，不是 500。
+
+鉴权与 `/api/instances` 同一把管理面钥匙：配置了 `SQLMASK_ADMIN_API_KEY` 即要求
+`X-Api-Key`（否则 401）；未配置则开放（与其它管理面一致的本地开发语义——注意只配
+`SQLMASK_DATA_API_KEY` 时 `/api/audit` 同样是开放的，运维部署请成对确认）。
+
+本地起套（compose 提供 ES，端口显式只绑 `127.0.0.1`）：
+
+```bash
+# 本地起 ES（sql-mask / mask-metadata 的 AUDIT_ES_URL 缺省即指向它）
+docker compose -f docker-compose.metadata.yml up -d elasticsearch
+curl -s 'http://127.0.0.1:9200/_cat/indices/mask-audit-*?v'
+curl -s 'http://127.0.0.1:8080/api/audit/events?eventType=REWRITE&size=10'
+```
+
+mask-metadata 也在 compose 里跑时，给它的 environment 加一行
+`AUDIT_ES_URL: http://elasticsearch:9200`（容器内的 127.0.0.1 不是宿主机）。
+
+保留策略服务端不管理：按天索引天然支持部署侧按天清理（ILM / curator / 脚本均可），
+v1 服务端安装的索引模板不绑 ILM。需要自动过期时可在部署侧自行绑定（示例，30 天删除）：
+
+<details>
+<summary>可选：ILM 30 天删除示例</summary>
+
+```json
+PUT _ilm/policy/mask-audit-30d
+{
+  "policy": {
+    "phases": {
+      "delete": { "min_age": "30d", "actions": { "delete": {} } }
+    }
+  }
+}
+
+# 用更高优先级的独立模板把策略绑到审计索引（不要改动服务端安装的 mask-audit 模板）
+PUT _index_template/mask-audit-ilm
+{
+  "index_patterns": ["mask-audit-*"],
+  "priority": 200,
+  "template": { "settings": { "index.lifecycle.name": "mask-audit-30d" } }
+}
+```
+
+</details>
