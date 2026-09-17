@@ -1,4 +1,5 @@
-scrape_interval: 15s
+global:
+  scrape_interval: 15s
 
 scrape_configs:
   # 默认形态：服务跑在宿主机、Prometheus 跑容器
