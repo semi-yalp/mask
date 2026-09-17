@@ -78,7 +78,11 @@ public class EffectiveMetrics {
       String instance) {
     return map.computeIfAbsent(instance, i -> {
       AtomicLong ref = new AtomicLong();
-      Gauge.builder(name, ref, AtomicLong::get).tag("instance", i).register(registry);
+      // Micrometer 1.13 的 gauge 默认只持 WeakReference：若 recorder/registry bean
+      // 被替换，旧 ref 失去 map 之外的强引用后 gauge 会返回 NaN。
+      // strongReference(true) 让 registry 显式持强引用（与 mask-audit EsAuditRecorder 同款）。
+      Gauge.builder(name, ref, AtomicLong::get).strongReference(true)
+          .tag("instance", i).register(registry);
       return ref;
     });
   }
