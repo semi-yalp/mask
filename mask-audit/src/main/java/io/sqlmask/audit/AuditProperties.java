@@ -15,7 +15,7 @@ public class AuditProperties {
   private int batchSize = 200;
   private long flushIntervalMs = 2000;
   private int sqlMaxChars = 8192;
-  private boolean effectivePullEnabled = true;
+  private final EffectivePull effectivePull = new EffectivePull();
   private final Elasticsearch elasticsearch = new Elasticsearch();
 
   public boolean isEnabled() { return enabled; }
@@ -30,11 +30,21 @@ public class AuditProperties {
   public void setFlushIntervalMs(long flushIntervalMs) { this.flushIntervalMs = flushIntervalMs; }
   public int getSqlMaxChars() { return sqlMaxChars; }
   public void setSqlMaxChars(int sqlMaxChars) { this.sqlMaxChars = sqlMaxChars; }
-  public boolean isEffectivePullEnabled() { return effectivePullEnabled; }
-  public void setEffectivePullEnabled(boolean effectivePullEnabled) {
-    this.effectivePullEnabled = effectivePullEnabled;
-  }
+
+  /** {@code audit.effective-pull.enabled} (spec §5.1): off means zero EFFECTIVE_PULL events. */
+  public boolean isEffectivePullEnabled() { return effectivePull.isEnabled(); }
+
+  public EffectivePull getEffectivePull() { return effectivePull; }
+
   public Elasticsearch getElasticsearch() { return elasticsearch; }
+
+  /** Nested {@code audit.effective-pull.*} binding shape (matches application.yml). */
+  public static class EffectivePull {
+    private boolean enabled = true;
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+  }
 
   public static class Elasticsearch {
     private String url = "http://127.0.0.1:9200";
