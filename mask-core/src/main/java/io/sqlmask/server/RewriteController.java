@@ -30,69 +30,66 @@ public class RewriteController {
 
   private final RewriteEngine engine;
   private final AuditRecorder audit;
+  private final RewriteMetrics metrics;
 
-  public RewriteController(RewriteEngine engine, AuditRecorder audit) {
+  public RewriteController(RewriteEngine engine, AuditRecorder audit, RewriteMetrics metrics) {
     this.engine = engine;
     this.audit = audit;
+    this.metrics = metrics;
   }
 
   @PostMapping("/rewrite")
   public RewriteResponse rewrite(@RequestBody RewriteRequest request,
       HttpServletRequest httpRequest) {
-    long start = System.nanoTime();
-    if (request == null || request.metadataYaml() == null || request.metadataYaml().isBlank()) {
-      throw fail(httpRequest, start, null, SqlMaskException.Code.CONFIG_ERROR,
-          "metadataYaml is required: paste the YAML configuration declaring tables, "
-              + "columns and masking policies");
-    }
-    if (request.sql() == null || request.sql().isBlank()) {
-      throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
-          "sql is required: provide at least one SELECT statement");
-    }
-    String dialect = request.dialect() == null || request.dialect().isBlank()
+    String dialect = request == null || request.dialect() == null || request.dialect().isBlank()
         ? "postgresql"
         : request.dialect();
-    List<StatementRewrite> statements;
+    long start = System.nanoTime();
     try {
-      statements = engine.rewrite(
+      if (request == null || request.metadataYaml() == null || request.metadataYaml().isBlank()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "metadataYaml is required: paste the YAML configuration declaring tables, "
+                + "columns and masking policies");
+      }
+      if (request.sql() == null || request.sql().isBlank()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "sql is required: provide at least one SELECT statement");
+      }
+      List<StatementRewrite> statements = engine.rewrite(
           request.metadataYaml(), request.policyYaml(), request.sql(), dialect,
           Subject.of(request.user(), request.groups()));
+      metrics.success(dialect, statements);
+      audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.SUCCESS,
+          elapsedMs(start), AuditEvents.sourceIp(httpRequest),
+          AuditEvents.authKind(httpRequest), request.user(), request.groups(), dialect,
+          statements.size(),
+          statements.stream().anyMatch(StatementRewrite::masked),
+          statements.stream().anyMatch(StatementRewrite::rowFiltered),
+          request.sql(), RewriteEngine.join(statements), null, null));
+      return new RewriteResponse(statements, RewriteEngine.join(statements));
     } catch (SqlMaskException e) {
-      throw recorded(httpRequest, start, request, e.getCode(), e);
+      audit.record(failureEvent(httpRequest, start, request, e.getCode().name(), e.getMessage()));
+      metrics.failure(dialect, e.getCode().name());
+      throw e;
     } catch (RuntimeException e) {
-      throw recorded(httpRequest, start, request, null, e);
+      String name = e.getClass().getSimpleName();
+      audit.record(failureEvent(httpRequest, start, request, name,
+          e.getMessage() == null ? name : e.getMessage()));
+      metrics.failure(dialect, "REWRITE_ERROR");
+      throw e;
+    } finally {
+      metrics.duration(dialect, start);
     }
-    audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.SUCCESS,
-        elapsedMs(start), AuditEvents.sourceIp(httpRequest),
-        AuditEvents.authKind(httpRequest), request.user(), request.groups(), dialect,
-        statements.size(),
-        statements.stream().anyMatch(StatementRewrite::masked),
-        statements.stream().anyMatch(StatementRewrite::rowFiltered),
-        request.sql(), RewriteEngine.join(statements), null, null));
-    return new RewriteResponse(statements, RewriteEngine.join(statements));
   }
 
-  /** Guards path: record the FAILURE event then raise the 400. */
-  private SqlMaskException fail(HttpServletRequest httpRequest, long start,
-      RewriteRequest request, SqlMaskException.Code code, String message) {
-    audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.FAILURE, elapsedMs(start),
+  /** Builds the FAILURE event: exactly one per failed request (spec §5.1). */
+  private AuditEvent failureEvent(HttpServletRequest httpRequest, long start,
+      RewriteRequest request, String errorCode, String errorMessage) {
+    return AuditEvent.rewrite("sql-mask", AuditEvent.FAILURE, elapsedMs(start),
         AuditEvents.sourceIp(httpRequest), AuditEvents.authKind(httpRequest),
         request == null ? null : request.user(), request == null ? null : request.groups(),
         request == null ? null : request.dialect(), null, null, null, null, null,
-        code.name(), message));
-    return new SqlMaskException(code, message);
-  }
-
-  /** Records the FAILURE event and returns the exception to rethrow untouched. */
-  private RuntimeException recorded(HttpServletRequest httpRequest, long start,
-      RewriteRequest request, SqlMaskException.Code code, RuntimeException e) {
-    audit.record(AuditEvent.rewrite("sql-mask", AuditEvent.FAILURE, elapsedMs(start),
-        AuditEvents.sourceIp(httpRequest), AuditEvents.authKind(httpRequest),
-        request == null ? null : request.user(), request == null ? null : request.groups(),
-        request == null ? null : request.dialect(), null, null, null, null, null,
-        code == null ? e.getClass().getSimpleName() : code.name(),
-        e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-    return e;
+        errorCode, errorMessage);
   }
 
   private static long elapsedMs(long startNanos) {
