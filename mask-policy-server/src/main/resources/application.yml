@@ -12,3 +12,16 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema.sql
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  observations:
+    key:
+      values:
+        application: ${spring.application.name}
