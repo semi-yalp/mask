@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -55,5 +56,17 @@ class AuditEventTest {
     groups.add("ops");
     assertEquals(List.of("devs"), e.actorGroups());
     assertNotSame(groups, e.actorGroups());
+  }
+
+  @Test
+  void queryFactoryCarriesEnvelopeAndDetail() {
+    AuditEvent event = AuditEvent.query("mask-query", AuditEvent.SUCCESS, 12L, "10.0.0.1",
+        "API_KEY", "alice", List.of("devs"), "pg_prod", "postgresql", true, false,
+        "SELECT phone FROM customer", null, null,
+        java.util.Map.of("engine", "postgresql", "rowCount", 2, "truncated", false));
+    assertThat(event.eventType()).isEqualTo("QUERY");
+    assertThat(event.instance()).isEqualTo("pg_prod");
+    assertThat(event.statementCount()).isEqualTo(1);
+    assertThat(event.detail()).containsEntry("rowCount", 2);
   }
 }

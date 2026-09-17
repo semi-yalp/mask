@@ -1,5 +1,6 @@
 package io.sqlmask.query.web;
 
+import io.sqlmask.query.audit.QueryAuditor;
 import io.sqlmask.query.config.QueryProperties;
 import io.sqlmask.query.error.QueryException;
 import io.sqlmask.query.service.CancelRegistry;
@@ -18,11 +19,14 @@ public class QueryController {
   private final QueryService service;
   private final CancelRegistry cancels;
   private final QueryProperties props;
+  private final QueryAuditor auditor;
 
-  public QueryController(QueryService service, CancelRegistry cancels, QueryProperties props) {
+  public QueryController(QueryService service, CancelRegistry cancels, QueryProperties props,
+      QueryAuditor auditor) {
     this.service = service;
     this.cancels = cancels;
     this.props = props;
+    this.auditor = auditor;
   }
 
   @PostMapping("/api/v1/query")
@@ -41,8 +45,20 @@ public class QueryController {
     // WebAsyncTask 的超时兜底比语句超时略长；断连/容器超时先 cancel 再回 503
     CancelRegistry.Registration registration = cancels.begin();
     WebAsyncTask<ResponseEntity<QueryResult>> task =
-        new WebAsyncTask<>(props.timeoutSeconds() * 1000L + 10_000L, () ->
-            ResponseEntity.ok(service.execute(request, registration)));
+        new WebAsyncTask<>(props.timeoutSeconds() * 1000L + 10_000L, () -> {
+          try {
+            QueryResult result = service.execute(request, registration);
+            auditor.success(result, request.sql(), request.user(), request.groups(),
+                httpRequest.getRemoteAddr());
+            return ResponseEntity.ok(result);
+          } catch (QueryException e) {
+            if (!e.rewritePhase()) {
+              auditor.failure(e, request.sql(), request.user(), request.groups(),
+                  httpRequest.getRemoteAddr(), request.instance());
+            }
+            throw e;
+          }
+        });
     task.onTimeout(() -> {
       cancels.cancel(registration.id());
       return ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE).build();
