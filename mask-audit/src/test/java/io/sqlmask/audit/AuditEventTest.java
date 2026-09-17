@@ -56,4 +56,23 @@ class AuditEventTest {
     assertEquals(List.of("devs"), e.actorGroups());
     assertNotSame(groups, e.actorGroups());
   }
+
+  @Test
+  void detailDropsNullValuedEntriesInsteadOfThrowing() {
+    // Map.of 禁 null 值，须用 HashMap 构造含 null 的 detail（如 policyType 缺省）
+    var raw = new java.util.HashMap<String, Object>();
+    raw.put("a", "x");
+    raw.put("b", null);
+    AuditEvent e = AuditEvent.adminChange("sql-mask", AuditEvent.FAILURE, 3L, "127.0.0.1",
+        "ANONYMOUS", "CREATE", "POLICY", "crm", "p1", raw, "CONFIG_ERROR", "boom");
+    assertEquals(java.util.Map.of("a", "x"), e.detail());
+    raw.put("c", "y"); // 防御性拷贝：后续改动不影响已构造事件
+    assertEquals(java.util.Map.of("a", "x"), e.detail());
+
+    var allNull = new java.util.HashMap<String, Object>();
+    allNull.put("policyType", null);
+    AuditEvent n = AuditEvent.adminChange("sql-mask", AuditEvent.FAILURE, 3L, "127.0.0.1",
+        "ANONYMOUS", "CREATE", "POLICY", "crm", "p1", allNull, "CONFIG_ERROR", "boom");
+    assertNull(n.detail());
+  }
 }

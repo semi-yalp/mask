@@ -122,6 +122,30 @@ class AdminAuditTest {
   }
 
   @Test
+  void nullPolicyTypeKeeps400AndStillEmitsFailureEvent() throws Exception {
+    // 回归：policyType 缺省 → parseType 抛 CONFIG_ERROR；FAILURE 路径的 detail 含
+    // policyType→null，审计构造不得因此 NPE 顶掉原异常（否则客户端见 500 且事件丢失）——
+    // 审计绝不改变业务结果
+    ensureCrmInstance();
+    mvc.perform(post("/api/instances/crm/policies").contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name": "p1",
+                 "resource": {"catalog": "crm", "schema": "public", "table": "customer",
+                   "columns": ["id"]},
+                 "subjects": {"users": ["*"]}}
+                """))
+        .andExpect(status().isBadRequest());
+    AuditEvent e = recorded().stream()
+        .filter(x -> x.outcome().equals(AuditEvent.FAILURE))
+        .findFirst().orElseThrow();
+    assertEquals("CREATE", e.action());
+    assertEquals("POLICY", e.resourceType());
+    assertEquals("p1", e.resourceName());
+    assertEquals("CONFIG_ERROR", e.errorCode());
+    assertEquals(Boolean.FALSE, e.detail().get("enabled")); // null 值条目被丢弃，其余保留
+  }
+
+  @Test
   void udfRegisterAndDeleteEmitEvents() throws Exception {
     ensureCrmInstance();
     mvc.perform(post("/api/instances/crm/udfs").contentType(MediaType.APPLICATION_JSON)

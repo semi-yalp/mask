@@ -43,7 +43,23 @@ public record AuditEvent(
   public AuditEvent {
     timestamp = timestamp == null ? Instant.now() : timestamp;
     actorGroups = actorGroups == null ? List.of() : List.copyOf(actorGroups);
-    detail = detail == null ? null : Map.copyOf(detail);
+    detail = sanitizeDetail(detail);
+  }
+
+  /**
+   * Defensive copy that drops null-valued (and null-keyed) entries —
+   * {@link Map#copyOf} throws NPE on them, and thrown from this canonical
+   * constructor it would replace the very business exception a FAILURE audit
+   * event is meant to record (audit never alters business outcomes). An empty
+   * result normalizes to null so the field stays omitted downstream.
+   */
+  private static Map<String, Object> sanitizeDetail(Map<String, Object> detail) {
+    if (detail == null) {
+      return null;
+    }
+    var cleaned = new java.util.LinkedHashMap<String, Object>(detail);
+    cleaned.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null);
+    return cleaned.isEmpty() ? null : Map.copyOf(cleaned);
   }
 
   public static AuditEvent rewrite(String service, String outcome, Long durationMs,
