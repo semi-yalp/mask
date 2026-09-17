@@ -34,6 +34,15 @@ public class ApiExceptionHandler {
         "request body is not valid JSON: " + e.getMessage()));
   }
 
+  /** ES outage behind the audit query surface surfaces as a 502, not a 500. */
+  @ExceptionHandler(io.sqlmask.audit.AuditSearchUnavailableException.class)
+  public ResponseEntity<ApiError> handleAuditUnavailable(
+      io.sqlmask.audit.AuditSearchUnavailableException e) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(new ApiError("AUDIT_SEARCH_UNAVAILABLE",
+            e.getMessage() == null ? "elasticsearch unavailable" : e.getMessage()));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception e) {
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiError(
