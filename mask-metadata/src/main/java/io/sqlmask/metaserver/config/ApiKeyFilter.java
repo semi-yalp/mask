@@ -35,6 +35,8 @@ public class ApiKeyFilter implements Filter {
           "{\"code\":\"UNAUTHORIZED\",\"message\":\"missing or invalid API key\",\"details\":[]}");
       return;
     }
+    request.setAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE,
+        io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY);
     chain.doFilter(req, res);
   }
 }

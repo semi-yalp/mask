@@ -7,6 +7,7 @@ import io.sqlmask.metaserver.model.TableStructure;
 import io.sqlmask.metaserver.service.MetadataService;
 import io.sqlmask.metaserver.service.MetadataYamlImporter;
 import io.sqlmask.metaserver.service.StructureService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Admin plane: instance CRUD and YAML import (spec §4.1). Collection lives in
@@ -29,24 +31,30 @@ public class MetadataAdminController {
   private final MetadataService instances;
   private final StructureService structures;
   private final MetadataYamlImporter importer;
+  private final io.sqlmask.audit.AuditAdminHelper audit;
 
   public MetadataAdminController(MetadataService instances, StructureService structures,
-      MetadataYamlImporter importer) {
+      MetadataYamlImporter importer, io.sqlmask.audit.AuditAdminHelper audit) {
     this.instances = instances;
     this.structures = structures;
     this.importer = importer;
+    this.audit = audit;
   }
 
   @PostMapping
-  public MetadataDtos.InstanceDetailResponse create(
+  public MetadataDtos.InstanceDetailResponse create(HttpServletRequest httpRequest,
       @RequestBody MetadataDtos.InstanceCreateRequest request) {
     if (request == null || request.name() == null || request.dialect() == null) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "name and dialect are required");
     }
-    InstanceRow row = instances.create(request.name(), request.dialect(),
-        ofNullable(request.connection()));
-    return detail(row);
+    return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
+        () -> Map.of("dialect", request.dialect()),
+        () -> {
+          InstanceRow row = instances.create(request.name(), request.dialect(),
+              ofNullable(request.connection()));
+          return detail(row);
+        });
   }
 
   @GetMapping
@@ -63,22 +71,30 @@ public class MetadataAdminController {
   }
 
   @PutMapping("/{name}")
-  public MetadataDtos.InstanceDetailResponse update(@PathVariable("name") String name,
+  public MetadataDtos.InstanceDetailResponse update(HttpServletRequest httpRequest,
+      @PathVariable("name") String name,
       @RequestBody MetadataDtos.InstanceUpdateRequest request) {
-    ConnectionInfo connection = ofNullable(request == null ? null : request.connection());
-    return detail(instances.updateConnection(name, connection));
+    return audit.adminChange(httpRequest, "UPDATE", "INSTANCE", null, name, Map::of,
+        () -> {
+          ConnectionInfo connection = ofNullable(request == null ? null : request.connection());
+          return detail(instances.updateConnection(name, connection));
+        });
   }
 
   @DeleteMapping("/{name}")
-  public MetadataDtos.InstanceSummaryResponse delete(@PathVariable("name") String name) {
-    InstanceRow row = instances.get(name);
-    instances.delete(name);
-    return new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-        row.metadataVersion());
+  public MetadataDtos.InstanceSummaryResponse delete(HttpServletRequest httpRequest,
+      @PathVariable("name") String name) {
+    return audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name, Map::of,
+        () -> {
+          InstanceRow row = instances.get(name);
+          instances.delete(name);
+          return new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
+              row.metadataVersion());
+        });
   }
 
   @PostMapping("/import")
-  public MetadataDtos.ImportResponse importYaml(
+  public MetadataDtos.ImportResponse importYaml(HttpServletRequest httpRequest,
       @RequestBody MetadataDtos.InstanceImportRequest request) {
     if (request == null || request.name() == null || request.dialect() == null
         || request.metadataYaml() == null || request.metadataYaml().isBlank()) {
@@ -90,6 +106,14 @@ public class MetadataAdminController {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "metadataYaml declares no tables");
     }
+    return audit.adminChange(httpRequest, "IMPORT", "TABLES", null, request.name(),
+        () -> Map.of("tableCount", tables.size(),
+            "columnCount", tables.stream().mapToInt(t -> t.columns().size()).sum()),
+        () -> doImportYaml(request, tables));
+  }
+
+  private MetadataDtos.ImportResponse doImportYaml(MetadataDtos.InstanceImportRequest request,
+      List<TableStructure> tables) {
     instances.create(request.name(), request.dialect(),
         ofNullable(request.connection()));
     long version = structures.replace(request.name().trim(), tables);

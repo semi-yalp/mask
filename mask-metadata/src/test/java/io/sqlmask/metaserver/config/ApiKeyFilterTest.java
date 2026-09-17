@@ -49,4 +49,15 @@ class ApiKeyFilterTest {
     MockHttpServletResponse response = run(new ApiKeyFilter("secret"), "secret");
     assertEquals(200, response.getStatus());
   }
+
+  @Test
+  void validKeyMarksAuthKindAttribute() throws Exception {
+    ApiKeyFilter filter = new ApiKeyFilter("secret");
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/instances");
+    request.addHeader("X-Api-Key", "secret");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    filter.doFilter(request, response, new MockFilterChain());
+    assertEquals(io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY,
+        request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
+  }
 }
