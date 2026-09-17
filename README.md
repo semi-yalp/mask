@@ -636,8 +636,9 @@ curl -s 'http://127.0.0.1:9200/_cat/indices/mask-audit-*?v'
 curl -s 'http://127.0.0.1:8080/api/audit/events?eventType=REWRITE&size=10'
 ```
 
-mask-metadata 也在 compose 里跑时，给它的 environment 加一行
-`AUDIT_ES_URL: http://elasticsearch:9200`（容器内的 127.0.0.1 不是宿主机）。
+compose 套里的 mask-metadata 已预置 `AUDIT_ES_URL: http://elasticsearch:9200`，
+开箱即写 compose 内的单节点 ES（容器内的 127.0.0.1 不是宿主机；自行编排容器时
+仍需显式配置这一行）。
 
 保留策略服务端不管理：按天索引天然支持部署侧按天清理（ILM / curator / 脚本均可），
 v1 服务端安装的索引模板不绑 ILM。需要自动过期时可在部署侧自行绑定（示例，30 天删除）：

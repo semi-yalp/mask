@@ -54,7 +54,16 @@ public class AuditAutoConfiguration {
           }
           return builder;
         })
+        // spec §4.1: a bulk must not hang the writer (or the query endpoint)
+        // on a dead ES for the ~30s httpclient default.
+        .setRequestConfigCallback(AuditAutoConfiguration::esTimeouts)
         .build();
+  }
+
+  /** Bulk HTTP timeouts (spec §4.1): connect 3s / socket 10s. Package-private for tests. */
+  static org.apache.http.client.config.RequestConfig.Builder esTimeouts(
+      org.apache.http.client.config.RequestConfig.Builder requestConfig) {
+    return requestConfig.setConnectTimeout(3_000).setSocketTimeout(10_000);
   }
 
   @Bean(destroyMethod = "close")

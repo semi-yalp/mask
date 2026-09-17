@@ -40,4 +40,14 @@ class AuditAutoConfigurationTest {
       });
     });
   }
+
+  /** Final-review I1 / spec §4.1: bulk HTTP timeouts connect 3s / socket 10s. */
+  @Test
+  void esRequestTimeoutsAreConnect3sSocket10s() {
+    org.apache.http.client.config.RequestConfig config =
+        AuditAutoConfiguration.esTimeouts(
+            org.apache.http.client.config.RequestConfig.custom()).build();
+    org.junit.jupiter.api.Assertions.assertEquals(3000, config.getConnectTimeout());
+    org.junit.jupiter.api.Assertions.assertEquals(10000, config.getSocketTimeout());
+  }
 }

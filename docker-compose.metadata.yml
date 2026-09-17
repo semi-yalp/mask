@@ -17,6 +17,8 @@ services:
       METADATA_PG_URL: jdbc:postgresql://postgres:5432/mask_metadata
       METADATA_PG_USER: postgres
       METADATA_PG_PASSWORD: postgres
+      # 审计事件写入 compose 内的单节点 ES（容器内 127.0.0.1 不是宿主机）
+      AUDIT_ES_URL: http://elasticsearch:9200
       # password_ref 指向的环境变量由部署侧注入，例如：
       # SQLMASK_DS_PG_PROD_PASSWORD: s3cret
     ports:

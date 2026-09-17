@@ -3,7 +3,9 @@ package io.sqlmask.server;
 import io.sqlmask.audit.AuditQuery;
 import io.sqlmask.audit.AuditSearchClient;
 import io.sqlmask.audit.AuditSearchResult;
+import io.sqlmask.audit.AuditSearchUnavailableException;
 import io.sqlmask.error.SqlMaskException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -27,9 +29,14 @@ public class AuditQueryController {
   private static final int DEFAULT_SIZE = 50;
   private static final int MAX_SIZE = 200;
 
-  private final AuditSearchClient search;
+  /**
+   * Resolved lazily: with {@code audit.enabled=false} no search client bean
+   * exists, and a hard dependency here would fail application startup
+   * (final-review C1). The endpoint answers 502 instead, same as an ES outage.
+   */
+  private final ObjectProvider<AuditSearchClient> search;
 
-  public AuditQueryController(AuditSearchClient search) {
+  public AuditQueryController(ObjectProvider<AuditSearchClient> search) {
     this.search = search;
   }
 
@@ -69,7 +76,12 @@ public class AuditQueryController {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "time range must not exceed 7 days");
     }
-    AuditSearchResult result = search.search(new AuditQuery(eventType, outcome, instance,
+    AuditSearchClient client = search.getIfAvailable();
+    if (client == null) {
+      throw new AuditSearchUnavailableException(
+          "audit is disabled (audit.enabled=false)", null);
+    }
+    AuditSearchResult result = client.search(new AuditQuery(eventType, outcome, instance,
         resourceType, action, user, fromAt, toAt, pageNumber, pageSize));
     return new AuditQueryResponse(result.total(), pageNumber, pageSize, result.events());
   }

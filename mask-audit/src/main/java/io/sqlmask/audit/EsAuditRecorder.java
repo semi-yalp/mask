@@ -59,6 +59,9 @@ public final class EsAuditRecorder implements AuditRecorder, AutoCloseable {
     try {
       if (!queue.offer(event)) {
         dropped.incrementAndGet();
+        // surface the drop through the same rate-limited WARN as bulk failures
+        // (spec §4.2) — a queue-full drop is a failure signal, not silence.
+        reporter.recordQueueDrop(1, queue.size());
       }
     } catch (RuntimeException e) {
       // absolute guarantee: auditing never breaks the business request
@@ -117,13 +120,13 @@ public final class EsAuditRecorder implements AuditRecorder, AutoCloseable {
       });
       if (response.errors()) {
         failedBatches.incrementAndGet();
-        reporter.recordBatchFailure(batch.size());
+        reporter.recordBatchFailure(batch.size(), queue.size());
       } else {
         reporter.recordSuccess();
       }
     } catch (IOException | RuntimeException e) {
       failedBatches.incrementAndGet();
-      reporter.recordBatchFailure(batch.size());
+      reporter.recordBatchFailure(batch.size(), queue.size());
     } finally {
       batch.clear();
     }

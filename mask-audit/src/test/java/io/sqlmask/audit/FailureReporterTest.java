@@ -68,4 +68,58 @@ class FailureReporterTest {
     r.recordSuccess();
     assertEquals(0, infos.size());
   }
+
+  /** Final-review I2 / spec §4.2: queue-full drops warn with depth and recover. */
+  @Test
+  void queueDropWarnsWithDepthAndRecovers() {
+    List<String> warns = new ArrayList<>();
+    List<String> infos = new ArrayList<>();
+    FailureReporter r = new FailureReporter(at("2026-09-16T00:00:00Z"), warns::add, infos::add);
+
+    r.recordQueueDrop(3, 10_000);
+    assertEquals(1, warns.size());
+    assertTrue(warns.get(0).contains("queue=10000")); // current queue depth
+    assertTrue(warns.get(0).contains("queue-drops=3"));
+    assertTrue(warns.get(0).contains("dropped-batches=0"));
+
+    r.recordSuccess();
+    assertEquals(1, infos.size()); // a drop is a failure signal: recovery INFO fires
+    assertTrue(infos.get(0).contains("recovered"));
+    assertEquals(0, r.snapshotQueueDrops()); // counters reset on recovery
+  }
+
+  @Test
+  void queueDropAndBatchFailureShareWindowAndCounters() {
+    List<String> warns = new ArrayList<>();
+    FailureReporter r = new FailureReporter(at("2026-09-16T00:00:00Z"), warns::add, s -> {});
+    r.recordQueueDrop(1, 9_999);
+    assertEquals(1, warns.size());
+    assertTrue(warns.get(0).contains("queue=9999"));
+
+    Clock later = Clock.fixed(Instant.parse("2026-09-16T00:01:01Z"), ZoneOffset.UTC);
+    r.advance(later);
+    r.recordBatchFailure(50, 8_000);
+    assertEquals(2, warns.size());
+    assertTrue(warns.get(1).contains("queue=8000"));
+    assertTrue(warns.get(1).contains("dropped-batches=1"));
+    assertTrue(warns.get(1).contains("queue-drops=1"));
+    assertTrue(warns.get(1).contains("events=51")); // 50 failed + 1 queue-dropped
+  }
+
+  @Test
+  void legacyOverloadsReportUnknownDepth() {
+    List<String> warns = new ArrayList<>();
+    FailureReporter r = new FailureReporter(at("2026-09-16T00:00:00Z"), warns::add, s -> {});
+    r.recordBatchFailure(200);
+    assertEquals(1, warns.size());
+    assertTrue(warns.get(0).contains("queue=n/a"));
+
+    Clock later = Clock.fixed(Instant.parse("2026-09-16T00:01:01Z"), ZoneOffset.UTC);
+    r.advance(later);
+    r.recordQueueDrop(2);
+    assertEquals(2, warns.size());
+    assertTrue(warns.get(1).contains("queue=n/a"));
+    assertTrue(warns.get(1).contains("queue-drops=2"));
+    assertTrue(warns.get(1).contains("events=202")); // 200 failed + 2 queue-dropped
+  }
 }
