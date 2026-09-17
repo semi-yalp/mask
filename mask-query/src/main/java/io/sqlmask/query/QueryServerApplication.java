@@ -1,5 +1,7 @@
 package io.sqlmask.query;
 
+import io.sqlmask.query.config.UpstreamProperties;
+import io.sqlmask.query.metadata.MetadataServiceClient;
 import io.sqlmask.query.web.QueryApiKeyFilter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,6 +13,11 @@ import org.springframework.context.annotation.Bean;
 public class QueryServerApplication {
   public static void main(String[] args) {
     SpringApplication.run(QueryServerApplication.class, args);
+  }
+
+  @Bean
+  MetadataServiceClient metadataServiceClient(UpstreamProperties props) {
+    return new MetadataServiceClient(props.metadataBaseUrl(), props.metadataApiKey());
   }
 
   @Bean
