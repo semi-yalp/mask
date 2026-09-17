@@ -60,7 +60,7 @@ public class PolicyServerApplication {
   @Bean
   io.sqlmask.audit.AuditAdminHelper auditAdminHelper(io.sqlmask.audit.AuditRecorder recorder) {
     return new io.sqlmask.audit.AuditAdminHelper(recorder,
-        "sql-mask",
+        "mask-policy",
         e -> e instanceof io.sqlmask.error.SqlMaskException sme
             ? sme.getCode().name()
             : e.getClass().getSimpleName());
