@@ -91,6 +91,53 @@ class EffectiveConfigCompilerTest {
         .anyMatch(t -> t.rowFilter() != null && t.rowFilter().contains("status")));
   }
 
+  @Test
+  void highestPriorityPolicyWinsColumnOwnership() {
+    List<PolicyEntity> policies = List.of(
+        new PolicyEntity("low_mask", PolicyType.DATAMASK, true, 0,
+            new ResourceSelector("crm", "public", "customer", List.of("phone")),
+            new SubjectSelector(Set.of("*"), Set.of()), "mask_low", List.of(), null),
+        new PolicyEntity("high_mask", PolicyType.DATAMASK, true, 10,
+            new ResourceSelector("crm", "public", "customer", List.of("phone")),
+            new SubjectSelector(Set.of("*"), Set.of()), "mask_high", List.of(3), null));
+    EffectiveConfigResponse response =
+        EffectiveConfigCompiler.compile(INSTANCE, policies, Subject.of("alice", List.of()));
+    assertEquals(List.of(new EffectiveConfigResponse.ColumnBinding(
+            "crm", "public", "customer", "phone", "high_mask")),
+        response.config().columns());
+    assertEquals(new EffectiveConfigResponse.UdfDefinition("mask_high", List.of(3)),
+        response.config().policies().get("high_mask"));
+  }
+
+  @Test
+  void composesMultipleRowFiltersHighestPriorityFirstNameTiebreak() {
+    PolicyEntity high = new PolicyEntity("rf_z", PolicyType.ROW_FILTER, true, 10,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("*"), Set.of()), null, List.of(), "id > 0");
+    PolicyEntity low = new PolicyEntity("rf_a", PolicyType.ROW_FILTER, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("*"), Set.of()), null, List.of(), "status = 'active'");
+    PolicyEntity tie = new PolicyEntity("rf_b", PolicyType.ROW_FILTER, true, 10,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("*"), Set.of()), null, List.of(), "region = 'cn'");
+    var table = EffectiveConfigCompiler
+        .compile(INSTANCE, List.of(low, tie, high), Subject.of("alice", List.of()))
+        .config().metadata().tables().get(0);
+    // 同 priority(10)平局按 name 升序:rf_b 在 rf_z 之前;rf_a(priority 0)最后
+    assertEquals("(region = 'cn') AND (id > 0) AND (status = 'active')", table.rowFilter());
+  }
+
+  @Test
+  void singleRowFilterStaysVerbatim() {
+    PolicyEntity rf = new PolicyEntity("rf", PolicyType.ROW_FILTER, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of()),
+        new SubjectSelector(Set.of("*"), Set.of()), null, List.of(), "status = 'active'");
+    var table = EffectiveConfigCompiler
+        .compile(INSTANCE, List.of(rf), Subject.of("alice", List.of()))
+        .config().metadata().tables().get(0);
+    assertEquals("status = 'active'", table.rowFilter());
+  }
+
   private static PolicyEntity wildcardMask() {
     return new PolicyEntity("wildcard_mask", PolicyType.DATAMASK, true,
         new ResourceSelector("crm", "public", "customer", List.of("phone")),

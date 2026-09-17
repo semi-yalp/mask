@@ -193,6 +193,46 @@ class PolicyAdminEndpointTest {
         .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
   }
 
+  @Test
+  void policyPriorityRoundTrips() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY)).andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+
+    String withPriority = """
+        {"name": "phone_mask_analysts", "policyType": "datamask", "isEnabled": true,
+         "priority": 7,
+         "resource": {"catalog": "crm", "schema": "public", "table": "customer",
+                      "columns": ["phone"]},
+         "subjects": {"users": ["alice"], "groups": []},
+         "udf": "mask_phone", "arguments": [3, 4]}
+        """;
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(withPriority))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.priority").value(7));
+    mvc.perform(get("/api/instances/pg_prod/policies/phone_mask_analysts"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.priority").value(7));
+  }
+
+  @Test
+  void omittedPriorityDefaultsToZero() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY)).andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(POLICY_BODY))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.priority").value(0));
+  }
+
   private static String instanceTableJson() {
     return "{\"catalog\": \"crm\", \"schema\": \"public\", \"name\": \"customer\","
         + " \"columns\": [{\"name\": \"phone\", \"type\": \"varchar\"}]}";
