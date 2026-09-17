@@ -595,8 +595,9 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 首参数绑定被脱敏列的值，对齐 PG 以「名字+参数类型」标识函数、同名重载
 按调用点解析）。REST：`POST/GET /api/instances/{instance}/udfs`、
 `GET/PUT/DELETE /api/instances/{instance}/udfs/{name}`（REST 在独立策略服务
-mask-policy-server（8081）上，服务内置 InMemory 存储，部署侧可换 JdbcPolicyStore
-+ schema.sql 的 instance_udf 表）。
+mask-policy-server（8081）上，服务默认使用 JdbcPolicyStore——application.yml 常驻
+配置 PostgreSQL datasource 并执行 schema.sql（含 instance_udf 表）；无 datasource
+时（如测试）才回退内置 InMemory 存储）。
 
 DATAMASK 策略写入时按注册表校验：UDF 存在、参数个数（= arguments + 1
 个列值）、标量类型（number→整数/浮点/numeric 族，string→字符族，
@@ -613,7 +614,8 @@ users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
 按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。表列
 资源可从元数据服务一键导入：`POST /api/instances/{i}/import-metadata`。
 同表同类型策略的重叠校验按主体相交放宽——不同人群可各配各的脱敏列与
-行过滤。
+行过滤。instance 模式（改写请求的 `instance` 字段、CLI `--instance`）忽略请求
+传入的 `dialect`：目标方言以生效配置返回的实例 dialect 为准。
 
 鉴权：环境变量 `SQLMASK_ADMIN_API_KEY`（管 `/api/instances/**`）与
 `SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制

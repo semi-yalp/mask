@@ -18,6 +18,8 @@ services:
       POLICY_PG_URL: jdbc:postgresql://policy-postgres:5432/mask_policy
       POLICY_PG_USER: postgres
       POLICY_PG_PASSWORD: postgres
+      # no Elasticsearch in this deployment: silence audit connection-refused WARNs
+      AUDIT_ENABLED: "false"
     ports:
       - "8081:8081"
     depends_on:

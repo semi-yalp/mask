@@ -5,6 +5,8 @@ import io.sqlmask.policyserver.store.JdbcPolicyStore;
 import io.sqlmask.policyserver.store.PolicyStore;
 import io.sqlmask.policyserver.web.MetadataStructureFetcher;
 import io.sqlmask.policyserver.web.PolicyApiKeyFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,6 +23,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 @SpringBootApplication
 public class PolicyServerApplication {
+
+  private static final Logger log = LoggerFactory.getLogger(PolicyServerApplication.class);
 
   public static void main(String[] args) {
     SpringApplication.run(PolicyServerApplication.class, args);
@@ -44,7 +48,13 @@ public class PolicyServerApplication {
   @Bean
   PolicyStore policyStore(ObjectProvider<JdbcTemplate> jdbc) {
     JdbcTemplate template = jdbc.getIfAvailable();
-    return template != null ? new JdbcPolicyStore(template) : new InMemoryPolicyStore();
+    if (template == null) {
+      log.info("no JdbcTemplate available: falling back to InMemoryPolicyStore "
+          + "(non-persistent; configure a datasource for JdbcPolicyStore)");
+      return new InMemoryPolicyStore();
+    }
+    log.info("JdbcTemplate available: using JdbcPolicyStore");
+    return new JdbcPolicyStore(template);
   }
 
   @Bean
