@@ -72,11 +72,16 @@ public final class EsAuditRecorder implements AuditRecorder, AutoCloseable {
     this.templates = new IndexTemplateManager(client, properties.getIndexPrefix());
     this.worker = new Thread(this::loop, "audit-es-writer");
     this.worker.setDaemon(true);
-    // The builders hold a strong reference to the queue: weakly-referenced
-    // gauges report NaN once the queue becomes unreachable from the registry.
-    Gauge.builder("sqlmask.audit.queue.depth", queue, q -> q.size()).register(registry);
+    // Micrometer gauges hold only a WeakReference to the observed object by
+    // default: if this recorder instance were replaced, the old queue could
+    // become unreachable and the gauges would report NaN. strongReference(true)
+    // makes the registry keep an explicit strong reference to the queue.
+    Gauge.builder("sqlmask.audit.queue.depth", queue, q -> q.size())
+        .strongReference(true)
+        .register(registry);
     int capacity = properties.getQueueCapacity();
     Gauge.builder("sqlmask.audit.queue.capacity", queue, q -> (double) capacity)
+        .strongReference(true)
         .register(registry);
     this.writeTimer = Timer.builder("sqlmask.audit.es.write")
         .serviceLevelObjectives(sloDurations())
