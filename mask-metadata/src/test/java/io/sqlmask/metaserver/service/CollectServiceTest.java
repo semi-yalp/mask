@@ -1,9 +1,11 @@
 package io.sqlmask.metaserver.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.introspect.ConnectionSpec;
 import io.sqlmask.introspect.IntrospectionResult;
 import io.sqlmask.introspect.MetadataIntrospector;
+import io.sqlmask.metaserver.metrics.CollectMetrics;
 import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
 import io.sqlmask.metaserver.model.TableStructure;
@@ -21,6 +23,7 @@ class CollectServiceTest {
   private final InMemoryMetaStore store = new InMemoryMetaStore();
   private final MetadataService instances = new MetadataService(store);
   private final StructureService structures = new StructureService(store);
+  private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
   private static IntrospectionResult result = new IntrospectionResult("db",
       List.of(new IntrospectionResult.TableInfo("db", "public", "customer",
@@ -29,7 +32,7 @@ class CollectServiceTest {
       List.of("column db.public.customer.phone: PG type text is not representable, degraded to varchar"));
 
   private final CollectService service = new CollectService(instances, structures,
-      ref -> "resolved-password", engine -> spec -> result);
+      ref -> "resolved-password", engine -> spec -> result, new CollectMetrics(registry));
 
   CollectServiceTest() {
     store.createInstance(new InstanceRow("pg_prod", "postgresql",
@@ -48,6 +51,13 @@ class CollectServiceTest {
     List<TableStructure> stored = store.loadStructure("pg_prod");
     assertEquals("bigint", stored.get(0).columns().get(0).type());
     assertEquals("table", stored.get(0).kind());
+    org.assertj.core.api.Assertions.assertThat(
+        registry.get("sqlmask.metadata.collect")
+            .tag("engine", "postgresql").tag("outcome", "SUCCESS").counter().count())
+        .isEqualTo(1.0);
+    org.assertj.core.api.Assertions.assertThat(
+        registry.get("sqlmask.metadata.warnings")
+            .tag("engine", "postgresql").counter().count()).isEqualTo(1.0);
   }
 
   @Test
@@ -57,7 +67,7 @@ class CollectServiceTest {
             List.of(new IntrospectionResult.ColumnInfo("id", "bigint", "int8", false)))),
         List.of());
     CollectService viewService = new CollectService(instances, structures, ref -> "pw",
-        engine -> spec -> viewResult);
+        engine -> spec -> viewResult, new CollectMetrics(registry));
     viewService.collect("pg_prod");
     assertEquals("view", store.loadStructure("pg_prod").get(0).kind());
   }
@@ -69,10 +79,14 @@ class CollectServiceTest {
     CollectService failing = new CollectService(instances, structures, ref -> "pw",
         engine -> spec -> {
           throw new SqlMaskException(SqlMaskException.Code.INTROSPECT_ERROR, "db down");
-        });
+        }, new CollectMetrics(registry));
     assertThrows(SqlMaskException.class, () -> failing.collect("pg_prod"));
     assertEquals(versionBefore, store.findInstance("pg_prod").orElseThrow().metadataVersion());
     assertEquals(1, store.loadStructure("pg_prod").size());
+    org.assertj.core.api.Assertions.assertThat(
+        registry.get("sqlmask.metadata.collect")
+            .tag("engine", "postgresql").tag("outcome", "FAILURE").counter().count())
+        .isGreaterThanOrEqualTo(1.0);
   }
 
   @Test
@@ -88,7 +102,7 @@ class CollectServiceTest {
         engine -> spec -> {
           captured.add(spec);
           return result;
-        });
+        }, new CollectMetrics(registry));
     capturing.collect("pg_prod");
     ConnectionSpec spec = captured.get(0);
     assertEquals("postgresql", spec.engine());
@@ -106,7 +120,7 @@ class CollectServiceTest {
           throw new SqlMaskException(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE,
               "referenced environment variable '" + ref + "' is not set; collection aborted");
         },
-        engine -> spec -> result);
+        engine -> spec -> result, new CollectMetrics(registry));
     SqlMaskException e = assertThrows(SqlMaskException.class,
         () -> noCredentials.collect("pg_prod"));
     assertEquals(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE, e.getCode());

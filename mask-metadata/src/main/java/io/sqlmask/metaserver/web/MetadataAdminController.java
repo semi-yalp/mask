@@ -2,6 +2,7 @@ package io.sqlmask.metaserver.web;
 
 import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.metaserver.metrics.AdminMetrics;
 import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
 import io.sqlmask.metaserver.model.TableStructure;
@@ -24,7 +25,9 @@ import java.util.Map;
 /**
  * Admin plane: instance CRUD and YAML import (spec §4.1). Collection lives in
  * CollectController; data plane in MetadataDataController. Every mutation
- * emits one ADMIN_CHANGE audit event (spec §5.2).
+ * emits one ADMIN_CHANGE audit event (spec §5.2) and one management-plane
+ * metric (spec §3.2); the metric wraps the audit so audit semantics are
+ * untouched.
  */
 @RestController
 @RequestMapping("/api/instances")
@@ -34,18 +37,25 @@ public class MetadataAdminController {
   private final StructureService structures;
   private final MetadataYamlImporter importer;
   private final AuditAdminHelper audit;
+  private final AdminMetrics adminMetrics;
 
   public MetadataAdminController(MetadataService instances, StructureService structures,
-      MetadataYamlImporter importer, AuditAdminHelper audit) {
+      MetadataYamlImporter importer, AuditAdminHelper audit, AdminMetrics adminMetrics) {
     this.instances = instances;
     this.structures = structures;
     this.importer = importer;
     this.audit = audit;
+    this.adminMetrics = adminMetrics;
   }
 
   @PostMapping
   public MetadataDtos.InstanceDetailResponse create(HttpServletRequest httpRequest,
       @RequestBody MetadataDtos.InstanceCreateRequest request) {
+    return adminMetrics.record("METADATA", "CREATE", () -> doCreate(httpRequest, request));
+  }
+
+  private MetadataDtos.InstanceDetailResponse doCreate(HttpServletRequest httpRequest,
+      MetadataDtos.InstanceCreateRequest request) {
     if (request == null || request.name() == null || request.dialect() == null) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "name and dialect are required");
@@ -76,6 +86,11 @@ public class MetadataAdminController {
   public MetadataDtos.InstanceDetailResponse update(HttpServletRequest httpRequest,
       @PathVariable("name") String name,
       @RequestBody MetadataDtos.InstanceUpdateRequest request) {
+    return adminMetrics.record("METADATA", "UPDATE", () -> doUpdate(httpRequest, name, request));
+  }
+
+  private MetadataDtos.InstanceDetailResponse doUpdate(HttpServletRequest httpRequest,
+      String name, MetadataDtos.InstanceUpdateRequest request) {
     return audit.adminChange(httpRequest, "UPDATE", "INSTANCE", null, name, Map::of,
         () -> {
           ConnectionInfo connection = ofNullable(request == null ? null : request.connection());
@@ -86,6 +101,11 @@ public class MetadataAdminController {
   @DeleteMapping("/{name}")
   public MetadataDtos.InstanceSummaryResponse delete(HttpServletRequest httpRequest,
       @PathVariable("name") String name) {
+    return adminMetrics.record("METADATA", "DELETE", () -> doDelete(httpRequest, name));
+  }
+
+  private MetadataDtos.InstanceSummaryResponse doDelete(HttpServletRequest httpRequest,
+      String name) {
     return audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name, Map::of,
         () -> {
           InstanceRow row = instances.get(name);
@@ -98,6 +118,11 @@ public class MetadataAdminController {
   @PostMapping("/import")
   public MetadataDtos.ImportResponse importYaml(HttpServletRequest httpRequest,
       @RequestBody MetadataDtos.InstanceImportRequest request) {
+    return adminMetrics.record("METADATA", "IMPORT", () -> doImport(httpRequest, request));
+  }
+
+  private MetadataDtos.ImportResponse doImport(HttpServletRequest httpRequest,
+      MetadataDtos.InstanceImportRequest request) {
     if (request == null || request.name() == null || request.dialect() == null
         || request.metadataYaml() == null || request.metadataYaml().isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,

@@ -30,3 +30,16 @@ audit:
   sql-max-chars: ${AUDIT_SQL_MAX_CHARS:8192}
   effective-pull:
     enabled: ${AUDIT_EFFECTIVE_PULL_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  observations:
+    key:
+      values:
+        application: ${spring.application.name}
