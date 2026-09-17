@@ -62,7 +62,7 @@ class AdminAuditTest {
 
   @Test
   @Order(2)
-  void failedPolicyCreateEmitsFailureWithConfigError() throws Exception {
+  void failedPolicyCreateEmitsFailureWithInstanceNotFound() throws Exception {
     mvc.perform(post("/api/instances/missing/policies").contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {"name": "p1", "policyType": "datamask",
