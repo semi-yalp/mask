@@ -6,9 +6,11 @@ import io.sqlmask.query.error.QueryException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /** Pulls one instance view from the metadata service admin plane. Fail-closed:
@@ -29,7 +31,16 @@ public final class MetadataServiceClient {
   }
 
   public InstanceView fetch(String instance) {
-    HttpRequest request = HttpRequest.newBuilder(URI.create(base + "/api/instances/" + instance))
+    // 实例名是用户可见标识（非凭据，可回显）：先编码为合法路径段再拼 URI
+    String encoded = URLEncoder.encode(instance, StandardCharsets.UTF_8);
+    URI uri;
+    try {
+      uri = URI.create(base + "/api/instances/" + encoded);
+    } catch (IllegalArgumentException e) {
+      throw new QueryException(QueryException.CONFIG_ERROR,
+          "instance name is not a usable path segment: '" + instance + "'", e);
+    }
+    HttpRequest request = HttpRequest.newBuilder(uri)
         .header("Accept", "application/json")
         .header("X-Api-Key", apiKey == null ? "" : apiKey)
         .timeout(Duration.ofSeconds(10))

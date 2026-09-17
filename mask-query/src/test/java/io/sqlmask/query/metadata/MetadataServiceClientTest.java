@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,6 +19,7 @@ class MetadataServiceClientTest {
   static MetadataServiceClient client;
   static volatile int status = 200;
   static volatile String body = "{}";
+  static final AtomicReference<String> requestedPath = new AtomicReference<>();
 
   @BeforeAll
   static void start() throws Exception {
@@ -26,6 +28,15 @@ class MetadataServiceClientTest {
       byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
       exchange.getResponseHeaders().add("Content-Type", "application/json");
       exchange.sendResponseHeaders(status, bytes.length);
+      try (var out = exchange.getResponseBody()) { out.write(bytes); }
+    });
+    // 空格实例名的编码路径：记录命中的原始路径，验证 URL 编码后仍能路由
+    stub.createContext("/api/instances/pg+prod", exchange -> {
+      requestedPath.set(exchange.getRequestURI().getRawPath());
+      byte[] bytes = ("{\"name\":\"pg prod\",\"dialect\":\"postgresql\","
+          + "\"metadataVersion\":1}").getBytes(StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().add("Content-Type", "application/json");
+      exchange.sendResponseHeaders(200, bytes.length);
       try (var out = exchange.getResponseBody()) { out.write(bytes); }
     });
     stub.start();
@@ -47,6 +58,16 @@ class MetadataServiceClientTest {
     InstanceView view = client.fetch("pg_prod");
     assertThat(view.engine()).isEqualTo("postgresql");
     assertThat(view.connection().port()).isEqualTo(5432);
+  }
+
+  @Test
+  void encodesInstanceNameIntoPathSegment() {
+    // 修复前：URI.create(".../pg prod") 抛 IllegalArgumentException；修复后：
+    // 空格编码为 '+'，请求命中编码后的路径并正常解析响应。
+    InstanceView view = client.fetch("pg prod");
+    assertThat(view.name()).isEqualTo("pg prod");
+    assertThat(view.dialect()).isEqualTo("postgresql");
+    assertThat(requestedPath.get()).isEqualTo("/api/instances/pg+prod");
   }
 
   @Test

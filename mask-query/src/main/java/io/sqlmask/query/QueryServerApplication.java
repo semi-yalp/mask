@@ -19,12 +19,22 @@ public class QueryServerApplication {
 
   @Bean
   MetadataServiceClient metadataServiceClient(UpstreamProperties props) {
+    requireBaseUrl("upstream.metadata-base-url", props.metadataBaseUrl());
     return new MetadataServiceClient(props.metadataBaseUrl(), props.metadataApiKey());
   }
 
   @Bean
   RewriteServiceClient rewriteServiceClient(UpstreamProperties props) {
+    requireBaseUrl("upstream.rewrite-base-url", props.rewriteBaseUrl());
     return new RewriteServiceClient(props.rewriteBaseUrl(), props.rewriteApiKey());
+  }
+
+  /** Blank upstream locations otherwise surface as an obscure URI parse error
+   * on the first query; fail the application start instead. */
+  private static void requireBaseUrl(String configKey, String value) {
+    if (value == null || value.isBlank()) {
+      throw new IllegalStateException(configKey + " must be configured");
+    }
   }
 
   /** Backs InstanceDirectory with the metadata client (same fetch contract). */

@@ -26,9 +26,11 @@ class QueryEngineTest {
     assertThat(QueryEngine.POSTGRESQL.jdbcUrl(conn("disable")))
         .isEqualTo("jdbc:postgresql://h:1234/db?sslmode=disable&connectTimeout=10&readOnly=true");
     assertThat(QueryEngine.MYSQL.jdbcUrl(conn("disable")))
-        .isEqualTo("jdbc:mysql://h:1234/db?connectTimeout=10000&sslMode=DISABLED&allowPublicKeyRetrieval=true");
+        .isEqualTo("jdbc:mysql://h:1234/db?connectTimeout=10000&sslMode=DISABLED"
+            + "&allowPublicKeyRetrieval=true&useCursorFetch=true");
     assertThat(QueryEngine.STARROCKS.jdbcUrl(conn("require")))
-        .isEqualTo("jdbc:mysql://h:1234/db?connectTimeout=10000&sslMode=REQUIRED&verifyServerCertificate=false");
+        .isEqualTo("jdbc:mysql://h:1234/db?connectTimeout=10000&sslMode=REQUIRED"
+            + "&verifyServerCertificate=false&useCursorFetch=true");
     assertThat(QueryEngine.TRINO.jdbcUrl(conn("disable")))
         .isEqualTo("jdbc:trino://h:1234/db?SSL=false");
     assertThatThrownBy(() -> QueryEngine.MYSQL.jdbcUrl(conn("prefer")))

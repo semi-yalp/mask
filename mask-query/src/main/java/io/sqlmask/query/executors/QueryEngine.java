@@ -7,7 +7,12 @@ import java.util.Locale;
 
 /** Engine catalog: execution engine to rewrite dialect and JDBC URL rules.
  * URL rules mirror mask-core's ConnectionSpec.toJdbcUrl() minus socketTimeout
- * — statement timeout plus cancel own the query lifecycle. */
+ * — statement timeout plus cancel own the query lifecycle. MySQL/StarRocks add
+ * useCursorFetch=true so setFetchSize takes effect (对齐 spec §7.4).
+ *
+ * <p>No socketTimeout: on a half-open TCP connection cancel may be unreachable,
+ * leaking a permit until QUERY_BUSY exhausts; accepted for batch 1, revisit
+ * with a socketTimeout slightly above query.timeout-seconds. */
 public enum QueryEngine {
   POSTGRESQL("postgresql", "postgresql", 5432),
   MYSQL("mysql", "mysql", 3306),
@@ -55,7 +60,8 @@ public enum QueryEngine {
             + "?connectTimeout=" + (cs * 1000)
             + ("require".equals(mode)
                 ? "&sslMode=REQUIRED&verifyServerCertificate=false"
-                : "&sslMode=DISABLED&allowPublicKeyRetrieval=true");
+                : "&sslMode=DISABLED&allowPublicKeyRetrieval=true")
+            + "&useCursorFetch=true";
       }
       case TRINO -> {
         String mode = sslmode.toLowerCase(Locale.ROOT);

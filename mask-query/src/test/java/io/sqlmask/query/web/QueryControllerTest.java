@@ -16,7 +16,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+// base-url 启动期校验（非空白）要求哑值，否则默认上下文因空配置拒绝启动
+@SpringBootTest(properties = {
+    "upstream.metadata-base-url=http://localhost:1",
+    "upstream.rewrite-base-url=http://localhost:1"})
 // addFilters=false：QueryApiKeyFilter 在未配置 SQLMASK_QUERY_API_KEY 时 fail-closed，
 // 全上下文测试统一绕过（过滤器自身语义由 QueryApiKeyFilterTest 覆盖）。
 @AutoConfigureMockMvc(addFilters = false)

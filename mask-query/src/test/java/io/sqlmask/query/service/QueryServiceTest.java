@@ -104,6 +104,24 @@ class QueryServiceTest {
   }
 
   @Test
+  void emptyRewriteResultBecomesConfigError() {
+    when(directory.fetch("pg")).thenReturn(PG);
+    when(rewrites.rewrite(any(), any(), any(), any()))
+        .thenReturn(new RewriteServiceClient.RewrittenQuery(List.of()));
+    QueryService svc;
+    try {
+      svc = service(new QueryProperties(null, null, null, null, null));
+    } catch (SQLException e) {
+      throw new IllegalStateException(e);
+    }
+    assertThatThrownBy(() -> svc.execute(
+            new QueryModels.QueryRequest("pg", "SELECT 1", null, List.of(), null, false),
+            new CancelRegistry().begin()))
+        .hasFieldOrPropertyWithValue("code", "CONFIG_ERROR")
+        .hasMessageContaining("no executable statement");
+  }
+
+  @Test
   void busyFailsFastWithoutRewrite() throws SQLException {
     when(directory.fetch("pg")).thenReturn(PG);
     QueryService svc = new QueryService(directory, rewrites,

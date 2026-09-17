@@ -25,7 +25,7 @@ public class QueryAuditor {
       List<String> groups, String sourceIp) {
     try {
       sink.accept(AuditEvent.query(SERVICE, AuditEvent.SUCCESS, result.elapsedMs(), sourceIp,
-          "API_KEY", user, groups, result.instance(), engineOf(result), result.masked(),
+          "API_KEY", user, groups, result.instance(), dialectOf(result), result.masked(),
           result.rowFiltered(), originalSql, null, null,
           Map.of("engine", engineOf(result),
               "rowCount", result.rowCount(),
@@ -48,5 +48,11 @@ public class QueryAuditor {
 
   private static String engineOf(QueryResult result) {
     return result.engine();
+  }
+
+  /** Top-level dialect derives from the engine exactly like
+   * {@code QueryEngine.dialect()} (starrocks speaks the mysql dialect). */
+  private static String dialectOf(QueryResult result) {
+    return "starrocks".equals(result.engine()) ? "mysql" : result.engine();
   }
 }

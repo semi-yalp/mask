@@ -86,6 +86,10 @@ public class QueryService {
     List<StatementView> statements = rewrites
         .rewrite(instance.name(), request.sql(), request.user(), request.groups())
         .statements();
+    if (statements.isEmpty()) {
+      throw new QueryException(QueryException.CONFIG_ERROR,
+          "the query contains no executable statement");
+    }
     if (statements.size() > 1) {
       throw new QueryException(QueryException.MULTI_STATEMENT,
           "the query API accepts exactly one statement (got " + statements.size() + ")");

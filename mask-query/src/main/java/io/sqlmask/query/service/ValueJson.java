@@ -19,7 +19,17 @@ final class ValueJson {
 
   static Object toSerializable(Object value) {
     if (value == null || value instanceof String || value instanceof Boolean
-        || value instanceof Number || value instanceof BigDecimal) {
+        || value instanceof BigDecimal) {
+      return value;
+    }
+    if (value instanceof Double d) {
+      // NaN/Infinity 不是合法 JSON 数字，降级为字符串形式
+      return Double.isFinite(d) ? d : String.valueOf(d);
+    }
+    if (value instanceof Float f) {
+      return Float.isFinite(f) ? f : String.valueOf(f);
+    }
+    if (value instanceof Number) {
       return value;
     }
     if (value instanceof Timestamp || value instanceof Date || value instanceof Time

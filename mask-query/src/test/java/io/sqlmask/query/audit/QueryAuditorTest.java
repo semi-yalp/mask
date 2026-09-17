@@ -13,6 +13,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class QueryAuditorTest {
 
   @Test
+  void starrocksEngineMapsTopLevelDialectToMysql() {
+    List<AuditEvent> captured = new ArrayList<>();
+    QueryAuditor auditor = new QueryAuditor(captured::add);
+    auditor.success(new QueryModels.QueryResult("sr", "starrocks", List.of(),
+        List.of(List.of(1)), 1, false, false, false, 3L, null),
+        "SELECT 1", "bob", List.of(), "127.0.0.1");
+    assertThat(captured).hasSize(1);
+    // 顶层 dialect 由 engine 推导（starrocks→mysql，与 QueryEngine.dialect 一致），
+    // detail.engine 保留原始 engine
+    assertThat(captured.get(0).dialect()).isEqualTo("mysql");
+    assertThat(captured.get(0).detail()).containsEntry("engine", "starrocks");
+  }
+
+  @Test
   void neverThrowsAndCarriesSqlAndCodes() {
     List<AuditEvent> captured = new ArrayList<>();
     QueryAuditor auditor = new QueryAuditor(captured::add);
