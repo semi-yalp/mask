@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.metrics;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;

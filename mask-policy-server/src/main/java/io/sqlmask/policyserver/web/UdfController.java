@@ -3,6 +3,7 @@ package io.sqlmask.policyserver.web;
 import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.metrics.AdminMetrics;
 import io.sqlmask.policyserver.model.UdfDefinition;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;

@@ -1,8 +1,7 @@
-package io.sqlmask.server;
+package io.sqlmask.policyserver.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.policyserver.PolicyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,15 +10,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** Management-plane change metrics (spec §3.2) over the admin REST endpoints. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class AdminMetricsEndpointTest {
@@ -32,16 +31,9 @@ class AdminMetricsEndpointTest {
   @Autowired
   private MeterRegistry registry;
 
-  @Autowired
-  private PolicyService service;
-
   @BeforeEach
-  void removeLeftoverInstance() {
-    try {
-      service.deleteInstance(INSTANCE);
-    } catch (SqlMaskException notExists) {
-      // 首次运行实例不存在，忽略
-    }
+  void removeLeftoverInstance() throws Exception {
+    mvc.perform(delete("/api/instances/" + INSTANCE));
   }
 
   @Test
@@ -59,7 +51,7 @@ class AdminMetricsEndpointTest {
   @Test
   void failedMutationCountsFailure() throws Exception {
     double before = counter("POLICY", "CREATE", "FAILURE");
-    mvc.perform(post("/api/instances/no_such_instance_metrics/policies")
+    mvc.perform(post("/api/instances/" + INSTANCE + "/policies")
             .contentType(MediaType.APPLICATION_JSON)
             .content(new ObjectMapper().writeValueAsString(Map.of(
                 "name", "metrics_pol", "policyType", "datamask", "isEnabled", true,

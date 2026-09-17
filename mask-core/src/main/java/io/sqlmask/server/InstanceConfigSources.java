@@ -23,12 +23,21 @@ public class InstanceConfigSources {
 
   private final String baseUrl;
   private final String apiKey;
+  private final EffectiveMetrics metrics;
   private final Map<String, PolicyServiceConfigSource> sources = new ConcurrentHashMap<>();
 
   public InstanceConfigSources(@Value("${policy.service.url:}") String baseUrl,
       @Value("${policy.service.api-key:}") String apiKey) {
+    this(baseUrl, apiKey, null);
+  }
+
+  /** {@code metrics} may be null in non-Spring constructions (CLI). */
+  @org.springframework.beans.factory.annotation.Autowired
+  public InstanceConfigSources(@Value("${policy.service.url:}") String baseUrl,
+      @Value("${policy.service.api-key:}") String apiKey, EffectiveMetrics metrics) {
     this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
     this.apiKey = apiKey;
+    this.metrics = metrics;
   }
 
   /** False when policy.service.url is not configured: instance mode is unavailable. */
@@ -38,7 +47,7 @@ public class InstanceConfigSources {
 
   public PolicyServiceConfigSource get(String instance) {
     return sources.computeIfAbsent(instance,
-        i -> new PolicyServiceConfigSource(baseUrl, apiKey, i));
+        i -> new PolicyServiceConfigSource(baseUrl, apiKey, i, metrics));
   }
 
   /** Drops one instance (null/blank = all); the next load re-fetches. Returns the count. */

@@ -4,6 +4,7 @@ import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadataclient.MetadataClient;
 import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.policyserver.metrics.AdminMetrics;
 import io.sqlmask.policyserver.model.ColumnDef;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.TableDef;

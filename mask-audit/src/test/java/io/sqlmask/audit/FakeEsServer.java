@@ -30,7 +30,7 @@ public final class FakeEsServer implements Closeable {
   public final List<RecordedRequest> requests = new CopyOnWriteArrayList<>();
   public final AtomicReference<Integer> bulkStatus = new AtomicReference<>(200);
   public final AtomicReference<String> bulkBody =
-      new AtomicReference<>("{\"errors\":false,\"items\":[]}");
+      new AtomicReference<>("{\"took\":1,\"errors\":false,\"items\":[]}");
   public final AtomicReference<Integer> templateStatus = new AtomicReference<>(200);
   /** When set, every /_bulk handler waits on it before answering (holds the writer). */
   public final AtomicReference<CountDownLatch> bulkGate = new AtomicReference<>();
@@ -129,7 +129,7 @@ public final class FakeEsServer implements Closeable {
 
   public void resetBulk() {
     bulkStatus.set(200);
-    bulkBody.set("{\"errors\":false,\"items\":[]}");
+    bulkBody.set("{\"took\":1,\"errors\":false,\"items\":[]}");
   }
 
   public void setTemplateFailure() {

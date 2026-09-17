@@ -8,6 +8,7 @@ import io.sqlmask.config.source.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.PolicyService;
+import io.sqlmask.server.EffectiveMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;

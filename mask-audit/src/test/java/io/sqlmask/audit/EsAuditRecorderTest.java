@@ -185,7 +185,7 @@ class EsAuditRecorderTest {
 
   @Test
   void bulkPartialErrorResponseCountsFailureBatchAndDropsEvents() throws Exception {
-    es.bulkBody.set("{\"errors\":true,\"items\":[]}");
+    es.bulkBody.set("{\"took\":1,\"errors\":true,\"items\":[]}");
     EsAuditRecorder r = new EsAuditRecorder(client, props(10, 2, 60_000), registry);
     try {
       r.record(event("SELECT 1"));

@@ -62,7 +62,7 @@ public class RewriteMetrics {
   }
 
   /** SLO bucket bounds in seconds, spec §5 (1ms–10s). Task 3/4 的指标类复用同一组桶。 */
-  static double[] sloSeconds() {
+  public static double[] sloSeconds() {
     return new double[] {0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500,
         1.0, 5.0, 10.0};
   }
