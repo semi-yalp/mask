@@ -269,13 +269,61 @@ SELECT / WITH…SELECT / INSERT…SELECT / CTAS，DDL 与工具语句的关键�
    exec-maven-plugin/antrun 调 fmpp CLI 注入 `default_config.fmpp`；或验证
    fmpp-maven-plugin 的 cfgFile 机制能否承载双层合并）。产出：可复现的构建
    配置，写回本节。
+
+   **状态回写（2026-09-17 实现完成后）**：最终形态不用构建期合并——
+   `config.fmpp` 自包含：`data.parser` 为覆盖层，`data.default` 键下原样
+   嵌套 core `default_config.fmpp` 全文（464 行），fmpp-maven-plugin 1.0 的
+   cfgFile 直接吃这一个文件，模板的 `parser.X!default.parser.X` 回退即可
+   解析（与上游 Gradle FmppTask 的 `default` 数据层语义一致）。覆盖层与
+   default 层均整键替换，babel 设过的键在覆盖层放「babel 原值 + mask 新增」
+   合并结果。清单见 `mask-sqlparser/EXTENSIONS.md`（Provenance 与
+   Override-layer key checklist 两节）。
+
 2. **插件版本与构建正确性**：fmpp/javacc 插件版本选定；生成类可编译且 §7.2
    差分全绿即为正确性证明。
+
+   **状态回写（2026-09-17 实现完成后；同日勘误：3.0.3 实际存在于 Maven
+   Central）**：定版 `fmpp-maven-plugin 1.0` + `javacc-maven-plugin 2.6`
+   ——3.0.3 存在，但其默认绑定的 javacc 7.x 会把 switch case 动作块摊平进
+   同一作用域（babel 产生式在 javacc 5+ 即触发变量重复声明编译失败），故选
+   2.6，并在插件内钉 `net.java.dev.javacc:javacc:4.0` +
+   `lookAhead 2`——复刻 calcite 1.42.0 Gradle 构建的 javacc 参数。正确性
+   证明：`BabelEquivalenceTest` 40 条语料（25 curated + golden 切分）差分
+   全绿 + 规模下限断言（§11.5）。
+
 3. **`SqlValidatorImpl` 对 `SqlInsert` 子类的分派**：预期按 kind 分派 +
    `(SqlInsert)` 向下转型（子类安全）；若存在对具体类的严格检查，回退方案为
    validate 输入树中替换为普通 `SqlInsert`、compose 前回填标志。产出：端到端
    管线测试（§7.3）通过。
+
+   **状态回写（2026-09-17 实现完成后）**：子类分派风险不存在，回退方案
+   无需启用。`SqlInsertOverwrite`（extends `SqlInsert`，kind 保持 INSERT）
+   与 CTAS 节点 `SqlBabelCreateTable`（extends `SqlCreateTable`）在管线中
+   按(kind==INSERT/CREATE_TABLE) 分派，classify / querySourceOf /
+   isPassThroughWrite / composeWriteStatement 全兼容，校验+转换零树替换。
+   生产口径：写入语句的校验对象是 `RewriteEngine.rewriteOne` 用
+   `querySourceOf` 提取出的源查询（`AbstractCalciteDialectAdapter.validate`
+   面向查询根）。证据：`mask-core` `MaskParserPipelineTest` 3 用例
+   （OVERWRITE 解析→源查询校验→compose→round-trip；TOP 校验；拒绝清单）。
+   实测补充边界（与子类无关）：直接对多列 `INSERT ... SELECT` 写入根调
+   `validate` 会触发 ORDER BY 形状守卫误报（普通 `INSERT INTO` 同形），
+   管线从不这样用。
+
 4. **TOP 前瞻边界**：`top(x)` 函数调用等边界用例钉死 fail-closed 行为，
    记入模块文档安全失败清单。
+
+   **状态回写（2026-09-17 实现完成后）**：已钉死——
+   `IdentifierRegressionTest` 断言 `SELECT top(1) FROM t` 解析失败
+   （fail-closed，拒绝而非错误掩码）；`TOP ... PERCENT` / `TOP n ... LIMIT`
+   的 fail-closed 拒绝由 `MaskParserPipelineTest` 复钉（开关全开形态）。
+   标识符用法（`top` 作列名/别名/限定名）不受影响（同测试类覆盖）。
+
 5. **差分语料收集方式**：mask-core 测试资源 SQL 的收集实现（清单文件或资源
    扫描），保证后续新增语料自动纳入差分。
+
+   **状态回写（2026-09-17 实现完成后）**：由 Task 5 落地——
+   `mask-sqlparser/src/test/resources/mask-parser-corpus.sql` 语料文件 +
+   mask-core golden 多语句文件（`tpcds-common.sql`）按 `;\s*\n` 切分合并
+   （`BabelEquivalenceTest.corpus()`），并加**规模下限断言**（≥40 条，防
+   golden 路径不存在时差分无声缩水）；后续把新语句追加进语料文件即自动
+   纳入差分。

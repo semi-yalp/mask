@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.elasticsearch.client.RestClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -60,8 +61,8 @@ public class AuditAutoConfiguration {
   @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true",
       matchIfMissing = true)
   EsAuditRecorder esAuditRecorder(ElasticsearchClient auditElasticsearchClient,
-      AuditProperties properties) {
-    return new EsAuditRecorder(auditElasticsearchClient, properties);
+      AuditProperties properties, MeterRegistry meterRegistry) {
+    return new EsAuditRecorder(auditElasticsearchClient, properties, meterRegistry);
   }
 
   @Bean

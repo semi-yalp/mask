@@ -1,0 +1,29 @@
+# baseline select forms
+SELECT id FROM t
+SELECT DISTINCT id, name FROM t WHERE id > 1
+SELECT id FROM t ORDER BY id DESC
+SELECT id FROM t LIMIT 10
+SELECT id FROM t LIMIT 10 OFFSET 5
+SELECT id FROM t FETCH FIRST 5 ROWS ONLY
+SELECT a.id, b.name FROM a JOIN b ON a.id = b.id
+SELECT id FROM (SELECT id FROM t) AS x
+SELECT id FROM t WHERE id IN (SELECT id FROM t2)
+SELECT id, count(*) AS c FROM t GROUP BY id HAVING count(*) > 1
+# cte
+WITH x AS (SELECT id FROM t) SELECT id FROM x
+# writes
+INSERT INTO t SELECT id FROM t
+INSERT INTO t (a, b) SELECT 1, 2
+CREATE TABLE t2 AS SELECT id FROM t
+# calcite-native dialect forms (probe-verified 2026-09-17)
+SELECT * FROM (SELECT id, x FROM t) PIVOT (count(id) FOR x IN (1, 2))
+SELECT id FROM t CROSS APPLY (SELECT id2 FROM t2) s
+SELECT ROWNUM FROM t
+SELECT id::int FROM t
+SELECT id FROM t WHERE a RLIKE 'x'
+SELECT id FROM t ORDER BY id LIMIT 1, 2
+SELECT id FROM t LEFT SEMI JOIN t2 ON t.id = t2.id
+SELECT CONVERT(int, id) FROM t
+SELECT SQL_NO_CACHE id FROM t
+SELECT id FROM t WHERE a <=> b
+SELECT id, count(*) FROM t GROUP BY 2

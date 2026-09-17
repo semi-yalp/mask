@@ -195,7 +195,9 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
       case INSERT: {
         org.apache.calcite.sql.SqlInsert insert =
             (org.apache.calcite.sql.SqlInsert) writeStatement;
-        StringBuilder sql = new StringBuilder("INSERT INTO ");
+        StringBuilder sql = new StringBuilder(
+            insert instanceof io.sqlmask.parser.SqlInsertOverwrite
+                ? "INSERT OVERWRITE TABLE " : "INSERT INTO ");
         sql.append(unparse(insert.getTargetTable()));
         sql.append(renderColumnList(insert.getTargetColumnList()));
         sql.append(' ').append(wrappedQuery);
