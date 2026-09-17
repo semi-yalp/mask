@@ -20,14 +20,16 @@ public class MetadataService {
     this.store = store;
   }
 
-  public InstanceRow create(String name, String dialect, ConnectionInfo connection) {
+  public InstanceRow create(String name, String dialect, String engine, ConnectionInfo connection) {
     String trimmed = requireName(name);
     String normalizedDialect = normalizeDialect(dialect);
+    String normalizedEngine = normalizeEngine(engine, normalizedDialect);
     if (store.findInstance(trimmed).isPresent()) {
       throw new SqlMaskException(SqlMaskException.Code.METADATA_INSTANCE_EXISTS,
           "instance '" + trimmed + "' already exists");
     }
-    store.createInstance(new InstanceRow(trimmed, normalizedDialect, connection, 1));
+    store.createInstance(
+        new InstanceRow(trimmed, normalizedDialect, normalizedEngine, connection, 1));
     return store.findInstance(trimmed).orElseThrow();
   }
 
@@ -67,5 +69,22 @@ public class MetadataService {
           "unsupported dialect '" + dialect + "' (supported: postgresql, mysql, trino)");
     }
     return dialect.trim().toLowerCase(Locale.ROOT);
+  }
+
+  private static String normalizeEngine(String engine, String normalizedDialect) {
+    if (engine == null || engine.isBlank()) {
+      return null;
+    }
+    String normalized = engine.trim().toLowerCase(java.util.Locale.ROOT);
+    if (!normalized.equals("starrocks")) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "unsupported engine '" + engine + "' (engines are dialect-derived; "
+              + "the only explicit engine is starrocks)");
+    }
+    if (!normalizedDialect.equals("mysql")) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "engine 'starrocks' requires dialect 'mysql'");
+    }
+    return normalized;
   }
 }

@@ -60,7 +60,7 @@ class JdbcMetaStoreTest {
   }
 
   private static InstanceRow row(String name) {
-    return new InstanceRow(name, "postgresql",
+    return new InstanceRow(name, "postgresql", null,
         new ConnectionInfo("127.0.0.1", 5432, "db", "user", "SQLMASK_TEST_PASSWORD",
             "disable", 10, List.of("public"), false), 1);
   }
@@ -85,5 +85,12 @@ class JdbcMetaStoreTest {
 
     store.deleteInstance(name);
     assertTrue(store.findInstance(name).isEmpty());
+  }
+
+  @Test
+  void engineRoundTripsThroughStore() {
+    ConnectionInfo conn = new ConnectionInfo("h", 9030, "db", "u", "REF", "disable", 5, List.of(), false);
+    store.createInstance(new InstanceRow("sr-eng", "mysql", "starrocks", conn, 1));
+    assertEquals("starrocks", store.findInstance("sr-eng").orElseThrow().engine());
   }
 }
