@@ -25,6 +25,9 @@ class MetricsEndpointSmokeTest {
     mvc.perform(get("/actuator/prometheus"))
         .andExpect(status().isOk())
         .andExpect(content().string(containsString("jvm_memory_used_bytes")))
-        .andExpect(content().string(containsString("application=\"sql-mask\"")));
+        .andExpect(content().string(containsString("application=\"sql-mask\"")))
+        // 审计管道指标（spec §3.5），audit.enabled 缺省开启（spec §7 原契约）。
+        .andExpect(content().string(containsString("sqlmask_audit_queue_depth")))
+        .andExpect(content().string(containsString("sqlmask_audit_queue_capacity")));
   }
 }
