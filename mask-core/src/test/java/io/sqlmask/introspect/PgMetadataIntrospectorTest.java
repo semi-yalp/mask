@@ -65,6 +65,8 @@ class PgMetadataIntrospectorTest {
     assertEquals("table", customer.kind());
     assertEquals("bigint", customer.columns().get(0).yamlType());
     assertEquals("varchar(20)", customer.columns().get(1).yamlType());
+    // sales.facts 走 relkind 'p'（分区表）：锁定与 'r' 同臂映射为 table
+    assertEquals("table", result.tables().get(1).kind());
     assertTrue(result.warnings().stream()
         .anyMatch(w -> w.contains("jsonb") && w.contains("crm.sales.facts.id")));
   }
