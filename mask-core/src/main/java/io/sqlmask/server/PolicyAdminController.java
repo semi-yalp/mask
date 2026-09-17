@@ -60,20 +60,25 @@ public class PolicyAdminController {
 
   private final PolicyService service;
   private final AuditAdminHelper audit;
+  private final AdminMetrics adminMetrics;
 
-  public PolicyAdminController(PolicyService service, AuditAdminHelper audit) {
+  public PolicyAdminController(PolicyService service, AuditAdminHelper audit,
+      AdminMetrics adminMetrics) {
     this.service = service;
     this.audit = audit;
+    this.adminMetrics = adminMetrics;
   }
 
   @PostMapping
   public InstanceDto create(HttpServletRequest httpRequest, @RequestBody InstanceDto request) {
-    requireText(request.name(), "instance name");
-    requireText(request.dialect(), "instance dialect");
-    List<TableDef> tables = toTables(request.tables());
-    return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
-        () -> Map.of("dialect", request.dialect(), "tableCount", tables.size()),
-        () -> toDto(service.createInstance(request.name(), request.dialect(), tables)));
+    return adminMetrics.record("INSTANCE", "CREATE", () -> {
+      requireText(request.name(), "instance name");
+      requireText(request.dialect(), "instance dialect");
+      List<TableDef> tables = toTables(request.tables());
+      return audit.adminChange(httpRequest, "CREATE", "INSTANCE", null, request.name(),
+          () -> Map.of("dialect", request.dialect(), "tableCount", tables.size()),
+          () -> toDto(service.createInstance(request.name(), request.dialect(), tables)));
+    });
   }
 
   @GetMapping
@@ -89,28 +94,33 @@ public class PolicyAdminController {
   @PutMapping("/{name}/tables")
   public InstanceDto replaceTables(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @RequestBody TablesDto request) {
-    List<TableDef> tables = toTables(request == null ? null : request.tables());
-    return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
-        () -> Map.of("tableCount", tables.size()),
-        () -> toDto(service.updateInstanceTables(name, tables)));
+    return adminMetrics.record("TABLES", "REPLACE_TABLES", () -> {
+      List<TableDef> tables = toTables(request == null ? null : request.tables());
+      return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
+          () -> Map.of("tableCount", tables.size()),
+          () -> toDto(service.updateInstanceTables(name, tables)));
+    });
   }
 
   @DeleteMapping("/{name}")
   public void delete(HttpServletRequest httpRequest, @PathVariable("name") String name) {
-    audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name,
-        Map::of, () -> {
-          service.deleteInstance(name);
-          return null;
-        });
+    adminMetrics.record("INSTANCE", "DELETE", () -> {
+      audit.adminChange(httpRequest, "DELETE", "INSTANCE", null, name,
+          Map::of, () -> {
+            service.deleteInstance(name);
+            return null;
+          });
+    });
   }
 
   @PostMapping("/{name}/policies")
   public PolicyDto createPolicy(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @RequestBody PolicyDto request) {
-    return audit.adminChange(httpRequest, "CREATE", "POLICY", name,
-        request == null ? null : request.name(),
-        () -> policyDetail(request),
-        () -> toDto(service.createPolicy(name, toModel(request))));
+    return adminMetrics.record("POLICY", "CREATE", () ->
+        audit.adminChange(httpRequest, "CREATE", "POLICY", name,
+            request == null ? null : request.name(),
+            () -> policyDetail(request),
+            () -> toDto(service.createPolicy(name, toModel(request)))));
   }
 
   @GetMapping("/{name}/policies")
@@ -130,17 +140,20 @@ public class PolicyAdminController {
   public PolicyDto updatePolicy(HttpServletRequest httpRequest,
       @PathVariable("name") String name, @PathVariable("policy") String policy,
       @RequestBody PolicyDto request) {
-    return audit.adminChange(httpRequest, "UPDATE", "POLICY", name, policy,
-        () -> policyDetail(request),
-        () -> toDto(service.updatePolicy(name, policy, toModel(request))));
+    return adminMetrics.record("POLICY", "UPDATE", () ->
+        audit.adminChange(httpRequest, "UPDATE", "POLICY", name, policy,
+            () -> policyDetail(request),
+            () -> toDto(service.updatePolicy(name, policy, toModel(request)))));
   }
 
   @DeleteMapping("/{name}/policies/{policy}")
   public void deletePolicy(HttpServletRequest httpRequest, @PathVariable("name") String name,
       @PathVariable("policy") String policy) {
-    audit.adminChange(httpRequest, "DELETE", "POLICY", name, policy, Map::of, () -> {
-      service.deletePolicy(name, policy);
-      return null;
+    adminMetrics.record("POLICY", "DELETE", () -> {
+      audit.adminChange(httpRequest, "DELETE", "POLICY", name, policy, Map::of, () -> {
+        service.deletePolicy(name, policy);
+        return null;
+      });
     });
   }
 
