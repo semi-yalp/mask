@@ -96,7 +96,7 @@ class UdfEndpointTest {
   void unknownInstanceAndDuplicateFollowErrorContract() throws Exception {
     mvc.perform(post("/api/instances/nope/udfs")
             .contentType(MediaType.APPLICATION_JSON).content(BODY))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("POLICY_INSTANCE_NOT_FOUND"));
 
     mvc.perform(post("/api/instances/pg_prod/udfs")

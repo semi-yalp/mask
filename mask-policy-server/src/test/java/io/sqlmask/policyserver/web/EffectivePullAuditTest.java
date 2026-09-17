@@ -28,7 +28,7 @@ class EffectivePullAuditTest {
   void effectivePullEmitsEventWithSubject() throws Exception {
     mvc.perform(get("/api/effective/missing?user=alice&groups=devs"))
         .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
-            .status().isBadRequest()); // instance missing -> 400 CONFIG_ERROR
+            .status().isNotFound()); // instance missing -> 404 POLICY_INSTANCE_NOT_FOUND
     ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
     org.mockito.Mockito.verify(recorder, times(1)).record(captor.capture());
     AuditEvent e = captor.getValue();
