@@ -64,7 +64,7 @@ public class RewriteController {
     String dialect = null;
     try {
       if (request == null || request.sql() == null || request.sql().isBlank()) {
-        throw fail(httpRequest, start, null, SqlMaskException.Code.CONFIG_ERROR,
+        throw fail(httpRequest, start, request, SqlMaskException.Code.CONFIG_ERROR,
             "sql is required: provide at least one SELECT statement");
       }
       boolean hasInstance = request.instance() != null && !request.instance().isBlank();

@@ -45,13 +45,17 @@ public class InstanceConfigSources {
     return !baseUrl.isEmpty();
   }
 
-  public PolicyServiceConfigSource get(String instance) {
+  public synchronized PolicyServiceConfigSource get(String instance) {
     return sources.computeIfAbsent(instance,
         i -> new PolicyServiceConfigSource(baseUrl, apiKey, i, metrics));
   }
 
-  /** Drops one instance (null/blank = all); the next load re-fetches. Returns the count. */
-  public int clear(String instance) {
+  /**
+   * Drops one instance (null/blank = all); the next load re-fetches. Returns
+   * the count. Synchronized with {@link #get(String)} so a concurrent get
+   * cannot repopulate between the size read and the clear.
+   */
+  public synchronized int clear(String instance) {
     if (instance == null || instance.isBlank()) {
       int n = sources.size();
       sources.clear();

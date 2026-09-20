@@ -20,8 +20,9 @@ import java.util.Map;
 
 /**
  * UDF registry CRUD of one engine instance — the policy service's first admin
- * surface. Errors flow through {@link ApiExceptionHandler} (SqlMaskException
- * → 400 + code/message). Every mutation emits one ADMIN_CHANGE audit event.
+ * surface. Errors flow through {@link PolicyApiExceptionHandler}
+ * (SqlMaskException → 400/404 + code/message). Every mutation emits one
+ * ADMIN_CHANGE audit event.
  */
 @RestController
 @RequestMapping("/api/instances/{instance}/udfs")
