@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EsAuditRecorderTest {
@@ -249,6 +250,101 @@ class EsAuditRecorderTest {
     assertTrue(elapsed < 15_000, "close should not wait much beyond 5s, took " + elapsed + "ms");
     assertTrue(registry.get("sqlmask.audit.dropped")
         .tag("reason", "SHUTDOWN").counter().count() >= 1.0);
+  }
+
+  @Test
+  void flushIntervalElapsedFlushesSmallBatchAndLoopSurvives() throws Exception {
+    // P0, §4.4-1: low-traffic main path. batch-size (100) is never reached
+    // with 1-2 events; the 150ms flush-interval timer must drive each flush.
+    // The existing suite only exercised the size-reached path (all tests use
+    // flushIntervalMs=60_000), so a broken timer condition would strand the
+    // events in memory with a green suite. Second record proves the writer
+    // loop survives the first timer flush and keeps flushing.
+    try (EsAuditRecorder r = new EsAuditRecorder(client, props(10, 100, 150), registry)) {
+      r.record(event("SELECT low-traffic-1"));
+      waitUntil(() -> !es.requests("/_bulk").isEmpty(), 5000);
+      r.record(event("SELECT low-traffic-2"));
+      // both timer flushes must land in ES (the requests list sees the bulk on
+      // receipt, before completion — also require the documents counter so the
+      // close below interrupts the worker in its poll, not mid-HTTP-call)
+      waitUntil(() -> {
+        Counter documents = registry.find("sqlmask.audit.es.documents").counter();
+        return es.requests("/_bulk").size() >= 2
+            && documents != null && documents.count() >= 2.0;
+      }, 5000);
+      assertEquals(2.0, registry.get("sqlmask.audit.es.documents").counter().count());
+    }
+    List<FakeEsServer.RecordedRequest> bulks = es.requests("/_bulk");
+    assertEquals(2, bulks.size());
+    // each timer flush pushed exactly one event: neither merged into one batch
+    assertTrue(bulks.get(0).body().contains("SELECT low-traffic-1"));
+    assertFalse(bulks.get(0).body().contains("SELECT low-traffic-2"));
+    assertTrue(bulks.get(1).body().contains("SELECT low-traffic-2"));
+    assertEquals(1, occurrences(bulks.get(0).body(), "\"eventType\""));
+    assertEquals(1, occurrences(bulks.get(1).body(), "\"eventType\""));
+    assertEquals(0, registry.find("sqlmask.audit.dropped").counters().size());
+  }
+
+  @Test
+  void closeDrainsQueuedBacklogWithinTimeoutWithoutShutdownDrops() throws Exception {
+    // P1, §4.4-2: close() draining branch. While the worker is held in a bulk
+    // call via the gate the queue fills with a backlog; releasing the gate and
+    // closing must empty the queue into ES (bulk requests land) and must not
+    // count SHUTDOWN drops. The existing close test only covers the 5s-timeout
+    // discard path. Note: close() must not interrupt the worker mid-HTTP-call
+    // (the interrupt would abort the in-flight bulk and miscount it as
+    // ES_FAILURE), so we first wait until the held bulk and the two full drain
+    // batches have landed and the worker is parked on the last partial batch.
+    CountDownLatch gate = new CountDownLatch(1);
+    es.bulkGate.set(gate);
+    EsAuditRecorder r = new EsAuditRecorder(client, props(100, 2, 60_000), registry);
+    long start;
+    try {
+      r.record(event("SELECT hold-a"));
+      r.record(event("SELECT hold-b"));
+      waitUntil(() -> !es.requests("/_bulk").isEmpty(), 5000); // worker stuck mid-flush
+      for (int i = 0; i < 5; i++) {
+        r.record(event("SELECT drain-" + i));
+      }
+      start = System.currentTimeMillis();
+    } finally {
+      gate.countDown(); // release the held bulk
+      // hold-bulk + drain batches (2,2) in ES and the worker back in its poll
+      // with only the last partial batch (drain-4) pending
+      waitUntil(() -> {
+        Counter documents = registry.find("sqlmask.audit.es.documents").counter();
+        return documents != null && documents.count() >= 6.0
+            && es.requests("/_bulk").size() >= 3;
+      }, 5000);
+      r.close(); // interrupts the worker in poll; it drains the final batch
+    }
+    long elapsed = System.currentTimeMillis() - start;
+    assertTrue(elapsed < 5_000, "close must drain within the 5s budget, took " + elapsed + "ms");
+    List<FakeEsServer.RecordedRequest> bulks = es.requests("/_bulk");
+    // hold-batch + 2 full drain batches (batch-size 2) + 1 partial final batch
+    assertEquals(4, bulks.size(), () -> "bulk request count: " + bulks.size());
+    assertTrue(bulks.get(0).body().contains("SELECT hold-a"));
+    assertTrue(bulks.get(0).body().contains("SELECT hold-b"));
+    assertTrue(bulks.get(1).body().contains("SELECT drain-0"));
+    assertTrue(bulks.get(1).body().contains("SELECT drain-1"));
+    assertTrue(bulks.get(2).body().contains("SELECT drain-2"));
+    assertTrue(bulks.get(2).body().contains("SELECT drain-3"));
+    assertTrue(bulks.get(3).body().contains("SELECT drain-4"));
+    for (FakeEsServer.RecordedRequest bulk : bulks) {
+      assertTrue(occurrences(bulk.body(), "\"eventType\"") <= 2);
+    }
+    assertEquals(7.0, registry.get("sqlmask.audit.es.documents").counter().count());
+    assertEquals(0, registry.find("sqlmask.audit.dropped").counters().size(),
+        "no SHUTDOWN/ES_FAILURE/QUEUE_FULL drops on the drain path");
+    assertEquals(0, r.droppedBatches());
+  }
+
+  private static int occurrences(String haystack, String needle) {
+    int count = 0;
+    for (int i = 0; (i = haystack.indexOf(needle, i)) != -1; i += needle.length()) {
+      count++;
+    }
+    return count;
   }
 
   private static void waitUntil(java.util.function.BooleanSupplier condition,

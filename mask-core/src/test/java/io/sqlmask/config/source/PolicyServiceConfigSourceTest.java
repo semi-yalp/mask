@@ -172,4 +172,26 @@ class PolicyServiceConfigSourceTest {
     s.load(Subject.of("u0", List.of()));
     assertEquals("user=u0", seenQuery.get());
   }
+
+  // ---- 轮询失败的异常传播与缓存保全（§4.1 第 1 条 P0）----
+
+  @Test
+  void refreshPropagatesHttp500AndKeepsStaleCache() {
+    PolicyServiceConfigSource s = source();
+    assertEquals(1, s.load().configVersion()); // 第一次成功拉取
+    status.set(500);
+    SqlMaskException e = assertThrows(SqlMaskException.class, s::refresh);
+    assertEquals(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE, e.getCode());
+    assertEquals(1, s.load().configVersion()); // stale 缓存仍可用
+  }
+
+  @Test
+  void refreshPropagatesConnectionRefusedAndKeepsStaleCache() {
+    PolicyServiceConfigSource s = source();
+    assertEquals(1, s.load().configVersion());
+    server.stop(0); // 拒连
+    SqlMaskException e = assertThrows(SqlMaskException.class, s::refresh);
+    assertEquals(SqlMaskException.Code.POLICY_SERVICE_UNAVAILABLE, e.getCode());
+    assertEquals(1, s.load().configVersion()); // stale 缓存仍可用
+  }
 }

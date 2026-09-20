@@ -142,6 +142,36 @@ class ConfigControllerTest {
   }
 
   @Test
+  void blankDialectDefaultsToPostgresql() throws Exception {
+    // §4.1 item 23: "dialect": "  " 必须按空白处理，默认 postgresql——
+    // datetime 只对 mysql 合法，空白 dialect 应复现与显式 postgresql 相同的拒绝
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: shop
+              schema: app
+              name: orders
+              columns:
+                - name: taken_at
+                  type: datetime
+        policies: {}
+        """;
+    mvc.perform(post("/api/config/parse")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(
+                Map.of("metadataYaml", yaml, "dialect", "   "))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+    // 正常 YAML + 空白 dialect 也照常解析
+    mvc.perform(post("/api/config/parse")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("metadataYaml", YAML,
+                "dialect", "  "))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tables[0].name").value("customer"));
+  }
+
+  @Test
   void blankBodyReturnsBadRequest() throws Exception {
     mvc.perform(post("/api/config/parse")
             .contentType(MediaType.APPLICATION_JSON)

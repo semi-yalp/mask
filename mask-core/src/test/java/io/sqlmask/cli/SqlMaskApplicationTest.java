@@ -44,6 +44,34 @@ class SqlMaskApplicationTest {
   }
 
   @Test
+  void instanceTogetherWithPoliciesExitsWithUsageError() {
+    // §4.1 item 4: 双策略来源必须互斥拒绝（exit 2），policies 文件不能被静默忽略
+    var out = new ByteArrayOutputStream();
+    var err = new ByteArrayOutputStream();
+    int code = app.run(new String[] {"--instance", "pg_prod", "--policies", "p.yaml",
+        "--sql", "SELECT 1"}, System.in,
+        new PrintStream(out), new PrintStream(err, true, StandardCharsets.UTF_8));
+    assertEquals(2, code);
+    String stderr = err.toString(StandardCharsets.UTF_8);
+    assertTrue(stderr.contains("--policies cannot be combined with --instance"),
+        () -> "stderr should reject the combination but was: " + stderr);
+  }
+
+  @Test
+  void instanceTogetherWithMetadataExitsWithUsageError() {
+    // 同源互斥：--instance 与 --metadata 也是二选一（execute L184-187）
+    var out = new ByteArrayOutputStream();
+    var err = new ByteArrayOutputStream();
+    int code = app.run(new String[] {"--instance", "pg_prod", "--metadata", "m.yaml",
+        "--sql", "SELECT 1"}, System.in,
+        new PrintStream(out), new PrintStream(err, true, StandardCharsets.UTF_8));
+    assertEquals(2, code);
+    String stderr = err.toString(StandardCharsets.UTF_8);
+    assertTrue(stderr.contains("--instance cannot be combined with --metadata"),
+        () -> "stderr should reject the combination but was: " + stderr);
+  }
+
+  @Test
   void noArgumentsReturnsNonZeroAndWritesDiagnostic() {
     var out = new ByteArrayOutputStream();
     var err = new ByteArrayOutputStream();

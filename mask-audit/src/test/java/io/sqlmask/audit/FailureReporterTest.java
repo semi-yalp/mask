@@ -68,4 +68,28 @@ class FailureReporterTest {
     r.recordSuccess();
     assertEquals(0, infos.size());
   }
+
+  @Test
+  void downSinceAccumulatesAcrossWindowsUntilRecovery() {
+    // P2, §4.4-11: the second-window WARN's down-since-ms must keep counting
+    // from the FIRST failure (accumulated outage), not restart per window.
+    List<String> warns = new ArrayList<>();
+    FailureReporter r = new FailureReporter(at("2026-09-16T00:00:00Z"), warns::add, s -> {});
+    r.recordBatchFailure(100); // first failure anchors down-since
+    assertEquals(1, warns.size());
+    assertTrue(warns.get(0).contains("down-since-ms=0"), () -> warns.get(0));
+    // next 60s window: still down, so the WARN reports the accumulated
+    // 61s outage since the first failure
+    r.advance(Clock.fixed(Instant.parse("2026-09-16T00:01:01Z"), ZoneOffset.UTC));
+    r.recordBatchFailure(50);
+    assertEquals(2, warns.size());
+    assertTrue(warns.get(1).contains("down-since-ms=61000"), () -> warns.get(1));
+    // recovery resets the anchor: the next outage starts a fresh down-since
+    r.recordSuccess();
+    r.advance(Clock.fixed(Instant.parse("2026-09-16T00:01:02Z"), ZoneOffset.UTC));
+    r.recordBatchFailure(1);
+    assertEquals(3, warns.size());
+    assertTrue(warns.get(2).contains("down-since-ms=0"), () -> warns.get(2));
+    assertEquals(1, r.snapshotDroppedBatches()); // totals keep counting across cycles
+  }
 }

@@ -172,6 +172,19 @@ class RewriteControllerTest {
   }
 
   @Test
+  void blankSqlReturnsSqlRequiredError() throws Exception {
+    // §4.1 item 23: isBlank 的 sql 必须报 "sql is required"，不能静默空跑
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", YAML, "sql", "   "))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"))
+        .andExpect(jsonPath("$.message")
+            .value(org.hamcrest.Matchers.containsString("sql is required")));
+  }
+
+  @Test
   void unsupportedDialectReturnsBadRequest() throws Exception {
     // mysql 是已注册方言（Task 5 起），改用真正未注册的 oracle 验证拒绝路径
     mvc.perform(post("/api/rewrite")

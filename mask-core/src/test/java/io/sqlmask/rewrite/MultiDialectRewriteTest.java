@@ -339,6 +339,33 @@ class MultiDialectRewriteTest {
   }
 
   @Test
+  void aggregateOutputColumnHitsPolicyAndWrapsWithoutCast() {
+    // §4.2 item 2 (P0): count(phone) 的血缘到达 phone → 聚合输出列命中文本策略；
+    // 包装形态是 mask_phone(r.cnt, 3, 4) AS cnt，绝不插入 CAST——内嵌聚合保持原义
+    // （Calcite 归一化函数名为 COUNT 大写，标识符保持小写）
+    var result = engine.rewrite(TRINO_YAML,
+        "SELECT count(phone) AS cnt FROM customer", "postgresql").get(0);
+    assertTrue(result.masked(), result.rewrittenSql());
+    assertEquals("SELECT mask_phone(r.cnt, 3, 4) AS cnt FROM ( "
+        + "SELECT COUNT(phone) AS cnt FROM customer ) AS r", flat(result.rewrittenSql()));
+    assertFalse(result.rewrittenSql().toUpperCase().contains("CAST("),
+        () -> result.rewrittenSql());
+  }
+
+  @Test
+  void unaliasedAggregateOutputKeepsGeneratedNameInWrapper() {
+    // 同缺口的未别名形态：Calcite 生成名 EXPR$0（大写 E 不匹配 PG 的
+    // [a-z_] 开头正则）经标识符策略双引号引用后进入包装层
+    var result = engine.rewrite(TRINO_YAML,
+        "SELECT count(phone) FROM customer", "postgresql").get(0);
+    assertTrue(result.masked(), result.rewrittenSql());
+    assertEquals("SELECT mask_phone(r.\"EXPR$0\", 3, 4) AS \"EXPR$0\" FROM ( "
+        + "SELECT COUNT(phone) FROM customer ) AS r", flat(result.rewrittenSql()));
+    assertFalse(result.rewrittenSql().toUpperCase().contains("CAST("),
+        () -> result.rewrittenSql());
+  }
+
+  @Test
   void writeStatementsFailOnEveryDialect() {
     for (String dialect : List.of("postgresql", "trino", "mysql")) {
       SqlMaskException update = assertThrows(SqlMaskException.class,

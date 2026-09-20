@@ -132,4 +132,58 @@ class JdbcMetaStoreTest {
     store.createInstance(new InstanceRow("sr-eng", "mysql", "starrocks", conn, 1));
     assertEquals("starrocks", store.findInstance("sr-eng").orElseThrow().engine());
   }
+
+  /**
+   * Gap §4.7 #1 (P0): every {@code createInstance} connection field written to
+   * PostgreSQL must come back byte-identical through {@code findInstance} —
+   * the {@code ?::jsonb} schemas binding and the column map are the load-bearing
+   * path behind the production import->collect chain.
+   */
+  @Test
+  void connectionFieldsRoundTripThroughStore() {
+    String name = "it_" + UUID.randomUUID();
+    ConnectionInfo connection = new ConnectionInfo("db.internal", 55432, "app_db", "svc_user",
+        "SQLMASK_REF_PWD", "verify-full", 7, List.of("public", "crm", "raw"), true);
+    store.createInstance(new InstanceRow(name, "postgresql", null, connection, 1));
+
+    ConnectionInfo loaded = store.findInstance(name).orElseThrow().connection();
+    assertEquals("db.internal", loaded.host());
+    assertEquals(55432, loaded.port());
+    assertEquals("app_db", loaded.database());
+    assertEquals("svc_user", loaded.dbUser());
+    assertEquals("SQLMASK_REF_PWD", loaded.passwordRef());
+    assertEquals("verify-full", loaded.sslmode());
+    assertEquals(7, loaded.connectTimeoutSeconds());
+    assertEquals(List.of("public", "crm", "raw"), loaded.schemas());
+    assertTrue(loaded.includeViews());
+    store.deleteInstance(name);
+  }
+
+  /**
+   * Gap §4.7 #1 (P0): an instance created without a connection (the YAML
+   * import shape, {@code connection == null}) must round-trip back to null —
+   * never to a half-initialized group with defaulted port/sslmode.
+   */
+  @Test
+  void nullConnectionRoundTripsAsNull() {
+    String name = "it_" + UUID.randomUUID();
+    store.createInstance(new InstanceRow(name, "postgresql", null, null, 1));
+    assertEquals(null, store.findInstance(name).orElseThrow().connection());
+    store.deleteInstance(name);
+  }
+
+  /** Companion to the two above: updating a connection-bearing instance to null must clear the stored group. */
+  @Test
+  void updateInstanceToNullConnectionClearsPersistedFields() {
+    String name = "it_" + UUID.randomUUID();
+    ConnectionInfo connection = new ConnectionInfo("host-a", 6000, "legacy", "old_user",
+        "REF", "disable", 3, List.of("public"), false);
+    store.createInstance(new InstanceRow(name, "postgresql", null, connection, 1));
+    assertEquals(connection, store.findInstance(name).orElseThrow().connection());
+
+    store.updateInstance(name, null);
+    assertEquals(null, store.findInstance(name).orElseThrow().connection());
+    assertEquals(2, store.findInstance(name).orElseThrow().metadataVersion());
+    store.deleteInstance(name);
+  }
 }

@@ -99,6 +99,17 @@ class PolicyApiKeyFilterTest {
   }
 
   @Test
+  void blankAdminKeyLeavesAuditSurfaceOpen() throws Exception {
+    // requiredKey: blank admin key (the application.yml default is "") is treated
+    // as unconfigured -> the /api/audit branch stays open (fail-open, §4.6 #8).
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("   ", "data-secret");
+    assertEquals(200, run(filter, "/api/audit/events", null).getStatus());
+    assertEquals(200, run(filter, "/api/audit/events", "nothing").getStatus());
+    // the data key is still enforced on the data surface in the same filter
+    assertEquals(401, run(filter, "/api/effective/pg_prod", null).getStatus());
+  }
+
+  @Test
   void segmentBoundaryIsEnforced() throws Exception {
     // a prefix must not unlock a sibling surface (/api/instances-evil, /api/effectiveX)
     PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
