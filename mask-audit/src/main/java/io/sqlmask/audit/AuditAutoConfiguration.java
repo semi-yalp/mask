@@ -46,7 +46,18 @@ public class AuditAutoConfiguration {
           }
           return builder;
         })
+        .setRequestConfigCallback(AuditAutoConfiguration::esTimeouts)
         .build();
+  }
+
+  /**
+   * Fail-fast ES timeouts (spec §4.1: connect 3s / socket 10s) so a hung
+   * cluster does not stall the writer thread or the query API for the ~30s
+   * default socket timeout.
+   */
+  static org.apache.http.client.config.RequestConfig.Builder esTimeouts(
+      org.apache.http.client.config.RequestConfig.Builder rc) {
+    return rc.setConnectTimeout(3_000).setSocketTimeout(10_000);
   }
 
   @Bean

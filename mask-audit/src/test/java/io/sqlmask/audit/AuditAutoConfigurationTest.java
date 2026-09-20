@@ -42,4 +42,13 @@ class AuditAutoConfigurationTest {
       });
     });
   }
+
+  @Test
+  void esRequestTimeoutsAreConnect3sSocket10s() {
+    org.apache.http.client.config.RequestConfig config =
+        AuditAutoConfiguration.esTimeouts(
+            org.apache.http.client.config.RequestConfig.custom()).build();
+    assertThat(config.getConnectTimeout()).isEqualTo(3_000);
+    assertThat(config.getSocketTimeout()).isEqualTo(10_000);
+  }
 }

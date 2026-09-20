@@ -3,7 +3,9 @@ package io.sqlmask.server;
 import io.sqlmask.audit.AuditQuery;
 import io.sqlmask.audit.AuditSearchClient;
 import io.sqlmask.audit.AuditSearchResult;
+import io.sqlmask.audit.AuditSearchUnavailableException;
 import io.sqlmask.error.SqlMaskException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,8 +30,13 @@ public class AuditQueryController {
 
   private final AuditSearchClient search;
 
-  public AuditQueryController(AuditSearchClient search) {
-    this.search = search;
+  /**
+   * The search client bean is conditional on {@code audit.enabled=true}; an
+   * absent client (audit disabled) must not break application startup — the
+   * endpoint responds 502 {@code AUDIT_SEARCH_UNAVAILABLE} instead.
+   */
+  public AuditQueryController(ObjectProvider<AuditSearchClient> searchProvider) {
+    this.search = searchProvider.getIfAvailable();
   }
 
   public record AuditQueryResponse(long total, int page, int size,
@@ -48,6 +55,10 @@ public class AuditQueryController {
       @RequestParam(value = "to", required = false) String to,
       @RequestParam(value = "page", required = false) Integer page,
       @RequestParam(value = "size", required = false) Integer size) {
+    if (search == null) {
+      throw new AuditSearchUnavailableException(
+          "audit is disabled (audit.enabled=false)", null);
+    }
     int pageSize = size == null ? DEFAULT_SIZE : size;
     if (pageSize < 1 || pageSize > MAX_SIZE) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
