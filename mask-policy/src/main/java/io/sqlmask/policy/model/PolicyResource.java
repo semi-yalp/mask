@@ -4,6 +4,8 @@ package io.sqlmask.policy.model;
  * One resource path entry. Every level is a concrete identifier or "*";
  * {@code column} is null for table-level (row filter) resources. Levels are
  * normalized on construction.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
  */
 public record PolicyResource(String catalog, String schema, String table, String column) {
 

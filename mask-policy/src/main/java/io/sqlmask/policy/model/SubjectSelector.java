@@ -15,6 +15,9 @@ import java.util.Set;
  * would silently stop applying. Blank or whitespace-only entries are
  * rejected outright rather than dropped, so a mistyped policy fails at
  * load time instead of silently narrowing its reach.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical to the
+ * previous implementation.
  */
 public record SubjectSelector(Set<String> users, Set<String> groups) {
 

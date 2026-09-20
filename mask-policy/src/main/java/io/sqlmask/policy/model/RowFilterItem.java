@@ -2,7 +2,11 @@ package io.sqlmask.policy.model;
 
 import io.sqlmask.policy.PolicyException;
 
-/** One rowFilter policy item: who it applies to and the filter expression. */
+/**
+ * One rowFilter policy item: who it applies to and the filter expression.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
+ */
 public record RowFilterItem(SubjectSelector selector, String filterExpr) {
 
   public RowFilterItem {

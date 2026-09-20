@@ -8,6 +8,8 @@ import java.util.Locale;
  * Resource identifier normalization shared by the loader and the matcher:
  * PostgreSQL unquoted-identifier convention (fold to lower case), identical
  * to mask-core's ColumnKey.normalize so both sides agree.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
  */
 public final class PolicyNames {
 

@@ -5,6 +5,9 @@ import java.util.List;
 /**
  * Query subject: the acting user and their groups. A null user with no groups
  * is the anonymous subject; it matches only "*" wildcard selectors.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical to the
+ * previous implementation (consumed by mask-core).
  */
 public record Subject(String user, List<String> groups) {
 

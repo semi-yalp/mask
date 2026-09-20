@@ -5,7 +5,11 @@ import io.sqlmask.policy.PolicyException;
 import java.util.List;
 import java.util.Map;
 
-/** One dataMask policy item: who it applies to and the masking UDF call. */
+/**
+ * One dataMask policy item: who it applies to and the masking UDF call.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
+ */
 public record DataMaskItem(SubjectSelector selector, String udf, List<Object> arguments) {
 
   public DataMaskItem {

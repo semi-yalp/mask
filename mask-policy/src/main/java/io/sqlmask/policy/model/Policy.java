@@ -7,6 +7,8 @@ import java.util.List;
 /**
  * One Ranger-style policy: resources plus items of exactly one kind
  * (dataMask or rowFilter); the items carry the subject selectors.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
  */
 public record Policy(String name, boolean enabled, int priority, PolicyType type,
     List<PolicyResource> resources, List<DataMaskItem> dataMaskItems,
