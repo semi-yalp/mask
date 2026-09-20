@@ -16,6 +16,9 @@ import java.util.Locale;
  * (core's component scan) and a future standalone policy service expose the
  * same contract. Errors are PolicyException; the combined jar maps them via
  * ApiExceptionHandler to 400 CONFIG_ERROR.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract (routes + DTO shapes)
+ * byte-identical to the previous implementation.
  */
 @RestController
 @RequestMapping("/api/policies")
