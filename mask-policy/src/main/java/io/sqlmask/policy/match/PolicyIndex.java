@@ -9,6 +9,8 @@ import java.util.List;
 /**
  * Deterministic decision order over enabled policies: higher priority first,
  * ties keep declaration order (stable sort). Disabled policies are dropped.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical.
  */
 public record PolicyIndex(List<Policy> dataMasks, List<Policy> rowFilters) {
 

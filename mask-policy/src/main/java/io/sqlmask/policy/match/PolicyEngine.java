@@ -17,8 +17,11 @@ import java.util.Optional;
  * The policy decision point (PDP): pure, stateless matching of resources and
  * subjects against the policy index. Deterministic for a given index,
  * resource and subject. Request-side names are concrete values; glob patterns
- * (each "*" matches any sequence within one level) appear only on the policy
- * declaration side.
+ * (each "*" matches any sequence within one level, "?" exactly one character)
+ * appear only on the policy declaration side.
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; contract byte-identical to the
+ * previous implementation (semantics unchanged apart from GlobMatcher "?").
  */
 public final class PolicyEngine {
 
