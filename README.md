@@ -152,6 +152,32 @@ java -jar target/sql-mask.jar
 - **执行改写**：按当前配置改写 SQL，逐语句展示结果（已脱敏/原样输出标记、
   可展开查看原始语句），支持一键复制；失败时展示错误码与原因。
 
+## 前端部署（nginx）
+
+`frontend/` 目录存放独立的静态前端（无构建步骤，纯 HTML/CSS/JS），生产由
+nginx 承载并反向代理 `/api/**` 到各微服务，浏览器与 API 同源、无需 CORS 配置。
+
+- **策略管理台 `frontend/policy-console.html`**：mask-policy-server(8081) 的
+  管理面与数据面控制台——实例/表结构/策略/UDF CRUD、按主体（user/groups）拉取
+  生效配置预览、跨服务元数据导入；鉴权走 `X-Api-Key` 头（管理 Key 管
+  `/api/instances` 与 `/api/audit`，数据 Key 管 `/api/effective`），页面顶部可
+  填写并持久化到 localStorage。
+- **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective`、
+  `/api/audit` → 8081；另附注释示例：`/api/rewrite`、`/api/config`、
+  `/api/policies` → 8080，`/api/metadata` → 8082（`/api/metadata/pull` 须用
+  `location =` 精确匹配优先到 8080），`/api/v1/` → 8083。
+
+部署方式二选一：
+
+```bash
+# 方式一：Docker（镜像内 upstream 用 127.0.0.1，容器化时改为
+#         host.docker.internal 或 compose 服务名）
+docker compose -f docker-compose.frontend.yml up --build
+
+# 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend 目录绝对路径后 include）
+nginx -c $(pwd)/frontend/nginx.conf
+```
+
 ## REST API
 
 ### POST /api/rewrite

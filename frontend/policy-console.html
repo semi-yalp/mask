@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>sql-mask · 策略管理台</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --panel: #ffffff;
+    --border: #d8dee9;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --code-bg: #0f172a;
+    --code-text: #e2e8f0;
+    --warn: #b45309;
+    --ok: #15803d;
+    --error-bg: #fef2f2;
+    --error-border: #dc2626;
+    --error-text: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 16px 28px;
+    display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 19px; letter-spacing: 0.5px; }
+  header p { margin: 3px 0 0; font-size: 12.5px; color: #94a3b8; }
+  header code { color: #7dd3fc; }
+  .keybox { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .keybox label { font-size: 12px; color: #94a3b8; }
+  .keybox input {
+    border: 1px solid #31445e; background: #16233a; color: var(--code-text);
+    border-radius: 6px; padding: 5px 9px; font-size: 12.5px; font-family: Consolas, monospace;
+    width: 170px;
+  }
+  .gate-badge { font-size: 11.5px; border-radius: 999px; padding: 3px 10px; border: 1px dashed #64748b; color: #94a3b8; }
+  .gate-badge.open { color: #fbbf24; border-color: #b45309; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 18px; padding: 18px 28px 30px; max-width: 1700px; margin: 0 auto; align-items: start; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .pane { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; }
+  .pane h2 { margin: 0 0 12px; font-size: 14.5px; color: var(--accent-dark); }
+  .inst-list { display: flex; flex-direction: column; gap: 8px; }
+  .inst-item {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .inst-item:hover { border-color: var(--accent); }
+  .inst-item.active { border-color: var(--accent); background: #eff6ff; }
+  .inst-item .name { font-weight: 700; font-size: 13.5px; }
+  .inst-item .meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .inst-item .del { float: right; font-size: 12px; color: var(--error-text); cursor: pointer; }
+  .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin-bottom: 12px; flex-wrap: wrap; }
+  .tabs button {
+    border: none; background: none; padding: 8px 13px; font-size: 13.5px; color: var(--muted);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+  }
+  .tabs button.active { color: var(--accent-dark); font-weight: 700; border-bottom-color: var(--accent); }
+  .tab-panel[hidden] { display: none; }
+  .row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 90px; }
+  .row .fixed { flex: 0 0 auto; }
+  .field-label { font-size: 12.5px; font-weight: 600; margin: 10px 0 6px; }
+  .field-label:first-child { margin-top: 0; }
+  .hint { color: var(--muted); font-weight: 400; font-size: 11.5px; margin-left: 6px; }
+  input, select, textarea {
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12.5px;
+    font-family: "JetBrains Mono", Consolas, monospace; background: #fff; color: var(--text); min-width: 0;
+  }
+  textarea { width: 100%; resize: vertical; line-height: 1.5; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: var(--accent-dark); color: #fff; }
+  .btn.danger { color: var(--error-text); border-color: #f3c6c6; background: #fff5f5; }
+  .btn.danger:hover { border-color: var(--error-border); }
+  .btn.sm { padding: 2px 8px; font-size: 12px; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: #fbfcfe; }
+  .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12.5px; font-weight: 700; color: var(--accent-dark); }
+  .card-head .spacer { flex: 1; }
+  .round {
+    font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 9px;
+    background: #e7edf7; color: var(--accent-dark);
+  }
+  .round.ok { background: #dcfce7; color: var(--ok); }
+  .round.off { background: #e5e7eb; color: var(--muted); }
+  .kv { font-size: 12.5px; line-height: 1.7; }
+  .kv b { color: var(--accent-dark); }
+  .empty-hint { color: var(--muted); font-size: 12.5px; padding: 6px 2px; }
+  .alert {
+    background: var(--error-bg); border: 1px solid var(--error-border); color: var(--error-text);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 10px; white-space: pre-wrap; word-break: break-all;
+  }
+  .alert b { font-family: Consolas, monospace; }
+  .toast {
+    position: fixed; right: 24px; bottom: 24px; z-index: 50;
+    background: var(--code-bg); color: var(--code-text); border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+    max-width: 480px; word-break: break-all;
+  }
+  .toast.show { opacity: 1; }
+  .toast.ok { background: #14532d; }
+  pre.json {
+    background: var(--code-bg); color: var(--code-text); border-radius: 8px; padding: 10px 12px;
+    font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word; overflow-x: auto; margin: 8px 0 0;
+  }
+  details.summary { border-top: 1px solid var(--border); }
+  details.summary summary { cursor: pointer; padding: 7px 12px; font-size: 12px; color: var(--muted); user-select: none; }
+  #busy { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>sql-mask · 策略管理台</h1>
+    <p>mask-policy-server 管理面（实例 / 表结构 / 策略 / UDF）与数据面（按主体生效配置） —— 接口 <code>/api/instances</code>、<code>/api/effective</code>，由 nginx 反向代理到 8081</p>
+  </div>
+  <div class="keybox">
+    <label>管理 Key</label><input id="admin-key" type="password" placeholder="留空=未配置（门禁开放）" autocomplete="off">
+    <label>数据 Key</label><input id="data-key" type="password" placeholder="留空=未配置（门禁开放）" autocomplete="off">
+    <button class="btn sm" id="save-keys">保存</button>
+    <button class="btn sm" id="clear-keys">清除</button>
+    <span class="gate-badge" id="gate-badge">门禁：未配置（开放）</span>
+  </div>
+</header>
+
+<main>
+  <section class="pane">
+    <h2>实例列表</h2>
+    <div class="row">
+      <input id="new-name" placeholder="实例名，如 crm">
+      <select id="new-dialect">
+        <option value="postgresql">postgresql</option>
+        <option value="trino">trino</option>
+        <option value="mysql">mysql</option>
+      </select>
+      <button class="btn primary" id="create-inst">新建</button>
+    </div>
+    <div class="inst-list" id="inst-list"><div class="empty-hint">加载中…</div></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn sm" id="sample-inst">载入示例实例</button>
+      <span class="hint">创建 crm（customer 表 + mask_phone UDF + 脱敏策略）</span>
+    </div>
+    <div class="alert" id="list-error" hidden></div>
+  </section>
+
+  <section class="pane">
+    <div id="no-selection" class="empty-hint">← 从左侧选择实例，或新建一个实例</div>
+
+    <div id="detail" hidden>
+      <div class="tabs" id="tabs">
+        <button data-tab="overview" class="active">总览</button>
+        <button data-tab="tables">表结构</button>
+        <button data-tab="policies">策略</button>
+        <button data-tab="udfs">UDF</button>
+        <button data-tab="effective">生效配置</button>
+      </div>
+
+      <div class="tab-panel" id="tab-overview">
+        <div class="card">
+          <div class="card-head">
+            <span id="ov-name"></span>
+            <span class="round" id="ov-dialect"></span>
+            <span class="spacer"></span>
+            <button class="btn danger sm" id="delete-inst">删除实例</button>
+          </div>
+          <div class="kv" id="ov-meta"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span>跨服务元数据导入</span><span class="hint">从 mask-metadata(8082) 拉取表结构到本实例</span></div>
+          <div class="row">
+            <input id="imp-base" placeholder="metadataBaseUrl，如 http://127.0.0.1:8082">
+            <input id="imp-instance" placeholder="metadata 实例名，如 crm">
+          </div>
+          <div class="row">
+            <input id="imp-apikey" placeholder="metadata API Key（可选）">
+            <button class="btn primary" id="import-meta">导入</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-tables" hidden>
+        <div id="tables-list"></div>
+        <div class="row">
+          <button class="btn sm" id="add-table">＋ 添加表</button>
+          <button class="btn primary sm" id="save-tables">保存全部表结构</button>
+          <span id="tables-status" class="hint"></span>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-policies" hidden>
+        <div class="row">
+          <button class="btn" id="add-policy-form">＋ 新建策略（展开表单）</button>
+          <span class="hint">DATAMASK=列脱敏；ROW_FILTER=行过滤</span>
+        </div>
+        <div id="policy-form" class="card" hidden>
+          <div class="card-head"><span id="pf-title">新建策略</span><span class="spacer"></span><button class="btn danger sm" id="pf-cancel">收起</button></div>
+          <div class="row">
+            <input id="pf-name" placeholder="策略名，如 mask_phone_policy">
+            <select id="pf-type"><option value="datamask">datamask（列脱敏）</option><option value="row_filter">row_filter（行过滤）</option></select>
+            <label class="fixed" style="font-size:12px"><input type="checkbox" id="pf-enabled" checked style="margin-right:4px">启用</label>
+            <input id="pf-priority" placeholder="priority（可选）" style="max-width:110px">
+          </div>
+          <div class="row">
+            <input id="pf-catalog" placeholder="catalog">
+            <input id="pf-schema" placeholder="schema">
+            <input id="pf-table" placeholder="table">
+            <input id="pf-columns" placeholder="columns，逗号分隔（脱敏）">
+          </div>
+          <div class="row">
+            <input id="pf-users" placeholder="users，逗号分隔（空=任意）">
+            <input id="pf-groups" placeholder="groups，逗号分隔（空=任意）">
+          </div>
+          <div class="field-label">UDF 与参数 <span class="hint">ROW_FILTER 无需 UDF</span></div>
+          <div class="row">
+            <input id="pf-udf" placeholder="udf 名，如 mask_phone">
+            <input id="pf-args" placeholder="arguments，如 3, 4">
+          </div>
+          <div class="field-label">行过滤表达式（ROW_FILTER 需要）</div>
+          <input id="pf-filter" placeholder="如 status = 'active'">
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="pf-submit">保存策略</button>
+            <span id="pf-status" class="hint"></span>
+          </div>
+        </div>
+        <div id="policies-list"></div>
+      </div>
+
+      <div class="tab-panel" id="tab-udfs" hidden>
+        <div class="row">
+          <button class="btn" id="add-udf-form">＋ 注册 UDF（展开表单）</button>
+        </div>
+        <div id="udf-form" class="card" hidden>
+          <div class="card-head"><span id="uf-title">注册 UDF</span><span class="spacer"></span><button class="btn danger sm" id="uf-cancel">收起</button></div>
+          <div class="row">
+            <input id="uf-name" placeholder="UDF 名，如 mask_phone">
+            <input id="uf-returns" placeholder="返回类型，如 varchar">
+          </div>
+          <div class="field-label">签名参数类型（逗号分隔，可多行添加签名）</div>
+          <div id="uf-sigs"></div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn sm" id="uf-add-sig">＋ 签名</button>
+            <button class="btn primary" id="uf-submit">保存 UDF</button>
+            <span id="uf-status" class="hint"></span>
+          </div>
+        </div>
+        <div id="udfs-list"></div>
+      </div>
+
+      <div class="tab-panel" id="tab-effective" hidden>
+        <div class="card">
+          <div class="card-head"><span>按主体编译生效配置</span><span class="hint">数据面 GET /api/effective/{instance}</span></div>
+          <div class="row">
+            <input id="eff-user" placeholder="user（可选）">
+            <input id="eff-groups" placeholder="groups，逗号分隔（可选）">
+            <button class="btn primary" id="eff-run">拉取生效配置</button>
+          </div>
+          <div id="eff-meta" class="kv" style="margin-top:6px"></div>
+        </div>
+        <div id="eff-body"></div>
+      </div>
+    </div>
+
+    <div class="alert" id="detail-error" hidden></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const state = { current: null, tables: [], policies: [], udfs: [], dirtyTables: false };
+
+const KEYS = "mask-policy-console-keys";
+
+function apiKey(role) {
+  const k = role === "admin" ? $("admin-key").value.trim() : $("data-key").value.trim();
+  return k || undefined;
+}
+
+async function call(method, url, body, role) {
+  const headers = {};
+  const key = apiKey(role);
+  if (key) headers["X-Api-Key"] = key;
+  if (body !== undefined && body !== null) headers["Content-Type"] = "application/json";
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined || body === null ? undefined : JSON.stringify(body)
+  });
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* 非 JSON 响应 */ }
+  if (!res.ok) {
+    throw new Error((payload && payload.code ? "[" + payload.code + "] " : "")
+        + (payload && payload.message ? payload.message : "HTTP " + res.status));
+  }
+  return payload;
+}
+
+let toastTimer = null;
+function toast(text, ok) {
+  const t = $("toast");
+  t.textContent = text;
+  t.className = "toast show" + (ok ? " ok" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = "toast", 3200);
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+const kv = (label, value) => `<div><b>${esc(label)}</b>　${esc(value)}</div>`;
+const join = (arr) => (arr || []).filter((x) => String(x).trim() !== "").join(", ") || "—";
+const num = (x) => (x === null || x === undefined) ? "" : String(x);
+
+// ---------- API key ----------
+function loadKeys() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEYS) || "{}");
+    $("admin-key").value = saved.admin || "";
+    $("data-key").value = saved.data || "";
+  } catch (_) { /* 忽略损坏的存储 */ }
+  refreshGate();
+}
+function saveKeys() {
+  localStorage.setItem(KEYS, JSON.stringify({ admin: $("admin-key").value, data: $("data-key").value }));
+  refreshGate();
+  toast("API Key 已保存到本地", true);
+}
+function clearKeys() {
+  $("admin-key").value = "";
+  $("data-key").value = "";
+  saveKeys();
+  toast("API Key 已清除");
+}
+function refreshGate() {
+  const admin = $("admin-key").value.trim();
+  const data = $("data-key").value.trim();
+  const badge = $("gate-badge");
+  if (!admin && !data) {
+    badge.textContent = "门禁：未配置（开放）";
+    badge.className = "gate-badge open";
+  } else {
+    badge.textContent = "门禁：已配置（X-Api-Key 鉴权）";
+    badge.className = "gate-badge";
+  }
+}
+
+// ---------- instance list ----------
+async function loadInstances() {
+  const host = $("inst-list");
+  try {
+    const list = await call("GET", "/api/instances", null, "admin");
+    if (!list.length) {
+      host.innerHTML = '<div class="empty-hint">暂无实例，输入名称点「新建」</div>';
+    } else {
+      host.innerHTML = list.map((it) => `
+        <div class="inst-item${state.current && state.current.name === it.name ? " active" : ""}" data-inst="${esc(it.name)}">
+          <span class="del" data-del="${esc(it.name)}" title="删除">✕</span>
+          <div class="name">${esc(it.name)}</div>
+          <div class="meta">${esc(it.dialect)} · ${(it.tables || []).length} 张表</div>
+        </div>`).join("");
+    }
+    $("list-error").hidden = true;
+    if (state.current) {
+      const fresh = list.find((i) => i.name === state.current.name);
+      if (!fresh) { state.current = null; $("detail").hidden = true; $("no-selection").hidden = false; }
+      else { state.current = fresh; openDetail(fresh, true); }
+    }
+  } catch (err) {
+    $("list-error").hidden = false;
+    $("list-error").innerHTML = "<b>[LIST_ERROR]</b> " + esc(err.message);
+  }
+}
+
+async function createInstance() {
+  const name = $("new-name").value.trim();
+  if (!name) { toast("实例名不能为空"); return; }
+  try {
+    await call("POST", "/api/instances", { name, dialect: $("new-dialect").value, tables: [] }, "admin");
+    $("new-name").value = "";
+    toast("实例 " + name + " 已创建", true);
+    await loadInstances();
+  } catch (err) { toast(err.message); }
+}
+
+async function deleteInstance(name) {
+  if (!confirm("删除实例 " + name + " 及其全部策略/UDF？")) return;
+  try {
+    await call("DELETE", "/api/instances/" + encodeURIComponent(name), null, "admin");
+    toast("实例已删除", true);
+    state.current = null;
+    $("detail").hidden = true;
+    $("no-selection").hidden = false;
+    await loadInstances();
+  } catch (err) { toast(err.message); }
+}
+
+// ---------- detail ----------
+async function openDetail(inst, refresh) {
+  state.current = inst;
+  $("no-selection").hidden = true;
+  $("detail").hidden = false;
+  $("detail-error").hidden = true;
+  $("ov-name").textContent = inst.name;
+  $("ov-dialect").textContent = "dialect: " + inst.dialect;
+  $("ov-meta").innerHTML = kv("表数量", (inst.tables || []).length)
+      + kv("实例名（供 instance 模式改写引用）", inst.name);
+  state.tables = JSON.parse(JSON.stringify(inst.tables || []));
+  state.dirtyTables = false;
+  renderTables();
+  if (refresh) {
+    await Promise.all([loadPolicies(inst.name), loadUdfs(inst.name)]);
+  }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll("#tabs button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.tab === tab));
+  ["overview", "tables", "policies", "udfs", "effective"].forEach((t) =>
+      $("tab-" + t).hidden = t !== tab);
+}
+
+// ---------- tables ----------
+function renderTables() {
+  const host = $("tables-list");
+  if (!state.tables.length) {
+    host.innerHTML = '<div class="empty-hint">暂无表结构。可手动添加，或从 mask-metadata 导入。</div>';
+    return;
+  }
+  host.innerHTML = state.tables.map((t, ti) => `
+    <div class="card">
+      <div class="card-head">
+        <span>表 ${ti + 1}</span>
+        <button class="btn danger sm" data-del-table="${ti}">删除表</button>
+      </div>
+      <div class="row">
+        <input data-table="${ti}" data-field="catalog" value="${esc(t.catalog)}" placeholder="catalog">
+        <input data-table="${ti}" data-field="schema" value="${esc(t.schema)}" placeholder="schema">
+        <input data-table="${ti}" data-field="name" value="${esc(t.name)}" placeholder="表名">
+      </div>
+      <div class="row">
+        <input data-table="${ti}" data-field="rowFilter" value="${esc(t.rowFilter || "")}" placeholder="行过滤条件（预留，编译前的原始声明）">
+      </div>
+      ${(t.columns || []).map((c, ci) => `
+        <div class="row">
+          <input data-table="${ti}" data-col="${ci}" data-field="name" value="${esc(c.name)}" placeholder="列名">
+          <input data-table="${ti}" data-col="${ci}" data-field="type" value="${esc(c.type)}" placeholder="类型">
+          <button class="btn danger sm" data-del-col="${ti},${ci}">✕</button>
+        </div>`).join("")}
+      <button class="btn sm" data-add-col="${ti}">＋ 添加列</button>
+    </div>`).join("");
+}
+
+$("tables-list").addEventListener("input", (e) => {
+  const el = e.target;
+  if (el.dataset.table === undefined) return;
+  const t = state.tables[+el.dataset.table];
+  if (el.dataset.col !== undefined) t.columns[+el.dataset.col][el.dataset.field] = el.value;
+  else t[el.dataset.field] = el.value;
+  state.dirtyTables = true;
+  $("tables-status").textContent = "有未保存修改";
+});
+$("tables-list").addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.dataset.delTable !== undefined) { state.tables.splice(+t.dataset.delTable, 1); state.dirtyTables = true; renderTables(); }
+  else if (t.dataset.delCol !== undefined) {
+    const [ti, ci] = t.dataset.delCol.split(",").map(Number);
+    state.tables[ti].columns.splice(ci, 1); state.dirtyTables = true; renderTables();
+  } else if (t.dataset.addCol !== undefined) {
+    state.tables[+t.dataset.addCol].columns.push({ name: "", type: "varchar" });
+    state.dirtyTables = true; renderTables();
+  }
+});
+$("add-table").addEventListener("click", () => {
+  state.tables.push({ catalog: state.current.dialect === "mysql" ? "shop" : "crm", schema: "public", name: "", rowFilter: "", columns: [] });
+  state.dirtyTables = true;
+  renderTables();
+});
+$("save-tables").addEventListener("click", async () => {
+  const name = state.current.name;
+  try {
+    await call("PUT", "/api/instances/" + encodeURIComponent(name) + "/tables", { tables: state.tables }, "admin");
+    state.dirtyTables = false;
+    $("tables-status").textContent = "";
+    toast("表结构已保存", true);
+    await loadInstances();
+  } catch (err) { $("tables-status").textContent = "保存失败"; toast(err.message); }
+});
+
+// ---------- policies ----------
+function policyCard(p, i) {
+  const r = p.resource || {};
+  return `
+    <div class="card">
+      <div class="card-head">
+        <span>${esc(p.name)}</span>
+        <span class="round ${p.isEnabled ? "ok" : "off"}">${p.isEnabled ? "启用" : "停用"}</span>
+        <span class="round">${esc(p.policyType || "datamask")}</span>
+        ${p.priority !== null && p.priority !== undefined ? `<span class="round">priority ${p.priority}</span>` : ""}
+        <span class="spacer"></span>
+        <button class="btn sm" data-edit-policy="${i}">编辑</button>
+        <button class="btn danger sm" data-del-policy="${i}">删除</button>
+      </div>
+      <div class="kv">
+        ${kv("资源", join([r.catalog, r.schema, r.table]) + (r.columns && r.columns.length ? " · " + join(r.columns) : ""))}
+        ${p.policyType === "row_filter" ? kv("行过滤", p.filterExpr || "—") : kv("UDF", (p.udf || "—") + (p.arguments && p.arguments.length ? "(" + join(p.arguments) + ")" : ""))}
+        ${kv("主体", (p.subjects && (p.subjects.users || p.subjects.groups)) ? "users=[" + join(p.subjects.users) + "] groups=[" + join(p.subjects.groups) + "]" : "任意（*）")}
+      </div>
+    </div>`;
+}
+
+async function loadPolicies(name) {
+  try {
+    state.policies = await call("GET", "/api/instances/" + encodeURIComponent(name) + "/policies", null, "admin");
+    $("policies-list").innerHTML = state.policies.length
+        ? state.policies.map(policyCard).join("") : '<div class="empty-hint">暂无策略</div>';
+  } catch (err) {
+    $("policies-list").innerHTML = '<div class="empty-hint">加载失败：' + esc(err.message) + '</div>';
+  }
+}
+
+let editingPolicy = null;
+function openPolicyForm(p) {
+  editingPolicy = p;
+  $("pf-title").textContent = p ? "编辑策略：" + p.name : "新建策略";
+  $("pf-name").value = p ? p.name : "";
+  $("pf-type").value = p ? (p.policyType || "datamask") : "datamask";
+  $("pf-enabled").checked = p ? p.isEnabled !== false : true;
+  $("pf-priority").value = p && p.priority !== null && p.priority !== undefined ? String(p.priority) : "";
+  const r = p && p.resource || {};
+  $("pf-catalog").value = r.catalog || "";
+  $("pf-schema").value = r.schema || "";
+  $("pf-table").value = r.table || "";
+  $("pf-columns").value = (r.columns || []).join(", ");
+  const s = p && p.subjects || {};
+  $("pf-users").value = (s.users || []).join(", ");
+  $("pf-groups").value = (s.groups || []).join(", ");
+  $("pf-udf").value = p ? (p.udf || "") : "";
+  $("pf-args").value = p && p.arguments ? p.arguments.join(", ") : "";
+  $("pf-filter").value = p ? (p.filterExpr || "") : "";
+  $("policy-form").hidden = false;
+}
+
+function collectPolicy() {
+  const columns = $("pf-columns").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const users = $("pf-users").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const groups = $("pf-groups").value.split(",").map((s) => s.trim()).filter(Boolean);
+  return {
+    name: $("pf-name").value.trim(),
+    policyType: $("pf-type").value,
+    isEnabled: $("pf-enabled").checked,
+    priority: $("pf-priority").value.trim() === "" ? null : parseInt($("pf-priority").value, 10),
+    resource: { catalog: $("pf-catalog").value.trim(), schema: $("pf-schema").value.trim(),
+      table: $("pf-table").value.trim(), columns },
+    subjects: { users, groups },
+    udf: $("pf-udf").value.trim() || null,
+    arguments: $("pf-args").value.split(",").map((s) => s.trim()).filter(Boolean)
+        .map((a) => /^-?\d+(\.\d+)?$/.test(a) ? (/\./.test(a) ? parseFloat(a) : parseInt(a, 10)) : a),
+    filterExpr: $("pf-filter").value.trim() || null
+  };
+}
+
+$("add-policy-form").addEventListener("click", () => openPolicyForm(null));
+$("pf-cancel").addEventListener("click", () => { $("policy-form").hidden = true; editingPolicy = null; });
+$("pf-submit").addEventListener("click", async () => {
+  const name = state.current.name;
+  const body = collectPolicy();
+  $("pf-status").textContent = "保存中…";
+  try {
+    if (editingPolicy) {
+      await call("PUT", "/api/instances/" + encodeURIComponent(name) + "/policies/"
+          + encodeURIComponent(editingPolicy.name), body, "admin");
+    } else {
+      await call("POST", "/api/instances/" + encodeURIComponent(name) + "/policies", body, "admin");
+    }
+    $("policy-form").hidden = true;
+    editingPolicy = null;
+    $("pf-status").textContent = "";
+    toast("策略已保存", true);
+    await loadPolicies(name);
+  } catch (err) { $("pf-status").textContent = err.message; }
+});
+$("policies-list").addEventListener("click", async (e) => {
+  const el = e.target;
+  if (el.dataset.delPolicy !== undefined) {
+    const p = state.policies[+el.dataset.delPolicy];
+    if (!confirm("删除策略 " + p.name + "？")) return;
+    try {
+      await call("DELETE", "/api/instances/" + encodeURIComponent(state.current.name) + "/policies/"
+          + encodeURIComponent(p.name), null, "admin");
+      toast("策略已删除", true);
+      await loadPolicies(state.current.name);
+    } catch (err) { toast(err.message); }
+  } else if (el.dataset.editPolicy !== undefined) {
+    openPolicyForm(state.policies[+el.dataset.editPolicy]);
+  }
+});
+
+// ---------- udfs ----------
+function udfCard(u, i) {
+  return `
+    <div class="card">
+      <div class="card-head">
+        <span>${esc(u.name)}</span>
+        <span class="spacer"></span>
+        <button class="btn sm" data-edit-udf="${i}">编辑</button>
+        <button class="btn danger sm" data-del-udf="${i}">删除</button>
+      </div>
+      ${(u.signatures || []).map((s) => `<div class="kv">${kv("签名", "(" + join(s.params) + ") → " + (s.returns || "varchar"))}</div>`).join("")
+        || '<div class="empty-hint">无签名</div>'}
+    </div>`;
+}
+
+async function loadUdfs(name) {
+  try {
+    state.udfs = await call("GET", "/api/instances/" + encodeURIComponent(name) + "/udfs", null, "admin");
+    $("udfs-list").innerHTML = state.udfs.length
+        ? state.udfs.map(udfCard).join("") : '<div class="empty-hint">暂无 UDF。注册后供脱敏策略引用。</div>';
+  } catch (err) {
+    $("udfs-list").innerHTML = '<div class="empty-hint">加载失败：' + esc(err.message) + '</div>';
+  }
+}
+
+let editingUdf = null;
+function openUdfForm(u) {
+  editingUdf = u;
+  $("uf-title").textContent = u ? "编辑 UDF：" + u.name : "注册 UDF";
+  $("uf-name").value = u ? u.name : "";
+  $("uf-returns").value = u && u.signatures && u.signatures[0] ? (u.signatures[0].returns || "") : "";
+  $("uf-sigs").innerHTML = u && u.signatures && u.signatures.length
+      ? u.signatures.map((s, i) => sigRow(i, (s.params || []).join(", "), s.returns || "")).join("")
+      : sigRow(0, "varchar", "varchar");
+  $("udf-form").hidden = false;
+}
+function sigRow(i, params, returns) {
+  return `<div class="row">
+    <input data-sig="${i}" data-field="params" value="${esc(params)}" placeholder="参数类型，逗号分隔，如 varchar, integer, integer">
+    <input data-sig="${i}" data-field="returns" value="${esc(returns)}" placeholder="返回类型，如 varchar">
+    <button class="btn danger sm" data-del-sig="${i}">✕</button>
+  </div>`;
+}
+$("uf-sigs").addEventListener("input", (e) => {
+  const el = e.target;
+  if (el.dataset.sig === undefined) return;
+  const rows = [...$("uf-sigs").querySelectorAll("[data-sig]")];
+  // 直接读 DOM，无需状态
+});
+$("uf-sigs").addEventListener("click", (e) => {
+  const el = e.target;
+  if (el.dataset.delSig !== undefined) {
+    const rows = $("uf-sigs").querySelectorAll(".row");
+    if (rows.length <= 1) return;
+    rows[+el.dataset.delSig].remove();
+  }
+});
+$("uf-add-sig").addEventListener("click", () => {
+  $("uf-sigs").insertAdjacentHTML("beforeend", sigRow(
+      $("uf-sigs").querySelectorAll(".row").length, "", "varchar"));
+});
+function collectUdf() {
+  const signatures = [...$("uf-sigs").querySelectorAll(".row")].map((row) => ({
+    params: row.querySelector('[data-field="params"]').value.split(",").map((s) => s.trim()).filter(Boolean),
+    returns: row.querySelector('[data-field="returns"]').value.trim() || "varchar"
+  }));
+  return { name: $("uf-name").value.trim(), signatures };
+}
+$("uf-cancel").addEventListener("click", () => { $("udf-form").hidden = true; editingUdf = null; });
+$("uf-submit").addEventListener("click", async () => {
+  const name = state.current.name;
+  const body = collectUdf();
+  $("uf-status").textContent = "保存中…";
+  try {
+    if (editingUdf) {
+      await call("PUT", "/api/instances/" + encodeURIComponent(name) + "/udfs/"
+          + encodeURIComponent(editingUdf.name), body, "admin");
+    } else {
+      await call("POST", "/api/instances/" + encodeURIComponent(name) + "/udfs", body, "admin");
+    }
+    $("udf-form").hidden = true;
+    editingUdf = null;
+    $("uf-status").textContent = "";
+    toast("UDF 已保存", true);
+    await loadUdfs(name);
+  } catch (err) { $("uf-status").textContent = err.message; }
+});
+$("udfs-list").addEventListener("click", async (e) => {
+  const el = e.target;
+  if (el.dataset.delUdf !== undefined) {
+    const u = state.udfs[+el.dataset.delUdf];
+    if (!confirm("删除 UDF " + u.name + "？")) return;
+    try {
+      await call("DELETE", "/api/instances/" + encodeURIComponent(state.current.name) + "/udfs/"
+          + encodeURIComponent(u.name), null, "admin");
+      toast("UDF 已删除", true);
+      await loadUdfs(state.current.name);
+    } catch (err) { toast(err.message); }
+  } else if (el.dataset.editUdf !== undefined) {
+    openUdfForm(state.udfs[+el.dataset.editUdf]);
+  }
+});
+
+// ---------- effective config ----------
+$("eff-run").addEventListener("click", async () => {
+  const name = state.current.name;
+  const user = $("eff-user").value.trim();
+  const groups = $("eff-groups").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const q = new URLSearchParams();
+  if (user) q.set("user", user);
+  groups.forEach((g) => q.append("groups", g));
+  try {
+    const eff = await call("GET", "/api/effective/" + encodeURIComponent(name)
+        + (q.toString() ? "?" + q.toString() : ""), null, "data");
+    $("eff-meta").innerHTML = kv("实例 / 方言", eff.instance + " / " + eff.dialect)
+        + kv("配置版本", eff.configVersion)
+        + kv("策略摘要", "启用 " + eff.policySummary.enabled + " · 停用 " + eff.policySummary.disabled);
+    let html = "";
+    const md = eff.config.metadata || {};
+    const tables = (md.tables || []);
+    if (tables.length) {
+      html += `<div class="card"><div class="card-head"><span>表结构</span><span class="round">${tables.length} 张表</span></div>`;
+      for (const t of tables) {
+        html += `<div class="kv">${kv("表", join([t.catalog, t.schema, t.name]))}${t.rowFilter ? kv("行过滤", t.rowFilter) : ""}</div>`;
+        html += `<div class="kv" style="margin-left:14px">${(t.columns || []).map((c) => esc(c.name) + " " + esc(c.type)).join("；") || "—"}</div>`;
+      }
+      html += `</div>`;
+    }
+    const cols = eff.config.columns || [];
+    if (cols.length) {
+      html += `<div class="card"><div class="card-head"><span>列脱敏绑定</span><span class="round">${cols.length}</span></div>`;
+      cols.forEach((c) => html += `<div class="kv">${kv(join([c.catalog, c.schema, c.table]) + "." + c.column, c.policy)}</div>`);
+      html += `</div>`;
+    }
+    const pols = Object.entries(eff.config.policies || {});
+    if (pols.length) {
+      html += `<div class="card"><div class="card-head"><span>编译后的策略 UDF</span><span class="round">${pols.length}</span></div>`;
+      pols.forEach(([pk, pv]) => html += `<div class="kv">${kv(pk, (pv.udf || "—") + (pv.arguments && pv.arguments.length ? "(" + pv.arguments.join(", ") + ")" : ""))}</div>`);
+      html += `</div>`;
+    }
+    html += `<details class="summary"><summary>查看原始 JSON</summary><pre class="json">${esc(JSON.stringify(eff, null, 2))}</pre></details>`;
+    $("eff-body").innerHTML = html || '<div class="empty-hint">此主体无生效策略（wildcard 之外）。</div>';
+    toast("生效配置已拉取", true);
+  } catch (err) {
+    $("eff-meta").innerHTML = "";
+    $("eff-body").innerHTML = "";
+    toast(err.message);
+  }
+});
+
+// ---------- metadata import ----------
+$("import-meta").addEventListener("click", async () => {
+  const name = state.current.name;
+  const body = {
+    metadataBaseUrl: $("imp-base").value.trim() || "http://127.0.0.1:8082",
+    metadataInstance: $("imp-instance").value.trim(),
+    metadataApiKey: $("imp-apikey").value.trim() || null
+  };
+  if (!body.metadataInstance) { toast("metadata 实例名必填"); return; }
+  try {
+    const res = await call("POST", "/api/instances/" + encodeURIComponent(name) + "/import-metadata",
+        body, "admin");
+    toast("导入成功：" + (res.tables || []).length + " 张表", true);
+    await loadInstances();
+  } catch (err) { toast(err.message); }
+});
+
+// ---------- sample ----------
+$("sample-inst").addEventListener("click", async () => {
+  try {
+    const name = "crm";
+    const list = await call("GET", "/api/instances", null, "admin");
+    if (!list.some((i) => i.name === name)) {
+      await call("POST", "/api/instances", {
+        name, dialect: "postgresql",
+        tables: [{
+          catalog: "crm", schema: "public", name: "customer",
+          columns: [
+            { name: "id", type: "bigint" },
+            { name: "phone", type: "varchar" },
+            { name: "email", type: "varchar" },
+            { name: "status", type: "varchar" }
+          ]
+        }]
+      }, "admin");
+      await call("POST", "/api/instances/" + name + "/udfs", {
+        name: "mask_phone",
+        signatures: [{ params: ["varchar", "integer", "integer"], returns: "varchar" }]
+      }, "admin");
+      await call("POST", "/api/instances/" + name + "/policies", {
+        name: "mask_phone_policy", policyType: "datamask", isEnabled: true, priority: 1,
+        resource: { catalog: "crm", schema: "public", table: "customer", columns: ["phone"] },
+        subjects: { users: [], groups: [] }, udf: "mask_phone", arguments: [3, 4], filterExpr: null
+      }, "admin");
+      toast("示例实例 crm 已创建", true);
+    } else {
+      toast("crm 已存在，无需重建");
+    }
+    await loadInstances();
+    const fresh = await call("GET", "/api/instances/" + name, null, "admin");
+    state.current = fresh;
+    openDetail(fresh, true);
+  } catch (err) { toast(err.message); }
+});
+
+// ---------- wiring ----------
+document.addEventListener("click", (e) => {
+  const el = e.target;
+  if (el.dataset.inst !== undefined) { selectByName(el.dataset.inst); }
+  else if (el.dataset.del !== undefined) { e.stopPropagation(); deleteInstance(el.dataset.del); }
+});
+async function selectByName(name) {
+  try {
+    const inst = await call("GET", "/api/instances/" + encodeURIComponent(name), null, "admin");
+    state.current = inst;
+    await openDetail(inst, true);
+    [...document.querySelectorAll(".inst-item")].forEach((it) =>
+        it.classList.toggle("active", it.dataset.inst === name));
+  } catch (err) { toast(err.message); }
+}
+
+$("tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest("button")?.dataset.tab;
+  if (tab) switchTab(tab);
+});
+$("create-inst").addEventListener("click", createInstance);
+$("delete-inst").addEventListener("click", () => deleteInstance(state.current.name));
+$("save-keys").addEventListener("click", saveKeys);
+$("clear-keys").addEventListener("click", clearKeys);
+
+refreshGate();
+loadKeys();
+loadInstances();
+</script>
+</body>
+</html>
