@@ -22,6 +22,10 @@ import java.util.Set;
  * Parses the policies.yaml document into validated policies. Every failure is
  * a {@link PolicyException} whose message starts with the YAML path of the
  * offending node (for example "policies.yaml: policies[0].dataMaskItems[1]").
+ *
+ * <p>v3 (2026-09-21): rebuilt in place; document shape, defaults and error
+ * semantics are byte-identical to the previous implementation (local/offline
+ * YAML path preserved).
  */
 public final class PolicyYamlLoader {
 
