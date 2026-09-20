@@ -70,6 +70,24 @@ class GlobMatcherTest {
   }
 
   @Test
+  void questionMarkMatchesExactlyOneChar() {
+    assertTrue(GlobMatcher.matches("customer_?", "customer_1"));
+    assertFalse(GlobMatcher.matches("customer_?", "customer_12"));
+    assertTrue(GlobMatcher.matches("c?st", "cost"));
+    assertTrue(GlobMatcher.matches("c?st*", "customer"));
+    assertFalse(GlobMatcher.matches("c?st", "castto"));
+    assertFalse(GlobMatcher.matches("?", ""));
+  }
+
+  @Test
+  void questionMarkCombinesWithStar() {
+    // `?` occupies exactly one position: "_2?" needs `_`, `2`, then one last char.
+    assertTrue(GlobMatcher.matches("*_2?", "order_20"));
+    assertFalse(GlobMatcher.matches("*_2?", "order_202"));
+    assertFalse(GlobMatcher.matches("*_2?", "order_2020"));
+  }
+
+  @Test
   void prefixAndSuffixMustNotOverlap() {
     assertFalse(GlobMatcher.matches("ab*a", "ab"));
   }
