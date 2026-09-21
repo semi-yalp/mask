@@ -2,7 +2,7 @@
 
 - 日期：2026-09-21
 - 前置：v2 目标定稿 → `docs/superpowers/specs/2026-09-21-sql-mask-v2-goal-design.md`（v3 以 v2 改写服务为基座）；现有仓库 `mask-policy-server` 定位为「成熟参考来源」（沿用 v1/v2 对存量代码的定位）
-- 状态：目标定稿（策略服务化 v3）
+- 状态：已实现（2026-09-22，实施计划见 `docs/superpowers/plans/2026-09-21-sql-mask-v3-policy-service.md`，实现对照见文末 §12）
 
 ## 1. 目的与决策记录
 
@@ -272,3 +272,24 @@ v2 文档 §13 的 v3 占位指向本文档。
 ## 11. 未决 / v4 占位
 
 （占位，待用户描述。候选：认证与多租户、非 SELECT accessType、Web 管理 UI、推送式配置分发/长连接、策略成效可视化、审计事件，等。）
+
+## 12. 实现对照（2026-09-22 收口）
+
+按用户确认（「另起新模块重写」+「按现实收敛」）落地的与正文的差异：
+
+| # | 正文设想 | 实际落地 | 理由 |
+|---|---|---|---|
+| 1 | 新建 `mask-policy`/`mask-policy-server` 模块 | 在原模块路径**整包重建**（旧实现入 git 历史），mask-core 依赖契约逐字节不变 | 同 reactor 不能有同名模块；契约稳定使改写引擎全程可编译 |
+| 2 | 五方言直连 | **postgresql/mysql/trino** 三方言（Hive/SparkSQL 延后） | 仓库尚无 Hive/Spark 的解析器/introspector/驱动四件套 |
+| 3 | 连接密码 AES-GCM + 主密钥 | **passwordRef**（存环境变量名，用时解析） | 仓库无加密子系统；与 mask-metadata/mask-query 惯例一致；本期无认证 |
+| 4 | H2 默认 + Flyway | **PostgreSQL + `spring.sql.init`**（`schema.sql` 幂等 + 追加式 ALTER） | 与仓库三服务一致，零新基建 |
+| 5 | `/api/v1/...` 前缀 | 沿用**无版本前缀**（`/api/instances`、`/api/effective/{i}`…） | mask-core 消费者已按此调用，字节兼容 |
+| 6 | glob 含 `?` | `GlobMatcher` 升级支持 `?`（单字符），`*` 语义不变 | v3 新增 |
+| 7 | `POST /api/instances/{i}/import-metadata`（metaserver HTTP 导入） | **移除**，由「直连 + 联想 + 手填」替代 | 用户决策：元数据按需直连/联想获取或直接填写 |
+| 8 | 可选 API Key 过滤器保留 | **不引入任何过滤器**（本期无认证） | spec §3.2 显式非目标 |
+| 9 | — | `policy_version` 按 (instance, policy_name) 键控、与 policy 行解耦；删除保留历史、同名重建续版本 | spec §5.4 语义的正确实现 |
+| 10 | — | `EffectiveConfigResponse` 契约不变；编译 warnings 仅日志不进响应 | mask-core 消费者字节兼容 |
+
+验证：`mask-policy` 81、`mask-core` 550、`mask-policy-server` 89 测试全绿；
+端到端 compose 冒烟因环境无 Docker/PG 降级为分层验证（HTTP 全流程 MockMvc +
+真实 PG 存储层/直连层集成测试），缺口已记录。

@@ -29,7 +29,7 @@ mask-policy-server 在 8081 提供。
 | 服务 | 模块 | 端口 | 职责 |
 |---|---|---|---|
 | 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、内置页面、CLI |
-| 策略服务 | mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
+| 策略服务 | mask-policy-server | 8081 | 引擎直连与连接测试、多实例、策略 CRUD（每策略版本/回退）、表/列/UDF 联想、glob 资源、按主体编译的 `/api/effective` 数据面（本期无认证） |
 | 元数据服务 | mask-metadata | 8082 | 库表结构采集与存储 |
 
 改写服务的 instance 模式按实例名从策略服务拉取编译配置：`POLICY_SERVICE_URL` +
@@ -734,22 +734,37 @@ boolean→boolean，无跨族转换）、每个选中列的类型与某重载首
 （无隐式转换，需要 `mask_phone(bigint, …)` 这类重载）。删除或替换使
 启用中策略失效的 UDF 会被拒绝（先禁用策略）。YAML/CLI 路径不受影响。
 
-## 策略服务管理面（REST）
+## 策略服务管理面（REST，v3）
 
-实例与策略的管理全流程已可通过 REST 编排：`POST /api/instances`（带表列
-资源）→ `POST /api/instances/{i}/udfs`（注册脱敏函数签名）→ `POST
-/api/instances/{i}/policies`（datamask/row_filter，`subjects` 声明
-users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
-按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。表列
-资源可从元数据服务一键导入：`POST /api/instances/{i}/import-metadata`。
-同表同类型策略的重叠校验按主体相交放宽——不同人群可各配各的脱敏列与
-行过滤。instance 模式（改写请求的 `instance` 字段、CLI `--instance`）忽略请求
+实例与策略的管理全流程通过 REST 编排，顺序为「连接 → 实例 → 策略」：
+
+1. `POST /api/connections/test` 预检引擎连通（不落库；`postgresql`/`mysql`/
+   `trino`，Hive/SparkSQL 延后）；
+2. `POST /api/instances`（携带 `connection` 时先测连通，失败即 400
+   `CONNECTION_FAILED` 且**不落库**；`fetchMetadata: true` 现场拉取表结构；
+   也可不带连接建纯元数据实例，再 `PUT /api/instances/{i}/tables` 手工录入）；
+3. `POST /api/instances/{i}/udfs`（注册脱敏函数签名）；
+4. `POST /api/instances/{i}/policies` → `GET /api/effective/{i}?user=&groups=`
+   按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。
+
+策略版本化（v3）：每次创建/更新/回退都落一条**不可变版本**；`POST
+/api/instances/{i}/policies/{p}/rollback` 取历史版本内容生成**新版本**（版本
+只增，历史不改），`GET /api/instances/{i}/policies/{p}/versions` 查历史；删除
+策略保留历史，同名重建续用版本序列。实例级 `config_version` 在任何变更（含
+回退）后推进，驱动改写服务缓存刷新。并发更新以策略当前版本做乐观校验，冲突
+返回 `CONCURRENT_MODIFICATION`。
+
+资源选择器支持 glob：`*`（任意字符序列）与 `?`（单字符）；数据面编译期把
+通配展开为**明确的表/列集**，生效配置里绝不出现通配符。快照里查不到的名字
+只产生告警不硬拒（手填始终允许）；`accessType` 本期仅 `SELECT`。策略元数据
+联想：`GET /api/instances/{i}/suggest?kind=table|column|udf&q=...`（快照优先，
+无快照时直连引擎实时拉取，响应 `source` 标识 `snapshot|live`）。
+
+凭据：沿用 `passwordRef` 约定——实例只存环境变量名，连接时从进程环境解析；
+接口与日志永不出现密码明文。认证：本期**无鉴权**（`/api/**` 开放）。历史
+版本的 `import-metadata`（元数据服务 HTTP 导入）已由「直连 + 联想 + 手填」
+替代。instance 模式（改写请求的 `instance` 字段、CLI `--instance`）忽略请求
 传入的 `dialect`：目标方言以生效配置返回的实例 dialect 为准。
-
-鉴权：环境变量 `SQLMASK_ADMIN_API_KEY`（管 `/api/instances/**`）与
-`SQLMASK_DATA_API_KEY`（管 `/api/effective/**`）配置后强制
-`X-Api-Key` 校验（401），未配置则放行（本地开发）；存量策略自动等价
-`{"users":["*"]}` 全体生效。
 
 ## 审计日志（Elasticsearch）
 
