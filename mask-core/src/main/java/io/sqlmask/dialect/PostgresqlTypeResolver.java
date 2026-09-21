@@ -25,8 +25,9 @@ public final class PostgresqlTypeResolver implements TypeResolver {
       case "real", "float4" -> requireNoParams(lowered, "real");
       case "double precision", "double", "float8", "float" -> requireNoParams(lowered, "double precision");
       case "decimal", "numeric" -> {
-        if (scale != null && precision == null) {
-          throw parseError(raw);
+        // real PostgreSQL: NUMERIC(p) == NUMERIC(p, 0); a lone scale is unparseable
+        if (precision != null && scale == null) {
+          scale = 0;
         }
       }
       case "char", "character" -> precision = precision != null ? precision : 1;

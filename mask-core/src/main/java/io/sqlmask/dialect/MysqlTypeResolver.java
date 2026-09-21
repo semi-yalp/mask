@@ -23,8 +23,9 @@ public final class MysqlTypeResolver implements TypeResolver {
       case "mediumint", "int", "integer" -> { }
       case "bigint" -> { }
       case "decimal", "dec", "numeric" -> {
-        if (scale != null && precision == null) {
-          throw parseError(raw);
+        // real MySQL: DECIMAL(p) == DECIMAL(p, 0); a lone scale is unparseable
+        if (precision != null && scale == null) {
+          scale = 0;
         }
       }
       case "float" -> { }

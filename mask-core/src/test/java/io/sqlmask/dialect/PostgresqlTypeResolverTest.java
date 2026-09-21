@@ -45,8 +45,15 @@ class PostgresqlTypeResolverTest {
   @Test
   void decimalCarriesPrecisionAndScale() {
     assertParsed(resolver, "decimal(10,2)", SqlTypeName.DECIMAL, 10, 2);
-    assertParsed(resolver, "numeric(8)", SqlTypeName.DECIMAL, 8, null);
     assertParsed(resolver, "decimal", SqlTypeName.DECIMAL, null, null);
+  }
+
+  @Test
+  void decimalWithPrecisionOnlyDefaultsScaleToZero() {
+    // real PostgreSQL: NUMERIC(p) == NUMERIC(p, 0); the old behavior leaked a
+    // null scale that blew up as an NPE at schema build time
+    assertParsed(resolver, "numeric(8)", SqlTypeName.DECIMAL, 8, 0);
+    assertParsed(resolver, "decimal(10)", SqlTypeName.DECIMAL, 10, 0);
   }
 
   @Test

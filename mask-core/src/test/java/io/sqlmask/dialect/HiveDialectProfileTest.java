@@ -1,5 +1,6 @@
 package io.sqlmask.dialect;
 
+import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.rewrite.RewriteEngine;
 import io.sqlmask.rewrite.RewriteEngine.StatementRewrite;
 import org.junit.jupiter.api.Test;
@@ -95,10 +96,13 @@ class HiveDialectProfileTest {
     var resolver = new HiveTypeResolver();
     assertThat(resolver.parseColumn("a", "string").sqlTypeName()).isNotNull();
     assertThatThrownBy(() -> resolver.parseColumn("a", "array<int>"))
+        .isInstanceOf(SqlMaskException.class)
         .hasMessageContaining("array");
     assertThatThrownBy(() -> resolver.parseColumn("a", "map<string,int>"))
+        .isInstanceOf(SqlMaskException.class)
         .hasMessageContaining("map");
     assertThatThrownBy(() -> resolver.parseColumn("a", "struct<x:int>"))
+        .isInstanceOf(SqlMaskException.class)
         .hasMessageContaining("struct");
   }
 

@@ -51,6 +51,16 @@ class MysqlDialectAdapterTest {
   }
 
   @Test
+  void decimalWithPrecisionOnlyDefaultsScaleToZero() {
+    // real MySQL: DECIMAL(p) == DECIMAL(p, 0); the old behavior leaked a null
+    // scale that blew up as an NPE at schema build time
+    var column = new MysqlTypeResolver().parseColumn("amount", "decimal(10)");
+    assertEquals(SqlTypeName.DECIMAL, column.sqlTypeName());
+    assertEquals(10, column.precision());
+    assertEquals(0, column.scale());
+  }
+
+  @Test
   void doubleQuoteIsRejectedUnderBacktickQuoting() {
     // 观察钉定（Calcite 语法事实，brief 原名 doubleQuoteIsAStringLiteralNotIdentifier）：
     // MySQL 默认（ANSI_QUOTES 关闭）把 "..." 当字符串，但 Calcite 1.42 在
