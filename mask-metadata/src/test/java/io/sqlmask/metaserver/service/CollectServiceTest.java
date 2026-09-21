@@ -38,6 +38,12 @@ class CollectServiceTest {
     store.createInstance(new InstanceRow("pg_prod", "postgresql", null,
         new ConnectionInfo("127.0.0.1", 5432, "db", "user", "SQLMASK_PG_PASSWORD", "disable",
             10, List.of("public"), false), 1));
+    store.createInstance(new InstanceRow("hive-inst", "hive", null,
+        new ConnectionInfo("127.0.0.1", 5432, "db", "user", "SQLMASK_PG_PASSWORD", "disable",
+            10, List.of("public"), false), 1));
+    store.createInstance(new InstanceRow("spark-inst", "sparksql", null,
+        new ConnectionInfo("127.0.0.1", 5432, "db", "user", "SQLMASK_PG_PASSWORD", "disable",
+            10, List.of("public"), false), 1));
     store.createInstance(new InstanceRow("no_conn", "postgresql", null, null, 1));
   }
 
@@ -93,6 +99,16 @@ class CollectServiceTest {
   void instanceWithoutConnectionRejected() {
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> service.collect("no_conn"));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+  }
+
+  @Test
+  void collectRejectsHiveAndSparksqlDialects() {
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.collect("hive-inst"))
+        .isInstanceOf(SqlMaskException.class)
+        .hasMessageContaining("collection is not supported for dialect 'hive'")
+        .hasMessageContaining("import");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.collect("spark-inst"))
+        .hasMessageContaining("sparksql");
   }
 
   @Test
