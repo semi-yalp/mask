@@ -18,6 +18,10 @@ public final class DialectProfiles {
     PROFILES.put(trino.name(), trino.profile());
     MysqlDialectAdapter mysql = new MysqlDialectAdapter();
     PROFILES.put(mysql.name(), mysql.profile());
+    HiveDialectAdapter hive = new HiveDialectAdapter();
+    PROFILES.put(hive.name(), hive.profile());
+    SparkSqlDialectAdapter spark = new SparkSqlDialectAdapter();
+    PROFILES.put(spark.name(), spark.profile());
   }
 
   public static DialectProfile byName(String name) {

@@ -17,7 +17,9 @@ public enum QueryEngine {
   POSTGRESQL("postgresql", "postgresql", 5432),
   MYSQL("mysql", "mysql", 3306),
   STARROCKS("starrocks", "mysql", 9030),
-  TRINO("trino", "trino", 8080);
+  TRINO("trino", "trino", 8080),
+  HIVE("hive", "hive", 10000),
+  SPARKSQL("sparksql", "sparksql", 10000);
 
   private final String id;
   private final String dialect;
@@ -41,7 +43,7 @@ public enum QueryEngine {
       }
     }
     throw new QueryException(QueryException.UNSUPPORTED_ENGINE,
-        "unsupported engine '" + engine + "' (supported: postgresql, mysql, starrocks, trino)");
+        "unsupported engine '" + engine + "' (supported: postgresql, mysql, starrocks, trino, hive, sparksql)");
   }
 
   public String jdbcUrl(ConnectionView c) {
@@ -71,6 +73,17 @@ public enum QueryEngine {
         }
         yield "jdbc:trino://" + c.host() + ":" + c.port() + "/" + c.database()
             + ("require".equals(mode) ? "?SSL=true" : "?SSL=false");
+      }
+      case HIVE, SPARKSQL -> {
+        String ssl = sslmode.toLowerCase(Locale.ROOT);
+        if (!ssl.equals("disable") && !ssl.equals("require")) {
+          throw new QueryException(QueryException.CONFIG_ERROR,
+              "unsupported sslmode '" + sslmode + "' for " + id
+                  + " (supported: disable, require)");
+        }
+        String db = c.database() == null ? "" : c.database();
+        yield "jdbc:hive2://" + c.host() + ":" + c.port() + "/" + db
+            + ("require".equals(ssl) ? ";ssl=true" : "");
       }
     };
   }

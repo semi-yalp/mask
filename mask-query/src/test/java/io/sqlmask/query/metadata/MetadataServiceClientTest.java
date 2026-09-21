@@ -71,6 +71,17 @@ class MetadataServiceClientTest {
   }
 
   @Test
+  void derivesHiveEngineFromDialectWhenEngineMissing() {
+    // 批2终审修复（C1）：客户端推导规则与 metadata 侧同源——hive/sparksql 不得再
+    // 兜底成 mysql（否则查询侧按 mysql 引擎连 HiveServer2）
+    status = 200;
+    body = "{\"name\":\"pg_prod\",\"dialect\":\"hive\",\"engine\":null,\"metadataVersion\":3}";
+    assertThat(client.fetch("pg_prod").engine()).isEqualTo("hive");
+    body = "{\"name\":\"pg_prod\",\"dialect\":\"sparksql\",\"engine\":null,\"metadataVersion\":3}";
+    assertThat(client.fetch("pg_prod").engine()).isEqualTo("sparksql");
+  }
+
+  @Test
   void maps404And401() {
     status = 404; body = "{}";
     assertThatThrownBy(() -> client.fetch("pg_prod"))

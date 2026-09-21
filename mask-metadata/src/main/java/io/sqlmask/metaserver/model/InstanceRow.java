@@ -18,6 +18,8 @@ public record InstanceRow(String name, String dialect, String engine, Connection
     return switch (dialect) {
       case "postgresql" -> "postgresql";
       case "trino" -> "trino";
+      case "hive" -> "hive";
+      case "sparksql" -> "sparksql";
       default -> "mysql";
     };
   }

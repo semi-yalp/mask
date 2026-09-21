@@ -104,6 +104,8 @@ public final class MetadataServiceClient {
     return switch (dialect == null ? "" : dialect) {
       case "postgresql" -> "postgresql";
       case "trino" -> "trino";
+      case "hive" -> "hive";
+      case "sparksql" -> "sparksql";
       default -> "mysql";
     };
   }

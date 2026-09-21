@@ -58,8 +58,7 @@ public class QueryService {
     InstanceView instance = directory.fetch(request.instance());
     if (instance.connection() == null) {
       throw new QueryException(QueryException.INSTANCE_NOT_EXECUTABLE,
-          "instance '" + instance.name() + "' declares no connection settings "
-              + "(YAML-imported instances cannot serve queries)");
+          "instance '" + instance.name() + "' declares no connection settings");
     }
     QueryEngine engine = QueryEngine.of(instance.engine());
     if (!engine.dialect().equals(instance.dialect())) {

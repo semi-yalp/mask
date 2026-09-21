@@ -65,8 +65,10 @@ public class MetadataService {
     try {
       DialectProfiles.byName(dialect);
     } catch (RuntimeException e) {
+      // 支持清单与 DialectProfiles.byName 的消息同源，避免新增方言后此处陈旧
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          "unsupported dialect '" + dialect + "' (supported: postgresql, mysql, trino)");
+          "unsupported dialect '" + dialect + "' (supported: "
+              + String.join(", ", DialectProfiles.names()) + ")");
     }
     return dialect.trim().toLowerCase(Locale.ROOT);
   }

@@ -21,6 +21,9 @@ import java.util.List;
 @Service
 public class CollectService {
 
+  private static final java.util.Set<String> SUPPORTED_COLLECT_DIALECTS =
+      java.util.Set.of("postgresql", "mysql", "trino");
+
   private final MetadataService instances;
   private final StructureService structures;
   private final CredentialResolver credentials;
@@ -46,6 +49,11 @@ public class CollectService {
         throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
             "instance '" + name + "' has no connection settings; PUT the connection first");
       });
+    }
+    if (!SUPPORTED_COLLECT_DIALECTS.contains(row.dialect())) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "collection is not supported for dialect '" + row.dialect()
+              + "'; import table structures via instance YAML import instead");
     }
     return collectMetrics.record(row.dialect(), () -> {
       ConnectionSpec spec = new ConnectionSpec(row.dialect(), connection.host(), connection.port(),

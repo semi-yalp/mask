@@ -10,9 +10,10 @@ StarRocks 的承诺即「MySQL 方言改写产物的可执行子集，以本清�
   （如 MySQL 反引号），内层是原始查询的原文快照；验收比对以「期望脱敏结果」
   列为准（比对 `POST /api/v1/query` 响应的 `rows` / `rowCount` / `masked` /
   `rowFiltered` / `truncated`）；
-- Hive / SparkSQL 属批 2（方言另立 spec），本清单不含；CI 无这些引擎服务时
-  按清单手工/按需执行（与 `docker-compose.query.yml` 的 `query-acceptance`
-  profile 一致）。
+- Hive 与 Spark SQL 两节为批 2 追加：这两个引擎不在 CI 常驻套件内，真镜像起服
+  属人工验收——compose 的 `query-acceptance` profile 暂只有 mysql / trino /
+  starrocks / mask-query，Hive（HiveServer2）与 Spark（Spark ThriftServer）按
+  各节「运行方式」手工起服（HS2 协议，端口同为 10000）。
 
 ## 样例数据与策略（各引擎共用）
 
@@ -71,7 +72,9 @@ curl -s http://localhost:8083/api/v1/query \
 实例登记示例（其余引擎同理，`engine` 分别填 `postgresql` / `trino` /
 `starrocks`；host 填 compose 服务名 `mysql` / `trino` / `starrocks`——JDBC 由
 mask-query 从同一 compose 网络发起；PG 复用 metadata compose 的存储 PG 时填
-`host.docker.internal`:5432。Trino 无密码认证，passwordRef 指向占位变量即可）：
+`host.docker.internal`:5432。Trino 无密码认证，passwordRef 指向占位变量即可。
+`hive` / `sparksql` 引擎不在本 compose profile 内，登记与表结构导入方式见
+下文各自 golden 节——这两方言采集明确拒绝，表结构只能 YAML 导入）：
 
 ```bash
 curl -s -X POST http://localhost:8082/api/instances \
@@ -161,6 +164,42 @@ Trino 脱敏函数以 Java 插件交付（SPI 函数，见
 `SqlFunction`、打包为 plugin 目录结构、拷入 coordinator 的 `plugin/sqlmask/`
 后重启。函数绑定按精确类型，G2 需提供 `bigint` 重载。
 
+### Hive
+
+上传 JAR（如 HDFS 路径 `hdfs:///udfs/sqlmask-udf.jar`）后注册；`<class>` 为
+部署侧实现的 UDF 全类名：
+
+```sql
+-- 会话级临时函数（重启/换会话需重建）：
+CREATE TEMPORARY FUNCTION mask_phone AS 'com.example.MaskPhoneUdf'
+  USING JAR 'hdfs:///udfs/sqlmask-udf.jar';
+
+-- 或永久函数（落在当前库，跨会话可用）：
+CREATE FUNCTION mask_phone AS 'com.example.MaskPhoneUdf'
+  USING JAR 'hdfs:///udfs/sqlmask-udf.jar';
+```
+
+Hive 函数按名字绑定单个实现类，不支持 PG 式同名重载——聚合列 golden（G2，
+`count(phone)`）要求实现类自身兼容 `bigint` 入参，否则引擎报「函数不存在」，
+属 UDF 部署前提缺失，不判为改写缺陷。
+
+### Spark SQL
+
+Spark ThriftServer（`start-thriftserver.sh`）同样从 JAR 注册函数：
+
+```sql
+CREATE FUNCTION mask_phone
+  AS 'com.example.MaskPhoneUdf'
+  USING JAR 'hdfs:///udfs/sqlmask-udf.jar';
+
+-- 覆盖同名重建：
+CREATE OR REPLACE FUNCTION mask_phone
+  AS 'com.example.MaskPhoneUdf'
+  USING JAR 'hdfs:///udfs/sqlmask-udf.jar';
+```
+
+与 Hive 同：函数名唯一绑定一个实现类，G2 需实现类兼容 `bigint` 入参。
+
 ## Golden：PostgreSQL
 
 实例 `pg_dev`（复用 `docker-compose.metadata.yml` 的存储 PG：先在其中建独立库
@@ -222,3 +261,80 @@ golden 通过即在承诺范围内；清单外的 MySQL 语法不承诺可执行
 | `SELECT phone FROM customer WHERE status = 'active'`（含 ROW_FILTER 策略） | 同 PG 阶段 B 第 1 行形态 | `rows = [["138****5678"], ["137****2222"]]`，`masked=true`，`rowFiltered=true` |
 | `SELECT phone FROM customer ORDER BY id LIMIT 2` | 同 MySQL 第 3 行（`LIMIT` 原样保留） | 2 行 `138****5678` / `139****1111`，`truncated=false` |
 | `SELECT count(phone) FROM customer` | 同 MySQL 第 2 行 | `rows = [["3****3"]]`（依赖 Java UDF 的 bigint 重载，见 StarRocks UDF 一节） |
+
+## Golden：Hive
+
+**运行方式**：HiveServer2（binary transport，HS2 端口 10000）。Hive 不在
+`docker-compose.query.yml` 的 `query-acceptance` profile 内——真镜像起服属人工
+验收，按需起一个 HS2 即可（镜像名与参数以官方文档为准）：
+
+```bash
+docker run -d --name hive-hs2 -p 10000:10000 \
+  -e SERVICE_NAME=hiveserver2 apache/hive:4.0.0
+```
+
+实例 `hive_ods`（`dialect: hive`，host = `hive-hs2`，port 10000，database `ods`；
+表目录 catalog/schema = `hive/ods`）。样例表用 Hive 类型名（数据同「样例数据与
+策略」一节）。采集对 `hive` 方言**明确拒绝**——表结构只能 YAML 导入；UDF 签名
+与两阶段策略登记同上文 `mysql_shop` 示例（实例名换 `hive_ods`；UDF DDL 见
+「各引擎装 UDF 的最小 DDL → Hive」）：
+
+```bash
+curl -s -X POST http://localhost:8082/api/instances \
+  -H 'X-Api-Key: local-dev-key' -H 'Content-Type: application/json' \
+  -d '{"name":"hive_ods","dialect":"hive",
+       "connection":{"host":"hive-hs2","port":10000,"database":"ods","dbUser":"hive",
+                     "passwordRef":"SQLMASK_DS_HIVE_ODS_PASSWORD","sslmode":"disable",
+                     "connectTimeoutSeconds":5,"schemas":["ods"],"includeViews":false}}'
+
+# 表结构导入（采集被门拒绝，YAML 导入是唯一路径）：
+curl -s -X POST http://localhost:8082/api/instances/import \
+  -H 'X-Api-Key: local-dev-key' -H 'Content-Type: application/json' \
+  -d '{"name":"hive_ods","dialect":"hive","metadataYaml":"metadata:\n  tables:\n    - catalog: hive\n      schema: ods\n      name: customer\n      columns:\n        - {name: id, type: bigint}\n        - {name: phone, type: string}\n        - {name: email, type: string}\n        - {name: status, type: string}"}'
+```
+
+阶段 A（仅 DATAMASK：`mask_phone(phone, 3, 4)`）——包装层标识符按 Hive 方言
+一律反引号渲染：
+
+| 原始 SQL | 改写后 SQL | 期望脱敏结果 |
+|---|---|---|
+| `SELECT phone FROM customer` | ``SELECT `mask_phone`(`r`.`phone`, 3, 4) AS `phone` FROM (SELECT phone FROM customer) AS `r` `` | `rows = [["138****5678"], ["139****1111"], ["137****2222"]]`，`rowCount=3`，`masked=true`，`rowFiltered=false` |
+| `SELECT phone FROM ods.customer`（两段名，db = 声明的 schema） | 同第 1 行形态（内层原文快照保留 `ods.customer`） | 同第 1 行 |
+| `SELECT phone FROM customer ORDER BY id LIMIT 2` | 外层同形，内层原文快照保留 `ORDER BY id LIMIT 2` | 2 行 `138****5678` / `139****1111`，`truncated=false` |
+
+阶段 B（追加 ROW_FILTER）：期望与 PG 阶段 B 两行完全一致（archived 行被行过滤
+排除，叠加用户 WHERE 后仅剩 id=1 的脱敏行，`rowFiltered=true`）。注入形态为
+customer 引用位置替换成 `(SELECT * FROM customer WHERE status = 'active') customer`
+再包脱敏层（与 mask-core 单测断言同形）。
+
+写语句边界（`INSERT OVERWRITE`，批 2 新方言能力、只读数据面范围不变）：
+`INSERT OVERWRITE TABLE arch SELECT phone FROM customer` 在改写层按写语句语义
+处理——`kind=INSERT_SELECT`、`masked=true`，目标表名 `arch` 原样保留、写入数据
+被脱敏（可用 mask-core CLI `--instance hive_ods` 观察改写产物，在真库执行后查
+`arch` 验证行已脱敏）。但 mask-query 是只读数据面：同一 SQL 走
+`POST /api/v1/query` 返回 400 `WRITE_STATEMENT`（非 `SELECT` 拒绝，批 1 护栏，
+不判为缺陷）。
+
+注记：mask 解析器保留 `DEFAULT`——实例 schema 用 Hive 的 `default` 库时，原始
+SQL 必须把 schema 写成反引号引用（`` SELECT phone FROM `default`.customer ``）
+或换 schema 名（见 README「方言支持」保留字注意）；本节用 `ods` 规避该坑。
+
+## Golden：Spark SQL
+
+**运行方式**：Spark ThriftServer（`start-thriftserver.sh`，HS2 端口 10000）。
+同 Hive 一样不在 compose profile 内，按集群文档起服后对 10000 端口验收。
+
+实例 `spark_analytics`（`dialect: sparksql`，database `analytics`；表目录
+catalog/schema = `spark/analytics`。若 Spark 侧实际 catalog 名为 `spark_catalog`，
+以实例导入的表目录声明为准）。样例表、UDF 签名与两阶段策略同 Hive 节（类型名
+同为 Hive 族 `bigint`/`string`；登记示例把实例名与 catalog/schema 换成本节值；
+UDF DDL 见「各引擎装 UDF 的最小 DDL → Spark SQL」）。
+
+golden 与 Hive 节**逐一对应、期望结果相同**（基础脱敏 3 行、两段名、LIMIT 2 行、
+阶段 B 行过滤、`INSERT OVERWRITE` 的改写/只读边界行为），差异仅两点：
+
+- **大小写语义**：Spark 未引号标识符折叠小写、大小写不敏感匹配——
+  `SELECT PHONE FROM CUSTOMER` 与 `SELECT phone FROM customer` 的验收结果一致
+  （内层原文快照保留原始写法，外层包装按声明名渲染）；
+- **写语句边界**：`INSERT OVERWRITE TABLE arch SELECT …` 同 Hive 节——改写层
+  `kind=INSERT_SELECT` + `masked=true`；查询 API 400 `WRITE_STATEMENT`。

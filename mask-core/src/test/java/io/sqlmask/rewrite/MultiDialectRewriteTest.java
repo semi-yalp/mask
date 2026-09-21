@@ -1,5 +1,6 @@
 package io.sqlmask.rewrite;
 
+import io.sqlmask.dialect.DialectProfiles;
 import io.sqlmask.dialect.MysqlDialectAdapter;
 import io.sqlmask.error.SqlMaskException;
 import org.junit.jupiter.api.Test;
@@ -333,7 +334,7 @@ class MultiDialectRewriteTest {
     assertTrue(out.toUpperCase().contains("WITH CUSTOMER AS"), out);
   }
 
-  /** crm.public 形状对 postgresql/trino 均合法；mysql 用 shop.app 元数据。 */
+  /** crm.public 形状对 postgresql/trino/hive/sparksql 均合法；mysql 用 shop.app 元数据。 */
   private static String yamlFor(String dialect) {
     return "mysql".equals(dialect) ? MYSQL_YAML : TRINO_YAML;
   }
@@ -394,12 +395,14 @@ class MultiDialectRewriteTest {
 
   @Test
   void createTableVariantGuardFailsClosedOnEveryDialect() {
-    // 三方言适配器的 checkCreateTableVariant 防止写语句重组器静默丢弃 babel-only
+    // 方言适配器的 checkCreateTableVariant 防止写语句重组器静默丢弃 babel-only
     // 关键字（OR REPLACE / VOLATILE / MULTISET，Calcite 升级也可能翻转其操作数
     // 下标）：解析必须先成功（babel 接受 CREATE OR REPLACE TABLE），失败发生在
-    // 守护层而非解析层，报 UNSUPPORTED_STATEMENT 且消息点名变体不受支持
+    // 守护层而非解析层，报 UNSUPPORTED_STATEMENT 且消息点名变体不受支持。
+    // 批2终审修复（I1）：遍历 DialectProfiles.names()（注册表键集）而非写死三值，
+    // 新方言注册后自动落进本循环，消除「每方言测试之外」的结构性盲区
     String sql = "CREATE OR REPLACE TABLE %s AS SELECT phone FROM customer";
-    for (String dialect : List.of("postgresql", "trino", "mysql")) {
+    for (String dialect : DialectProfiles.names()) {
       String target = "mysql".equals(dialect) ? "app.masked" : "crm.public.masked";
       SqlMaskException e = assertThrows(SqlMaskException.class,
           () -> engine.rewrite(yamlFor(dialect), String.format(sql, target), dialect), dialect);
