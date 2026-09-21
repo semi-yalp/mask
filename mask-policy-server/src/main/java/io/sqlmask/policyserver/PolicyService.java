@@ -69,7 +69,12 @@ public class PolicyService {
   /** Replaces the connection, re-tests, and records the resulting status. */
   public EngineInstance updateConnection(String name, ConnectionConfig connection,
       EngineAccess access) {
-    requireInstance(name);
+    EngineInstance current = requireInstance(name);
+    if (!connection.dialect().equals(current.dialect())) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "connection dialect '" + connection.dialect() + "' differs from instance dialect '"
+              + current.dialect() + "'");
+    }
     access.test(connection);
     return store.updateInstanceConnection(name, connection, ConnectionStatus.CONNECTED);
   }
@@ -213,16 +218,27 @@ public PolicyEntity rollbackPolicy(String instanceName, String policyName, int t
   }
 
   public EffectiveConfigResponse effective(String name, Subject subject) {
-    EngineInstance instance = requireInstance(name);
-    long configVersion = store.currentVersion(name);
-    List<String> warnings = new ArrayList<>();
-    EffectiveConfigResponse compiled = EffectiveConfigCompiler.compile(instance,
-        store.listPolicies(name), subject, warnings);
-    if (!warnings.isEmpty()) {
-      log.info("instance '{}' effective config warnings: {}", name, warnings);
+    // Stamp the config version from two reads around listPolicies and retry if
+    // it moved, so a consumer never caches policies stamped with a newer
+    // version than they were read at.
+    for (int attempt = 0; attempt < 5; attempt++) {
+      EngineInstance instance = requireInstance(name);
+      long before = store.currentVersion(name);
+      List<PolicyEntity> policies = store.listPolicies(name);
+      long after = store.currentVersion(name);
+      if (before == after) {
+        List<String> warnings = new ArrayList<>();
+        EffectiveConfigResponse compiled =
+            EffectiveConfigCompiler.compile(instance, policies, subject, warnings);
+        if (!warnings.isEmpty()) {
+          log.info("instance '{}' effective config warnings: {}", name, warnings);
+        }
+        return new EffectiveConfigResponse(instance.name(), instance.dialect(), after,
+            compiled.policySummary(), compiled.config());
+      }
     }
-    return new EffectiveConfigResponse(instance.name(), instance.dialect(),
-        configVersion, compiled.policySummary(), compiled.config());
+    throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+        "effective config could not be read consistently; retry the request");
   }
 
   private void ensureEnabledPoliciesResolve(EngineInstance updated) {

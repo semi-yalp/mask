@@ -163,6 +163,20 @@ class InMemoryPolicyStoreTest {
   }
 
   @Test
+  void policyVersionsOfUnknownPolicyIsEmpty() {
+    store.createInstance(instance("pg"));
+    assertTrue(store.policyVersions("pg", "nope").isEmpty());
+  }
+
+  @Test
+  void updatePolicyRejectsNameMismatch() {
+    store.createInstance(instance("pg"));
+    store.createPolicy("pg", policy("p1", AccessType.SELECT, "mask_a", 0));
+    assertThrows(SqlMaskException.class, () ->
+        store.updatePolicy("pg", "p1", policy("other", AccessType.SELECT, "mask_b", 1)));
+  }
+
+  @Test
   void udfCrudRegistersAndBumps() {
     store.createInstance(instance("pg"));
     UdfDefinition udf = new UdfDefinition("mask_phone",

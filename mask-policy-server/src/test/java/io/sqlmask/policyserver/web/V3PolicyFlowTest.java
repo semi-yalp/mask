@@ -53,6 +53,59 @@ class V3PolicyFlowTest {
   }
 
   @Test
+  void updatePolicyBodyNameMustMatchPathVariable() throws Exception {
+    mvc.perform(post("/api/instances").contentType("application/json")
+            .content("{\"name\":\"pm\",\"connection\":{\"dialect\":\"postgresql\","
+                + "\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"dbUser\":\"u\","
+                + "\"passwordRef\":\"PW\"},\"fetchMetadata\":true}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pm/udfs").contentType("application/json")
+            .content("{\"name\":\"mask_phone\",\"signatures\":[{\"params\":[\"varchar\"],"
+                + "\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pm/policies").contentType("application/json")
+            .content("{\"name\":\"p1\",\"policyType\":\"datamask\",\"isEnabled\":true,"
+                + "\"resource\":{\"catalog\":\"crm\",\"schema\":\"public\",\"table\":\"customer\","
+                + "\"columns\":[\"phone\"]},\"subjects\":{\"users\":[\"*\"]},"
+                + "\"udf\":\"mask_phone\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/instances/pm/policies/p1").contentType("application/json")
+            .content("{\"name\":\"p1_renamed\",\"policyType\":\"datamask\",\"isEnabled\":true,"
+                + "\"resource\":{\"catalog\":\"crm\",\"schema\":\"public\",\"table\":\"customer\","
+                + "\"columns\":[\"phone\"]},\"subjects\":{\"users\":[\"*\"]},"
+                + "\"udf\":\"mask_phone\",\"currentVersion\":1}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
+  void createInstanceWithInlineTablesKeepsThem() throws Exception {
+    mvc.perform(post("/api/instances").contentType("application/json")
+            .content("{\"name\":\"inline\",\"dialect\":\"postgresql\","
+                + "\"tables\":[{\"catalog\":\"crm\",\"schema\":\"public\",\"name\":\"manual\","
+                + "\"columns\":[{\"name\":\"email\",\"type\":\"varchar\"}]}]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.connectionStatus").value("UNCONNECTED"))
+        .andExpect(jsonPath("$.tables.length()").value(1))
+        .andExpect(jsonPath("$.tables[0].name").value("manual"));
+  }
+
+  @Test
+  void policyBodyMissingResourceReturns400() throws Exception {
+    mvc.perform(post("/api/instances").contentType("application/json")
+            .content("{\"name\":\"mr\",\"connection\":{\"dialect\":\"postgresql\","
+                + "\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"dbUser\":\"u\","
+                + "\"passwordRef\":\"PW\"},\"fetchMetadata\":true}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/mr/policies").contentType("application/json")
+            .content("{\"name\":\"q\",\"policyType\":\"datamask\",\"isEnabled\":true,"
+                + "\"resource\":null,\"subjects\":{\"users\":[\"*\"]},"
+                + "\"udf\":\"mask_phone\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
   void connectionPreCheckSucceeds() throws Exception {
     mvc.perform(post("/api/connections/test").contentType("application/json")
             .content("{\"connection\":{\"dialect\":\"postgresql\",\"host\":\"localhost\","

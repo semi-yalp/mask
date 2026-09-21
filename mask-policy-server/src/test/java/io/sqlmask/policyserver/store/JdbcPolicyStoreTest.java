@@ -207,6 +207,13 @@ class JdbcPolicyStoreTest {
   }
 
   @Test
+  void updatePolicyRejectsNameMismatch() {
+    store.createPolicy(instanceName, policy("p1", "mask_a", 0));
+    assertThrows(SqlMaskException.class, () ->
+        store.updatePolicy(instanceName, "p1", policy("other", "mask_b", 1)));
+  }
+
+  @Test
   void concurrentHistoryInsertYieldsConcurrentModification() {
     PolicyEntity created = store.createPolicy(instanceName, policy("p1", "mask_a", 0));
     store.updatePolicy(instanceName, "p1", policy("p1", "mask_b", created.currentVersion()));

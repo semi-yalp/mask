@@ -74,8 +74,14 @@ public class PolicyAdminController {
           "dialect is required (in the connection, or as a top-level field for metadata-only instances)");
     }
     boolean fetch = request.fetchMetadata() != null && request.fetchMetadata();
+    List<io.sqlmask.policyserver.model.TableDef> inlineTables =
+        AdminDtos.toTables(request.tables());
     EngineInstance instance = service.createInstance(request.name(), dialect, connection, fetch,
         access);
+    if (!inlineTables.isEmpty()) {
+      // Metadata-only instance with a manually supplied table set.
+      instance = service.replaceTables(request.name(), inlineTables);
+    }
     return toInstanceDto(instance);
   }
 
@@ -147,7 +153,8 @@ public class PolicyAdminController {
   public PolicyDto updatePolicy(@PathVariable String name, @PathVariable String policy,
       @RequestBody PolicyDto body) {
     int version = body.currentVersion() == null ? 0 : body.currentVersion();
-    return AdminDtos.toPolicyDto(service.updatePolicy(name, policy, toEntity(body, version)));
+    return AdminDtos.toPolicyDto(
+        service.updatePolicy(name, policy, toEntityForUpdate(body, version, policy)));
   }
 
   @PostMapping("/instances/{name}/policies/{policy}/rollback")
@@ -166,6 +173,15 @@ public class PolicyAdminController {
   @DeleteMapping("/instances/{name}/policies/{policy}")
   public void deletePolicy(@PathVariable String name, @PathVariable String policy) {
     service.deletePolicy(name, policy);
+  }
+
+  private static PolicyEntity toEntityForUpdate(PolicyDto dto, int version, String pathName) {
+    if (dto.name() != null && !dto.name().equals(pathName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "policy name in body ('" + dto.name() + "') must match the path policy '" + pathName
+              + "' (policy names are immutable)");
+    }
+    return toEntity(dto, version);
   }
 
   private static PolicyEntity toEntity(PolicyDto dto, int version) {

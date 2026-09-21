@@ -41,16 +41,28 @@ public final class SuggestService {
             SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
             "instance '" + instanceName + "' not found"));
     int cap = limit > 0 ? Math.min(limit, MAX_LIMIT) : DEFAULT_LIMIT;
+    validateKind(kind);
     String query = normalize(q);
     String schemaFilter = normalize(schema);
     String tableFilter = normalize(table);
-    return switch (kind == null ? "" : kind) {
+    if (query.isEmpty()) {
+      // An empty name query yields nothing (suggest is pull-driven); schema /
+      // table filters alone never produce rows. Kind is still validated above.
+      return new SuggestResult("snapshot", List.of());
+    }
+    return switch (kind) {
       case "table" -> tables(instance, query, schemaFilter, cap);
       case "column" -> columns(instance, query, schemaFilter, tableFilter, cap);
       case "udf" -> udfs(instance, query, cap);
-      default -> throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          "unknown suggest kind '" + kind + "' (expected table | column | udf)");
+      default -> throw new IllegalStateException("validateKind did not reject " + kind);
     };
+  }
+
+  private static void validateKind(String kind) {
+    if (!List.of("table", "column", "udf").contains(kind)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "unknown suggest kind '" + kind + "' (expected table | column | udf)");
+    }
   }
 
   public record SuggestItem(String name, String schema, String table, String type) {

@@ -130,11 +130,19 @@ public final class AdminDtos {
   }
 
   public static io.sqlmask.policyserver.model.ResourceSelector toResource(ResourceDto r) {
+    if (r == null) {
+      throw new io.sqlmask.error.SqlMaskException(io.sqlmask.error.SqlMaskException.Code.CONFIG_ERROR,
+          "resource is required");
+    }
     return new io.sqlmask.policyserver.model.ResourceSelector(r.catalog(), r.schema(), r.table(),
         r.columns());
   }
 
   public static io.sqlmask.policy.model.SubjectSelector toSubject(SubjectDto s) {
+    if (s == null) {
+      throw new io.sqlmask.error.SqlMaskException(io.sqlmask.error.SqlMaskException.Code.CONFIG_ERROR,
+          "subjects is required (use {\"users\":[\"*\"]} for everyone)");
+    }
     return new io.sqlmask.policy.model.SubjectSelector(s.users(), s.groups());
   }
 

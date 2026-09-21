@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -97,6 +98,24 @@ class PolicyServiceTest {
     assertThrows(SqlMaskException.class, () ->
         service.createInstance("pg", "postgresql", CFG, false, access));
     verify(store, never()).createInstance(any());
+  }
+
+  @Test
+  void updateConnectionRejectsDialectMismatch() {
+    ConnectionConfig mysql = new ConnectionConfig("mysql", "h", 3306, "d", "u", "PW",
+        List.of(), false, "disable", 15);
+    SqlMaskException e = assertThrows(SqlMaskException.class, () ->
+        service.updateConnection("pg", mysql, access));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    verify(store, never()).updateInstanceConnection(any(), any(), any());
+  }
+
+  @Test
+  void effectiveRetriesWhenVersionMovesDuringRead() {
+    when(store.currentVersion("pg")).thenReturn(1L, 2L, 2L);
+    when(store.listPolicies("pg")).thenReturn(List.of(maskPolicy("p1", 1)));
+    assertEquals(2L, service.effective("pg", Subject.anonymous()).configVersion());
+    verify(store, times(2)).listPolicies("pg");
   }
 
   @Test

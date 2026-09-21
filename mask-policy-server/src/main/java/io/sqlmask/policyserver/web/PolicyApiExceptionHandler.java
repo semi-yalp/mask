@@ -5,6 +5,8 @@ import io.sqlmask.policy.PolicyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -42,6 +44,14 @@ public class PolicyApiExceptionHandler {
     return ResponseEntity.badRequest().body(Map.of(
         "code", "BAD_REQUEST",
         "message", "request body is not valid: " + e.getMessage()));
+  }
+
+  @ExceptionHandler({MissingServletRequestParameterException.class,
+      MethodArgumentTypeMismatchException.class})
+  public ResponseEntity<Map<String, String>> handleBadRequest(Exception e) {
+    return ResponseEntity.badRequest().body(Map.of(
+        "code", "BAD_REQUEST",
+        "message", "invalid request: " + e.getMessage()));
   }
 
   @ExceptionHandler(Exception.class)

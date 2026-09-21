@@ -160,6 +160,10 @@ public class JdbcPolicyStore implements PolicyStore {
   @Transactional
   public PolicyEntity updatePolicy(String instanceName, String policyName, PolicyEntity policy) {
     long instanceId = requireInstanceRow(instanceName).id();
+    if (!policy.name().equals(policyName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "policy name mismatch: '" + policyName + "' cannot be renamed to '" + policy.name() + "'");
+    }
     StoredPolicy stored = requirePolicy(instanceId, policyName);
     if (stored.currentVersion() != policy.currentVersion()) {
       throw new SqlMaskException(SqlMaskException.Code.CONCURRENT_MODIFICATION,

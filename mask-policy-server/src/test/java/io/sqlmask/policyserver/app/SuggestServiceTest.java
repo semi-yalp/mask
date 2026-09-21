@@ -89,7 +89,7 @@ class SuggestServiceTest {
     when(access.fetch(any())).thenThrow(new SqlMaskException(
         SqlMaskException.Code.CONNECTION_FAILED, "down"));
     SqlMaskException e = assertThrows(SqlMaskException.class, () ->
-        service.suggest("pg", "table", "", null, null, 20));
+        service.suggest("pg", "table", "cust", null, null, 20));
     assertEquals(SqlMaskException.Code.CONNECTION_FAILED, e.getCode());
   }
 
@@ -121,10 +121,17 @@ class SuggestServiceTest {
   }
 
   @Test
+  void emptyQueryReturnsNoSuggestions() {
+    snapshotInstance();
+    SuggestResult result = service.suggest("pg", "table", "", null, null, 20);
+    assertEquals(0, result.items().size());
+  }
+
+  @Test
   void limitCapsResults() {
     snapshotInstance();
-    // Two tables match empty query; cap 1 returns one.
-    SuggestResult result = service.suggest("pg", "table", "", null, null, 1);
+    // Only "orders" matches the "order" prefix; cap 1 returns one.
+    SuggestResult result = service.suggest("pg", "table", "order", null, null, 1);
     assertEquals(1, result.items().size());
   }
 

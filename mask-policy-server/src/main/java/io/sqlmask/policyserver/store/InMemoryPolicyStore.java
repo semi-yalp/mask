@@ -113,6 +113,10 @@ public final class InMemoryPolicyStore implements PolicyStore {
   public synchronized PolicyEntity updatePolicy(String instanceName, String policyName,
       PolicyEntity policy) {
     Map<String, PolicyEntity> policies = policiesOf(instanceName, policyName);
+    if (!policy.name().equals(policyName)) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "policy name mismatch: '" + policyName + "' cannot be renamed to '" + policy.name() + "'");
+    }
     PolicyEntity current = policies.get(policyName);
     if (current.currentVersion() != policy.currentVersion()) {
       throw new SqlMaskException(SqlMaskException.Code.CONCURRENT_MODIFICATION,
@@ -168,10 +172,10 @@ public final class InMemoryPolicyStore implements PolicyStore {
       throw new SqlMaskException(SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND,
           "instance '" + instanceName + "' not found");
     }
+    // Unknown policy name → empty history (matches the JDBC store's contract).
     Map<Integer, PolicyVersion> history = historyByInstance.get(instanceName).get(policyName);
     if (history == null) {
-      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
-          "policy '" + policyName + "' not found in instance '" + instanceName + "'");
+      return List.of();
     }
     return history.values().stream()
         .sorted(Comparator.comparingInt(PolicyVersion::version))
