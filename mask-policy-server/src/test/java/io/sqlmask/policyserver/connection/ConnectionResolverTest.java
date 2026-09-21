@@ -47,4 +47,14 @@ class ConnectionResolverTest {
     assertEquals(SqlMaskException.Code.CONNECTION_FAILED, e.getCode());
     assertTrue(e.getMessage().contains("SHOP_PW"));
   }
+
+  @Test
+  void nullPasswordRefFieldIsConnectionFailed() {
+    ConnectionResolver resolver = new ConnectionResolver(name -> "pw");
+    ConnectionConfig noRef = new ConnectionConfig("postgresql", "h", 1, "d", "u", null,
+        List.of(), false, "disable", null);
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> resolver.toSpec(noRef));
+    assertEquals(SqlMaskException.Code.CONNECTION_FAILED, e.getCode());
+    assertTrue(e.getMessage().contains("passwordRef"));
+  }
 }

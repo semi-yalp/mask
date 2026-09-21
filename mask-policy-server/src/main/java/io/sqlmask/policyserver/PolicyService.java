@@ -141,8 +141,18 @@ public class PolicyService {
     return store.updatePolicy(instanceName, policyName, policy);
   }
 
-  public PolicyEntity rollbackPolicy(String instanceName, String policyName, int targetVersion) {
-    requireInstance(instanceName);
+public PolicyEntity rollbackPolicy(String instanceName, String policyName, int targetVersion) {
+    EngineInstance instance = requireInstance(instanceName);
+    // History is applied verbatim, so it must still resolve against the
+    // instance's CURRENT udf registry and enabled policies before it goes live
+    // (a rollback must not resurrect a since-deleted UDF or dropped column).
+    List<PolicyVersion> history = store.policyVersions(instanceName, policyName);
+    PolicyVersion target = history.stream()
+        .filter(v -> v.version() == targetVersion).findFirst()
+        .orElseThrow(() -> new SqlMaskException(SqlMaskException.Code.VERSION_NOT_FOUND,
+            "policy '" + policyName + "' has no version " + targetVersion));
+    validator.validatePolicy(instance, store.listUdfs(instanceName), target.content(),
+        enabledOthers(instanceName, policyName));
     return store.rollbackPolicy(instanceName, policyName, targetVersion);
   }
 
@@ -241,24 +251,40 @@ public class PolicyService {
 
   private static boolean resolves(EngineInstance instance, PolicyEntity policy) {
     ResourceSelector resource = policy.resource();
-    TableDef target = instance.tables().stream()
-        .filter(t -> eq(t.catalog(), resource.catalog())
-            && eq(t.schema(), resource.schema())
-            && eq(t.name(), resource.table()))
-        .findFirst()
-        .orElse(null);
-    if (target == null || policy.policyType() != PolicyType.DATAMASK) {
-      return target != null;
+    for (TableDef table : instance.tables()) {
+      if (!levelResolves(resource.catalog(), table.catalog())
+          || !levelResolves(resource.schema(), table.schema())
+          || !levelResolves(resource.table(), table.name())) {
+        continue;
+      }
+      if (policy.policyType() != PolicyType.DATAMASK) {
+        return true;
+      }
+      List<String> columns = table.columns().stream()
+          .map(c -> c.name().toLowerCase(java.util.Locale.ROOT)).toList();
+      boolean allColumnsResolve = resource.columns().stream().allMatch(c -> {
+        String normalized = c.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.indexOf('*') >= 0 || normalized.indexOf('?') >= 0) {
+          return columns.stream()
+              .anyMatch(col -> io.sqlmask.policy.match.GlobMatcher.matches(normalized, col));
+        }
+        return columns.contains(normalized);
+      });
+      if (allColumnsResolve) {
+        return true;
+      }
     }
-    var columns = target.columns().stream()
-        .map(c -> c.name().toLowerCase(java.util.Locale.ROOT)).toList();
-    return policy.resource().columns().stream()
-        .allMatch(c -> columns.contains(c.toLowerCase(java.util.Locale.ROOT)));
+    return false;
   }
 
-  private static boolean eq(String a, String b) {
-    return (a == null ? "" : a).toLowerCase(java.util.Locale.ROOT)
-        .equals((b == null ? "" : b).toLowerCase(java.util.Locale.ROOT));
+  /** Exact equality for concrete levels, glob match for patterned levels. */
+  private static boolean levelResolves(String pattern, String value) {
+    String p = pattern == null ? "" : pattern.toLowerCase(java.util.Locale.ROOT);
+    String v = value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
+    if (p.indexOf('*') < 0 && p.indexOf('?') < 0) {
+      return p.equals(v);
+    }
+    return io.sqlmask.policy.match.GlobMatcher.matches(p, v);
   }
 
   private EngineInstance requireInstance(String name) {

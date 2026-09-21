@@ -35,6 +35,11 @@ public final class ConnectionResolver {
   }
 
   public String resolvePassword(ConnectionConfig cfg) {
+    if (cfg.passwordRef() == null || cfg.passwordRef().isBlank()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONNECTION_FAILED,
+          "passwordRef is required for connection to "
+              + cfg.host() + ":" + cfg.port() + "/" + cfg.database());
+    }
     String value = env.apply(cfg.passwordRef());
     if (value == null || value.isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONNECTION_FAILED,

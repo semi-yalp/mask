@@ -172,6 +172,15 @@ class PolicyValidatorTest {
   }
 
   @Test
+  void globRowFilterWhitelistEnforcedAgainstMatchedTable() {
+    PolicyEntity bad = new PolicyEntity("rf3", AccessType.SELECT, PolicyType.ROW_FILTER, true, 0,
+        new ResourceSelector("crm", "public", "custo*", List.of()),
+        new SubjectSelector(Set.of("*"), Set.of()), null, List.of(), "now() > id", 0);
+    assertThrows(SqlMaskException.class, () ->
+        validator.validatePolicy(instance(customerTable()), udfs(), bad, List.of()));
+  }
+
+  @Test
   void validateInstanceRejectsConnectionDialectMismatch() {
     EngineInstance mismatch = new EngineInstance("pg", "postgresql",
         new ConnectionConfig("mysql", "localhost", 3306, "db", "u", "PW_REF", List.of(), false,

@@ -207,6 +207,19 @@ class JdbcPolicyStoreTest {
   }
 
   @Test
+  void concurrentHistoryInsertYieldsConcurrentModification() {
+    PolicyEntity created = store.createPolicy(instanceName, policy("p1", "mask_a", 0));
+    store.updatePolicy(instanceName, "p1", policy("p1", "mask_b", created.currentVersion()));
+    // Simulate the losing writer's history row landing first: version 3 already exists,
+    // so the optimistic update must surface CONCURRENT_MODIFICATION, not a raw constraint error.
+    cleanupJdbc.update("INSERT INTO policy_version (instance_id, policy_name, version,"
+            + " change_type, content) SELECT id, 'p1', 3, 'UPDATE', '{}'::jsonb"
+            + " FROM policy_instance WHERE name = ?", instanceName);
+    assertThrows(SqlMaskException.class, () ->
+        store.updatePolicy(instanceName, "p1", policy("p1", "mask_c", 2)));
+  }
+
+  @Test
   void udfCrudRoundTrip() {
     UdfDefinition udf = new UdfDefinition("mask_phone",
         List.of(new UdfDefinition.UdfSignature(List.of("varchar"), "varchar")));

@@ -220,13 +220,15 @@ public final class PolicyValidator {
    */
   private void validateFilterExpression(EngineInstance instance, PolicyEntity policy) {
     List<TableMetadata> tables = new ArrayList<>();
-    String targetKey = tableKey(policy.resource());
     instance.tables().forEach(t -> {
       List<TableMetadata.Column> columns = new ArrayList<>();
       t.columns().forEach(c -> columns.add(
           DialectProfiles.byName(instance.dialect()).typeResolver()
               .parseColumn(c.name(), c.typeDeclaration())));
-      String rowFilter = tableKey(t).equals(targetKey) ? policy.filterExpr() : null;
+      // Glob resources attach to every snapshot table they match so the
+      // expression still goes through parsing + the whitelist; exact resources
+      // keep the previous key-equality behavior.
+      String rowFilter = tableMatchesResource(policy.resource(), t) ? policy.filterExpr() : null;
       tables.add(new TableMetadata(t.catalog(), t.schema(), t.name(), columns, rowFilter));
     });
     MaskingConfig config = new MaskingConfig(tables, List.of(), Map.of());
@@ -345,6 +347,22 @@ public final class PolicyValidator {
     return parsed.sqlTypeName() == column.sqlTypeName()
         && Objects.equals(parsed.precision(), column.precision())
         && Objects.equals(parsed.scale(), column.scale());
+  }
+
+  /** Exact key equality for concrete resources, glob match for patterned ones. */
+  private static boolean tableMatchesResource(ResourceSelector r, TableDef t) {
+    return levelMatchesGlob(r.catalog(), t.catalog())
+        && levelMatchesGlob(r.schema(), t.schema())
+        && levelMatchesGlob(r.table(), t.name());
+  }
+
+  private static boolean levelMatchesGlob(String pattern, String value) {
+    String p = pattern == null ? "" : pattern.toLowerCase(java.util.Locale.ROOT);
+    String v = value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
+    if (p.indexOf('*') < 0 && p.indexOf('?') < 0) {
+      return p.equals(v);
+    }
+    return io.sqlmask.policy.match.GlobMatcher.matches(p, v);
   }
 
   private static boolean hasNoGlob(ResourceSelector resource) {

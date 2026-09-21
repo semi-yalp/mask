@@ -27,6 +27,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -150,6 +151,39 @@ class PolicyServiceTest {
     when(store.currentVersion("pg")).thenReturn(7L);
     when(store.listPolicies("pg")).thenReturn(List.of(maskPolicy("p1", 1)));
     assertEquals(7L, service.effective("pg", Subject.anonymous()).configVersion());
+  }
+
+  @Test
+  void globEnabledPolicyDoesNotBlockMetadataRefresh() {
+    PolicyEntity glob = new PolicyEntity("gp", AccessType.SELECT, PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "order_*", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "mask_phone", List.of(), null, 1);
+    when(store.listPolicies("pg")).thenReturn(List.of(glob));
+    when(access.fetch(any())).thenReturn(List.of(
+        new TableDef("crm", "public", "order_log",
+            List.of(new ColumnDef("phone", "varchar")))));
+    when(store.updateInstanceTables(any(), any())).thenAnswer(inv ->
+        new EngineInstance("pg", "postgresql", CFG, ConnectionStatus.CONNECTED,
+            inv.getArgument(1)));
+    service.metadataFetch("pg", access);
+    verify(store).updateInstanceTables(eq("pg"), any());
+  }
+
+  @Test
+  void rollbackRejectsContentThatNoLongerResolves() {
+    PolicyEntity stale = new PolicyEntity("p1", AccessType.SELECT, PolicyType.DATAMASK, true, 0,
+        new ResourceSelector("crm", "public", "customer", List.of("phone")),
+        new SubjectSelector(Set.of("*"), Set.of()), "ghost_udf", List.of(), null, 1);
+    when(store.policyVersions("pg", "p1")).thenReturn(List.of(
+        new PolicyVersion(1, io.sqlmask.policyserver.model.ChangeType.CREATE, stale, null,
+            Instant.now())));
+    when(store.listUdfs("pg")).thenReturn(List.of());
+    when(store.listPolicies("pg")).thenReturn(List.of());
+    when(validator.validatePolicy(any(), any(), any(), any()))
+        .thenThrow(new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "unknown udf 'ghost_udf'"));
+    assertThrows(SqlMaskException.class, () -> service.rollbackPolicy("pg", "p1", 1));
+    verify(store, never()).rollbackPolicy(any(), any(), anyInt());
   }
 
   @Test

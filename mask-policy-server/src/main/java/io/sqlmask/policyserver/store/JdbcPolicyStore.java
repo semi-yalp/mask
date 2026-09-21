@@ -186,7 +186,16 @@ public class JdbcPolicyStore implements PolicyStore {
           ps.setInt(10, newVersion);
           ps.setLong(11, stored.id());
         });
-    insertVersion(instanceId, policyName, newVersion, ChangeType.UPDATE, updated, null);
+    try {
+      insertVersion(instanceId, policyName, newVersion, ChangeType.UPDATE, updated, null);
+    } catch (DuplicateKeyException e) {
+      // A truly concurrent writer landed version N+1 first (check-then-act race
+      // under READ COMMITTED); the unique constraint held the line, so surface
+      // the mandated 400 instead of a raw constraint 500.
+      throw new SqlMaskException(SqlMaskException.Code.CONCURRENT_MODIFICATION,
+          "policy '" + policyName + "' was modified concurrently (version " + newVersion
+              + " already recorded); reload and retry");
+    }
     bumpVersion(instanceName);
     return updated;
   }
