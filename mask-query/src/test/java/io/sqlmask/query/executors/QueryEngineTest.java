@@ -17,7 +17,7 @@ class QueryEngineTest {
   void resolvesEngineAndDialect() {
     assertThat(QueryEngine.of(" StarRocks ")).isEqualTo(QueryEngine.STARROCKS);
     assertThat(QueryEngine.STARROCKS.dialect()).isEqualTo("mysql");
-    assertThatThrownBy(() -> QueryEngine.of("hive"))
+    assertThatThrownBy(() -> QueryEngine.of("oracle"))
         .hasFieldOrPropertyWithValue("code", "UNSUPPORTED_ENGINE");
   }
 
@@ -35,5 +35,25 @@ class QueryEngineTest {
         .isEqualTo("jdbc:trino://h:1234/db?SSL=false");
     assertThatThrownBy(() -> QueryEngine.MYSQL.jdbcUrl(conn("prefer")))
         .hasFieldOrPropertyWithValue("code", "CONFIG_ERROR");
+  }
+
+  @Test
+  void hiveAndSparksqlBuildHive2Urls() {
+    ConnectionView plain = conn("disable");
+    ConnectionView secure = conn("require");
+    assertThat(QueryEngine.HIVE.jdbcUrl(plain))
+        .isEqualTo("jdbc:hive2://h:1234/db");
+    assertThat(QueryEngine.HIVE.jdbcUrl(secure))
+        .isEqualTo("jdbc:hive2://h:1234/db;ssl=true");
+    assertThat(QueryEngine.SPARKSQL.jdbcUrl(plain))
+        .isEqualTo("jdbc:hive2://h:1234/db");
+    ConnectionView emptyDb = new ConnectionView("h", 10000, "", "u", "REF", "disable", 10);
+    assertThat(QueryEngine.SPARKSQL.jdbcUrl(emptyDb))
+        .isEqualTo("jdbc:hive2://h:10000/");
+    assertThat(QueryEngine.of(" Hive ")).isEqualTo(QueryEngine.HIVE);
+    assertThat(QueryEngine.of("sparksql")).isEqualTo(QueryEngine.SPARKSQL);
+    assertThat(QueryEngine.HIVE.dialect()).isEqualTo("hive");
+    assertThat(QueryEngine.SPARKSQL.dialect()).isEqualTo("sparksql");
+    assertThat(QueryEngine.HIVE.defaultPort()).isEqualTo(10000);
   }
 }
