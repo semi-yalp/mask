@@ -109,6 +109,20 @@ public class PolicyService {
     return store.listInstances();
   }
 
+  /** Replaces the table snapshot (manual metadata entry); enabled policies must keep resolving. */
+  public EngineInstance replaceTables(String name, List<TableDef> tables) {
+    EngineInstance current = requireInstance(name);
+    EngineInstance updated = new EngineInstance(name, current.dialect(), current.connection(),
+        current.status(), tables);
+    validator.validateInstance(updated);
+    ensureEnabledPoliciesResolve(updated);
+    return store.updateInstanceTables(name, tables);
+  }
+
+  public long configVersion(String instanceName) {
+    return store.currentVersion(instanceName);
+  }
+
   public void deleteInstance(String name) {
     store.deleteInstance(name);
   }

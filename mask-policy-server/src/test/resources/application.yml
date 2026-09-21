@@ -1,3 +1,5 @@
 spring:
   autoconfigure:
     exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+  # No datasource → no JdbcTemplate → PolicyServerApplication.policyStore
+  # selects the InMemoryPolicyStore, so @SpringBootTest web tests are stateless.
