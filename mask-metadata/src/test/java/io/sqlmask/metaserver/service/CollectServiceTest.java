@@ -103,11 +103,15 @@ class CollectServiceTest {
 
   @Test
   void collectRejectsHiveAndSparksqlDialects() {
+    // 批2终审修复：spark 侧断言收紧到与 hive 同强度——错误码也必须是 CONFIG_ERROR
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.collect("hive-inst"))
         .isInstanceOf(SqlMaskException.class)
+        .hasFieldOrPropertyWithValue("code", SqlMaskException.Code.CONFIG_ERROR)
         .hasMessageContaining("collection is not supported for dialect 'hive'")
         .hasMessageContaining("import");
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.collect("spark-inst"))
+        .isInstanceOf(SqlMaskException.class)
+        .hasFieldOrPropertyWithValue("code", SqlMaskException.Code.CONFIG_ERROR)
         .hasMessageContaining("sparksql");
   }
 

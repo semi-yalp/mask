@@ -1,5 +1,6 @@
 package io.sqlmask.metaserver.service;
 
+import io.sqlmask.dialect.DialectProfiles;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
@@ -44,6 +45,31 @@ class MetadataServiceTest {
     SqlMaskException e = assertThrows(SqlMaskException.class,
         () -> service.create("x", "oracle", null, conn()));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    // 支持清单与 DialectProfiles.names() 同源，不得再硬编码（批2终审修复）
+    assertThat(e.getMessage())
+        .contains("unsupported dialect 'oracle'")
+        .contains(String.join(", ", DialectProfiles.names()));
+  }
+
+  @Test
+  void normalizeDialectAcceptsHiveAndSparksql() {
+    // spec §6 正向钉：两新方言可建实例，dialect 归一小写
+    InstanceRow h = service.create("h1", "Hive", null, conn());
+    assertThat(h.dialect()).isEqualTo("hive");
+    InstanceRow s = service.create("s1", "SparkSQL", null, conn());
+    assertThat(s.dialect()).isEqualTo("sparksql");
+  }
+
+  @Test
+  void effectiveEngineDerivesHiveAndSparksqlFromDialect() {
+    // 批2终审修复（C1）：引擎派生必须覆盖 hive/sparksql，否则查询侧会按 mysql 引擎连库
+    assertThat(new InstanceRow("h", "hive", null, null, 1).effectiveEngine()).isEqualTo("hive");
+    assertThat(new InstanceRow("s", "sparksql", null, null, 1).effectiveEngine())
+        .isEqualTo("sparksql");
+    InstanceRow h = service.create("h1", "hive", null, conn());
+    assertThat(h.effectiveEngine()).isEqualTo("hive");
+    InstanceRow s = service.create("s1", "sparksql", null, conn());
+    assertThat(s.effectiveEngine()).isEqualTo("sparksql");
   }
 
   @Test

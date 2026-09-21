@@ -70,10 +70,13 @@
 
 引擎特有安全失败（写语句分支，对齐批 1 的方言校验方法）：
 
-- **Hive**：带表属性/分区/`STORED AS`/`ROW FORMAT` 的 CTAS 变体 → `UNSUPPORTED_STATEMENT`
-  （只有裸 `CREATE TABLE [IF NOT EXISTS] t AS SELECT` 可用）；
-- **Spark**：`USING` 子句 / 表属性 / `PARTITIONED BY` 的 CTAS 变体 → `UNSUPPORTED_STATEMENT`；
+- **Hive**：带表属性/分区/`STORED AS`/`ROW FORMAT` 的 CTAS 变体 → `PARSE_ERROR`
+  （解析器语法不收这些形态，只有裸 `CREATE TABLE [IF NOT EXISTS] t AS SELECT` 可用）；
+- **Spark**：`USING` 子句 / 表属性 / `PARTITIONED BY` 的 CTAS 变体 → `PARSE_ERROR`；
 - 读语句失败清单沿批 1 通用规则（`WITH RECURSIVE`、输出关联标量子查询等）。
+
+> 裁决注记（2026-09-18 全分支评审）：上述形态不进解析器语法，错误码为 `PARSE_ERROR`；
+> REPLACE/VOLATILE/SET/MULTISET（babel 可解析）保持 `UNSUPPORTED_STATEMENT`。
 
 包装与行过滤：**零改动复用**——外层形态 `SELECT udf(r.col, args) AS out FROM (原始查询) AS r`
 两引擎原生支持；行过滤注入形态 `(SELECT * FROM t WHERE ...) AS r` 同样原生；错误与

@@ -25,7 +25,9 @@ public final class SparkSqlTypeResolver implements TypeResolver {
       case "float" -> { }
       case "double" -> { }
       case "decimal" -> {
-        if (scale != null && precision == null) {
+        // decimal 声明必须 (p,s) 双精度：单参 decimal(10) 会让 scale=null 流到下游
+        // schema 构建处拆箱 NPE，这里 fail-closed 报支持清单（spec 批2 §3 decimal(p,s)）
+        if (precision == null || scale == null) {
           throw parseError(raw);
         }
       }

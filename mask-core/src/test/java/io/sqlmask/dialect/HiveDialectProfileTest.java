@@ -101,4 +101,32 @@ class HiveDialectProfileTest {
     assertThatThrownBy(() -> resolver.parseColumn("a", "struct<x:int>"))
         .hasMessageContaining("struct");
   }
+
+  @Test
+  void decimalRequiresBothPrecisionAndScale() {
+    // 批2终审修复（I2）：decimal(10)（precision=10, scale=null）曾漏过守卫、在下游
+    // schema 构建时拆箱 NPE——decimal 声明必须 (p,s) 双精度，fail-closed 报支持清单
+    var resolver = new HiveTypeResolver();
+    assertThat(resolver.parseColumn("a", "decimal(10, 2)").sqlTypeName()).isNotNull();
+    assertThatThrownBy(() -> resolver.parseColumn("a", "decimal(10)"))
+        .isInstanceOf(io.sqlmask.error.SqlMaskException.class)
+        .hasMessageContaining("unsupported hive type 'decimal(10)'")
+        .hasMessageContaining("decimal(p,s)");
+  }
+
+  @Test
+  void betweenFormsRenderWithoutAsymmetricFlag() {
+    // 对齐 MultiDialectRewriteTest.mysqlBetweenFormsRenderFaithfully：Calcite 的
+    // SqlBetweenOperator 默认渲染 "BETWEEN ASYMMETRIC"，真实 Hive 无该关键字——
+    // 两种形式在重组输出里必须保持原义且不出现 ASYMMETRIC（投影带 phone 强制
+    // 语句走包装重组路径，钉住的是 unparse 层而非直通路径）
+    String between = flat(engine.rewrite(YAML, null,
+        "SELECT id, phone FROM customer WHERE id BETWEEN 1 AND 5", "hive",
+        io.sqlmask.policy.model.Subject.anonymous()).get(0).rewrittenSql());
+    assertThat(between).doesNotContain("ASYMMETRIC").contains(" id BETWEEN 1 AND 5");
+    String notBetween = flat(engine.rewrite(YAML, null,
+        "SELECT id, phone FROM customer WHERE id NOT BETWEEN 1 AND 5", "hive",
+        io.sqlmask.policy.model.Subject.anonymous()).get(0).rewrittenSql());
+    assertThat(notBetween).doesNotContain("ASYMMETRIC").contains(" id NOT BETWEEN 1 AND 5");
+  }
 }
