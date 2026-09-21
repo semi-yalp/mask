@@ -99,9 +99,12 @@ public final class InMemoryPolicyStore implements PolicyStore {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "policy '" + policy.name() + "' already exists in instance '" + instanceName + "'");
     }
-    PolicyEntity created = withVersion(policy, 1);
+    // A deleted policy leaves history behind; a recreate continues the sequence.
+    int nextVersion = historyOf(instanceName, policy.name()).keySet().stream()
+        .mapToInt(Integer::intValue).max().orElse(0) + 1;
+    PolicyEntity created = withVersion(policy, nextVersion);
     policies.put(created.name(), created);
-    appendHistory(instanceName, created.name(), 1, ChangeType.CREATE, created, null);
+    appendHistory(instanceName, created.name(), nextVersion, ChangeType.CREATE, created, null);
     bump(instanceName);
     return created;
   }

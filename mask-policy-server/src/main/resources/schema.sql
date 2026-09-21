@@ -47,18 +47,20 @@ CREATE TABLE IF NOT EXISTS policy (
   UNIQUE (instance_id, name)
 );
 
--- Immutable per-policy version history. content holds a full PolicyEntity
+-- Immutable per-policy version history, keyed by (instance, policy name) so it
+-- survives policy deletion (spec: 删除保留历史) and a recreate continues the
+-- version sequence (同名重建续用版本序列). content holds a full PolicyEntity
 -- snapshot; source_version records the version a ROLLBACK restored from.
 CREATE TABLE IF NOT EXISTS policy_version (
   id BIGSERIAL PRIMARY KEY,
   instance_id BIGINT NOT NULL REFERENCES policy_instance(id) ON DELETE CASCADE,
-  policy_id BIGINT NOT NULL REFERENCES policy(id) ON DELETE CASCADE,
+  policy_name VARCHAR(255) NOT NULL,
   version INT NOT NULL,
   change_type VARCHAR(16) NOT NULL,
   content JSONB NOT NULL,
   source_version INT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (policy_id, version)
+  UNIQUE (instance_id, policy_name, version)
 );
 
 CREATE TABLE IF NOT EXISTS instance_udf (
