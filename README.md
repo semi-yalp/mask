@@ -1,7 +1,8 @@
 # sql-mask
 
-基于 Apache Calcite 的多引擎 SQL 脱敏改写服务，支持 **PostgreSQL / Trino / MySQL**
-三种方言（输入与输出同为该方言，不做跨引擎转写）。读取 YAML 中声明的表结构、
+基于 Apache Calcite 的多引擎 SQL 脱敏改写服务，支持 **PostgreSQL / Trino /
+MySQL / Hive / Spark SQL** 五种方言（输入与输出同为该方言，不做跨引擎转写）。
+读取 YAML 中声明的表结构、
 列脱敏策略和 UDF 参数，把查询改写为「原始查询作为内层、最外层对结果列调用脱敏
 UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从不执行业务 SQL；唯一的
 数据库访问是 `--pull-metadata` 的只读元数据采集。
@@ -121,6 +122,12 @@ mvn package
 parser，保证 golden 校验与驱动行为一致）。另注：CLI 的 `--connect-timeout` 对
 Trino 无效（446 驱动不支持该 URL 属性，Trino 连接使用驱动默认超时）。
 
+hive-jdbc 依赖注记（mask-query，client-only 用法）：`org.apache.hive:hive-jdbc`
+传递引入 jetty 9.3 / 12.0 混杂版本与双 `org.json` 类（`com.tdunning:json` +
+`android-json`），并死绑定 `log4j-core`（slf4j 2.x 直接忽略）。当前没有代码路径
+触达这些类——只产生启动告警与 fat jar 死重，无需处理；若真遇到 jetty 相关的
+`NoClassDefFoundError`，把整棵 `org.eclipse.jetty:*` 从该依赖排除即可。
+
 本地起策略服务 + PG：
 
 ```bash
@@ -237,7 +244,7 @@ java -jar target/sql-mask.jar
 ### POST /api/config/parse
 
 请求 `{ "metadataYaml": "...", "dialect": "postgresql" }`；`dialect` 可选
-（`postgresql`/`trino`/`mysql`，缺省 `postgresql`），类型按该方言解析校验。
+（`postgresql`/`trino`/`mysql`/`hive`/`sparksql`，缺省 `postgresql`），类型按该方言解析校验。
 服务端解析并校验 YAML，返回结构化配置（tables / columnPolicies / policies），
 供编辑器导入使用。
 
@@ -262,7 +269,8 @@ java -jar target/sql-mask.jar
 ## 改写语义
 
 - 接受 `SELECT`、`WITH ... SELECT`、`INSERT INTO ... SELECT`、
-  `CREATE TABLE [IF NOT EXISTS] ... AS SELECT`；`UPDATE`/`DELETE`/其他 DDL 直接失败；
+  `CREATE TABLE [IF NOT EXISTS] ... AS SELECT`（`hive` / `sparksql` 方言另接受
+  `INSERT OVERWRITE TABLE … SELECT`，写入数据同样被脱敏）；`UPDATE`/`DELETE`/其他 DDL 直接失败；
 - **写入语句（INSERT ... SELECT / CTAS）对“写入的数据”脱敏**：把源查询包上外层
   脱敏包装，目标表名、目标列清单和 `IF NOT EXISTS` 等修饰原样保留——
   目标表通常是新表，无需在 YAML 中声明；
@@ -445,7 +453,8 @@ java -jar mask-core/target/sql-mask.jar --metadata metadata.yaml --policies poli
   可用，与 `--pull-metadata` 同用报用法错误（退出码 2）；
 - `--sql` / `--input`：二选一（同时给出直接失败），输入内容可包含多条 SQL；
 - `--output`：可选，未指定时改写结果输出到 stdout，UTF-8 写入；
-- `--dialect`：可选，`postgresql`（默认）/ `trino` / `mysql`，未知名报用法错误
+- `--dialect`：可选，`postgresql`（默认）/ `trino` / `mysql` / `hive` / `sparksql`，
+  未知名报用法错误
   （退出码 2）并列出支持列表；输入 SQL 必须落在「Calcite 可解析的该引擎语法
   子集」内，引擎特有语法超出部分按 `PARSE_ERROR` 安全失败。
 
@@ -461,34 +470,40 @@ java -jar mask-core/target/sql-mask.jar --instance pg_prod \
 
 ## 方言支持
 
-三个方言共享同一条解析→校验→血缘→改写→渲染管线，差异集中在方言 profile
+五个方言共享同一条解析→校验→血缘→改写→渲染管线，差异集中在方言 profile
 （引号风格、标识符大小写语义、类型命名、内置函数库、输出渲染）：
 
-解析层现状：三方言已统一切换到 `mask-sqlparser` 模块的自定义解析器
-（`SqlMaskParserImpl`，以 Babel 等价语法为基底，方言扩展开关全关，行为与原
-Babel 路径差分等价）。SQL Server 风格 `SELECT TOP (n)` 与 Hive/Spark 风格
-`INSERT OVERWRITE` 语法已在解析器中实现，但当前三方言的开关均为关闭状态——
-这两类写法一律按 `PARSE_ERROR` 安全失败；明确的拒绝清单见
+解析层现状：五个方言共用 `mask-sqlparser` 模块的自定义解析器
+（`SqlMaskParserImpl`，以 Babel 等价语法为基底）。SQL Server 风格 `SELECT TOP (n)`
+与 Hive/Spark 风格 `INSERT OVERWRITE` 语法已在解析器中实现：`INSERT OVERWRITE`
+扩展开关仅对 `hive` / `sparksql` 两个方言开启（按写语句语义处理——写入的数据被
+脱敏，`kind=INSERT_SELECT`），其余方言与 `SELECT TOP (n)`（全部方言）的开关均为
+关闭状态——关闭的写法一律按 `PARSE_ERROR` 安全失败；明确的拒绝清单见
 `mask-sqlparser/EXTENSIONS.md` 与
 `docs/superpowers/specs/2026-09-17-custom-parser-design.md`（§4/§6）。
 例外——`top`/`overwrite` 作函数调用的写法（如 `SELECT top(1) FROM t`，
 切换前 Babel 可解析为函数调用）现按 `PARSE_ERROR` fail-closed 拒绝
 （`top` 被 TOP 子句前瞻优先匹配）。
 
-| 维度 | PostgreSQL | Trino | MySQL |
-|---|---|---|---|
-| 标识符引号 | 双引号（按需） | 双引号（按需） | 反引号（包装层一律加） |
-| 非引号标识符 | 折叠小写 | 折叠小写 | 不折叠、大小写不敏感匹配 |
-| 字符串字面量 | 单引号 | 单引号 | 单引号；**双引号不是标识符**（直接被拒，fail-closed） |
-| 两段名 `db.table` | 不支持（用三段名或不加限定） | 不支持（校验器直接拒绝，用三段名） | 支持（db = 声明的 schema） |
-| 非限定名同名冲突 | 按 schema 名字母序**静默首匹配**（非报错） | 同左 | 同左 |
+| 维度 | PostgreSQL | Trino | MySQL | Hive | Spark SQL |
+|---|---|---|---|---|---|
+| 标识符引号 | 双引号（按需） | 双引号（按需） | 反引号（包装层一律加） | 反引号（包装层一律加，同 MySQL） | 同 Hive |
+| 非引号标识符 | 折叠小写 | 折叠小写 | 不折叠、大小写不敏感匹配 | 折叠小写（Hive 存储语义） | 折叠小写 |
+| 字符串字面量 | 单引号 | 单引号 | 单引号；**双引号不是标识符**（直接被拒，fail-closed） | 单引号 | 单引号 |
+| 两段名 `db.table` | 不支持（用三段名或不加限定） | 不支持（校验器直接拒绝，用三段名） | 支持（db = 声明的 schema） | 支持（db = 声明的 schema） | 同 Hive |
+| 非限定名同名冲突 | 按 schema 名字母序**静默首匹配**（非报错） | 同左 | 同左 | 同左 | 同左 |
+
+保留字注意（Hive/Spark SQL 高频踩坑）：mask 解析器保留 `DEFAULT`。元数据
+schema 名为 `default` 时（Hive 最常见的默认库），SQL 里必须写反引号引用
+（`` SELECT phone FROM `default`.customer ``）或改用其他 schema 名——
+不引用的 `default.customer` 按 `PARSE_ERROR` 拒绝。
 
 包装层（最外层投影）的标识符渲染：PostgreSQL/Trino 按需加引号（保留字、大小写、
-特殊字符），MySQL 一律反引号。`BETWEEN` / `NOT BETWEEN` 在 Trino 与 MySQL 输出
-中保留原义（Calcite 默认渲染成引擎不支持的 `BETWEEN ASYMMETRIC`，两方言各自
-覆盖了该渲染；PostgreSQL 原生支持 ASYMMETRIC，无需处理）；`BETWEEN SYMMETRIC`
-不做特殊处理，按 Calcite 原渲染输出——PostgreSQL 可执行；Trino / MySQL 会在
-引擎侧报错。
+特殊字符），MySQL / Hive / Spark SQL 一律反引号。`BETWEEN` / `NOT BETWEEN` 在
+Trino、MySQL、Hive 与 Spark SQL 输出中保留原义（Calcite 默认渲染成引擎不支持的
+`BETWEEN ASYMMETRIC`，四方言各自覆盖了该渲染；PostgreSQL 原生支持 ASYMMETRIC，
+无需处理）；`BETWEEN SYMMETRIC` 不做特殊处理，按 Calcite 原渲染输出——
+PostgreSQL 可执行；其余四方言会在引擎侧报错。
 
 ### 各引擎类型集（metadata.yaml 的 `type:`）
 
@@ -504,6 +519,15 @@ Babel 路径差分等价）。SQL Server 风格 `SELECT TOP (n)` 与 Hive/Spark 
   `tinytext/mediumtext/text/longtext`（→ varchar）、`binary[(n)]`、`varbinary(n)`、
   `date`、`datetime[(p)]`、`timestamp[(p)]`、`time[(p)]`
   （`json`、`year`、`enum`、`set`、`bit`、`geometry` 不支持）。
+- **Hive**：`tinyint`、`smallint`、`int`/`integer`、`bigint`、`float`、`double`、
+  `decimal(p,s)`、`string`、`varchar[(n)]`、`char(n)`、`boolean`、`date`、
+  `timestamp`、`binary`；
+- **Spark SQL**：与 Hive 相同的 14 种标量类型。
+
+两方言的复杂类型（`array` / `map` / `struct`）与清单外类型（如 Spark 3.4+ 的
+`timestamp_ntz`）**声明即拒绝**（`CONFIG_ERROR`，错误消息带支持清单）——与
+元数据采集（`--pull-metadata`）对 Trino 未知类型降级 `varchar` 的路径不同：
+改写链路的类型声明从不降级。
 
 类型声明在编辑器/API 回显时**原样保留**（不再规范化，例如 `text` 回显 `text`）。
 
@@ -514,6 +538,11 @@ Babel 路径差分等价）。SQL Server 风格 `SELECT TOP (n)` 与 Hive/Spark 
   双引号字符串形式不存在（双引号标记被解析器直接拒绝）。
   注意 `LIMIT offset, count` 逗号形式**可以**解析（MYSQL_5 语义）。
 - **Trino**：带 `WITH (…)` 表属性的 CTAS。
+- **Hive / Spark SQL**：CTAS 的 `REPLACE` / `VOLATILE` / `SET` / `MULTISET` 变体
+  （babel 语法）按 `UNSUPPORTED_STATEMENT` 拒绝——两方言只接受裸
+  `CREATE TABLE [IF NOT EXISTS] … AS SELECT`；`STORED AS` / `ROW FORMAT`（Hive）、
+  `USING` / `PARTITIONED BY`（Spark）等专有 CTAS 变体超出解析器语法，
+  按 `PARSE_ERROR` 拒绝。
 - **通用**：`UPDATE`/`DELETE`/其他 DML/DDL、递归 CTE、输出位置关联标量子查询、
   需要包装的重复输出列名。
 - **MySQL 反斜杠边界（有意保留）**：UDF 字符串参数中的反斜杠**不会**被双写；
@@ -597,6 +626,10 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 - 鉴权：`X-Api-Key`（服务端 Key 来自 `METADATA_API_KEY`；未配置 = 全 401）
 - 密码：实例只登记环境变量名（`passwordRef`，推荐 `SQLMASK_DS_<INSTANCE>_PASSWORD`），
   采集时服务端解析；密码不落库、不进日志、不进 URL
+- 采集边界：`hive` / `sparksql` 方言实例**不支持 pull-metadata**——采集端点对
+  这两方言明确拒绝（`CONFIG_ERROR`，「执行优先不采集」的硬边界），表结构一律用
+  YAML 导入（`POST /api/instances/import`）；被拒方言的采集请求不计入 FAILURE
+  指标（拒绝门在 metrics 记录之外）
 - 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
   字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略
 
@@ -605,9 +638,25 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 统一查询 API 数据面：调用方提交「原始 SQL + 目标实例 + 查询主体」，服务内部
 依次完成「拉实例连接信息（mask-metadata）→ 按实例改写（mask-core 服务模式，
 改写不可绕过）→ JDBC 执行改写产物 → 只返回脱敏后结果集」。自身无状态、无数据库。
-批 1 引擎：`postgresql` / `mysql` / `trino` / `starrocks`（StarRocks 复用 MySQL
-方言改写产物）；Hive / SparkSQL 为批 2 范围（方言 profile、元数据枚举与执行器
-另立 spec）。
+引擎目录（`QueryEngine`，engine 与改写方言同值映射，StarRocks 除外）：
+
+| engine | 改写方言 | 缺省端口 | JDBC URL 形态 |
+|---|---|---|---|
+| `postgresql` | `postgresql` | 5432 | `jdbc:postgresql://H:P/DB?sslmode=…&connectTimeout=…&readOnly=true` |
+| `mysql` | `mysql` | 3306 | `jdbc:mysql://H:P/DB?…&useCursorFetch=true` |
+| `starrocks` | `mysql`（复用 MySQL 方言改写产物） | 9030 | 同 `mysql` |
+| `trino` | `trino` | 8080 | `jdbc:trino://H:P/CATALOG?SSL=…` |
+| `hive` | `hive` | 10000 | `jdbc:hive2://H:P/DB`（binary transport）；`sslmode=require` 追加 `;ssl=true` |
+| `sparksql` | `sparksql` | 10000 | 同 `hive`（Spark ThriftServer 同一 HS2 协议；DB 可为空 → `jdbc:hive2://H:P/`） |
+
+`hive` / `sparksql` 实例的表结构只能 YAML 导入（元数据采集对两方言明确拒绝，
+见「元数据微服务」）；驱动为 `org.apache.hive:hive-jdbc`，覆盖 HiveServer2 与
+Spark ThriftServer。
+
+**时间护栏差异（Hive / SparkSQL）**：hive-jdbc 的 `Statement.setQueryTimeout`
+支持随驱动版本不全（部分实现忽略或抛 `SQLFeatureNotSupportedException`）。
+护栏以容器兜底超时（`onTimeout` 取消语句 → 503）+ 断连取消为主路径；驱动支持时
+`QUERY_TIMEOUT` 分类照常生效——即两引擎的时间护栏强度低于其余四引擎。
 
 ### POST /api/v1/query
 
@@ -695,7 +744,8 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 |---|---|
 | PostgreSQL | `CREATE FUNCTION` 建 SQL/PL/pgSQL 函数 |
 | MySQL | `CREATE FUNCTION` 建存储函数 |
-| Hive / Spark | 上传 JAR 并注册函数（批 2 随方言一并交付） |
+| Hive | 上传 JAR 后 `CREATE TEMPORARY FUNCTION <name> AS '<class>' USING JAR '<path>'`（去掉 `TEMPORARY` 即永久函数） |
+| Spark | 上传 JAR 后 `CREATE [OR REPLACE] FUNCTION <name> AS '<class>' USING JAR '<path>'` |
 | StarRocks | StarRocks 3.x Java UDF |
 | Trino | Java 插件（SPI 函数包，部署进 plugin 目录后重启） |
 
