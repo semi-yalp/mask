@@ -1,7 +1,11 @@
+-- v3 policy-service schema (idempotent: CREATE TABLE IF NOT EXISTS + additive
+-- ALTER for deployments that already ran the v2-era schema).
 CREATE TABLE IF NOT EXISTS policy_instance (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
   dialect VARCHAR(64) NOT NULL,
+  connection JSONB,
+  connection_status VARCHAR(16) NOT NULL DEFAULT 'UNCONNECTED',
   config_version BIGINT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -28,20 +32,33 @@ CREATE TABLE IF NOT EXISTS policy (
   id BIGSERIAL PRIMARY KEY,
   instance_id BIGINT NOT NULL REFERENCES policy_instance(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
+  access_type VARCHAR(16) NOT NULL DEFAULT 'SELECT',
   policy_type VARCHAR(32) NOT NULL,
   is_enabled BOOLEAN NOT NULL,
   udf VARCHAR(255),
   arguments JSONB,
   filter_expr TEXT,
   resource JSONB NOT NULL,
-  -- 存量库升级：ALTER TABLE policy ADD COLUMN subjects JSONB;
-  --              UPDATE policy SET subjects = '{"users":["*"]}'::jsonb WHERE subjects IS NULL;
   subjects JSONB,
-  -- 存量库升级：ALTER TABLE policy ADD COLUMN priority INT NOT NULL DEFAULT 0;
   priority INT NOT NULL DEFAULT 0,
+  current_version INT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (instance_id, name)
+);
+
+-- Immutable per-policy version history. content holds a full PolicyEntity
+-- snapshot; source_version records the version a ROLLBACK restored from.
+CREATE TABLE IF NOT EXISTS policy_version (
+  id BIGSERIAL PRIMARY KEY,
+  instance_id BIGINT NOT NULL REFERENCES policy_instance(id) ON DELETE CASCADE,
+  policy_id BIGINT NOT NULL REFERENCES policy(id) ON DELETE CASCADE,
+  version INT NOT NULL,
+  change_type VARCHAR(16) NOT NULL,
+  content JSONB NOT NULL,
+  source_version INT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (policy_id, version)
 );
 
 CREATE TABLE IF NOT EXISTS instance_udf (
@@ -55,3 +72,9 @@ CREATE TABLE IF NOT EXISTS instance_udf (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (instance_id, name, param_types)
 );
+
+-- Graceful upgrade for deployments on the pre-v3 schema.
+ALTER TABLE policy_instance ADD COLUMN IF NOT EXISTS connection JSONB;
+ALTER TABLE policy_instance ADD COLUMN IF NOT EXISTS connection_status VARCHAR(16) NOT NULL DEFAULT 'UNCONNECTED';
+ALTER TABLE policy ADD COLUMN IF NOT EXISTS access_type VARCHAR(16) NOT NULL DEFAULT 'SELECT';
+ALTER TABLE policy ADD COLUMN IF NOT EXISTS current_version INT NOT NULL DEFAULT 1;
