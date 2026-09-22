@@ -79,6 +79,10 @@ public final class PolicyApiKeyFilter implements Filter {
     if (path.equals("/api/audit") || path.startsWith("/api/audit/")) {
       return adminKey == null || adminKey.isBlank() ? null : adminKey;
     }
+    if (path.equals("/api/metadata") || path.startsWith("/api/metadata/")) {
+      // live metadata pull connects to caller-supplied databases: admin-only
+      return adminKey == null || adminKey.isBlank() ? null : adminKey;
+    }
     return null;
   }
 }

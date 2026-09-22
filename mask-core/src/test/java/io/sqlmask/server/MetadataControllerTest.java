@@ -28,7 +28,7 @@ class MetadataControllerTest {
       }
     };
     // 用可编程 stub 替换：见 introspector() 工厂
-    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
         .setControllerAdvice(new ApiExceptionHandler())
         .build();
   }
@@ -44,7 +44,7 @@ class MetadataControllerTest {
   @Test
   void returnsYamlCountsAndWarnings() throws Exception {
     introspector = stubReturning(sample());
-    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
         .setControllerAdvice(new ApiExceptionHandler())
         .build();
     mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
@@ -61,7 +61,7 @@ class MetadataControllerTest {
   @Test
   void blankDatabaseIsConfigError() throws Exception {
     introspector = stubReturning(sample());
-    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
         .setControllerAdvice(new ApiExceptionHandler())
         .build();
     mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
@@ -74,7 +74,7 @@ class MetadataControllerTest {
   @Test
   void unknownEngineIsConfigError() throws Exception {
     introspector = stubReturning(sample());
-    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
         .setControllerAdvice(new ApiExceptionHandler())
         .build();
     mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
@@ -93,7 +93,7 @@ class MetadataControllerTest {
         throw new java.sql.SQLException("FATAL: password authentication failed");
       }
     };
-    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector))
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
         .setControllerAdvice(new ApiExceptionHandler())
         .build();
     mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
@@ -113,6 +113,64 @@ class MetadataControllerTest {
         """))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INTROSPECT_ERROR"));
+  }
+
+  @Test
+  void linkLocalHostIsDeniedByDefault() throws Exception {
+    // 云元数据端点（169.254.169.254）默认拒绝：pull 不得充当内网/云凭证探针
+    introspector = stubReturning(sample());
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(introspector, "link-local"))
+        .setControllerAdvice(new ApiExceptionHandler())
+        .build();
+    mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
+        {"host":"169.254.169.254","database":"d","user":"u","password":"p"}
+        """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("CONFIG_ERROR"));
+  }
+
+  @Test
+  void linkLocalGuardCanBeSwitchedOff() throws Exception {
+    // off 策略下守卫放行（stub introspector 不触网，连接行为另行验收）
+    PgMetadataIntrospector offStub = new PgMetadataIntrospector() {
+      @Override public IntrospectionResult introspect(io.sqlmask.introspect.ConnectionSpec spec) {
+        return sample();
+      }
+      @Override protected Connection open(io.sqlmask.introspect.ConnectionSpec spec) {
+        throw new IllegalStateException("open() must not be called; introspect() is stubbed");
+      }
+    };
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(offStub, "off"))
+        .setControllerAdvice(new ApiExceptionHandler())
+        .build();
+    mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
+        {"host":"169.254.169.254","database":"d","user":"u","password":"p"}
+        """))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void sslmodeIsPassedThroughToTheSpec() throws Exception {
+    // 请求体 sslmode 流入 ConnectionSpec（此前控制器硬编码 "disable"）
+    java.util.concurrent.atomic.AtomicReference<io.sqlmask.introspect.ConnectionSpec> captured =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    PgMetadataIntrospector capturing = new PgMetadataIntrospector() {
+      @Override public IntrospectionResult introspect(io.sqlmask.introspect.ConnectionSpec spec) {
+        captured.set(spec);
+        return sample();
+      }
+      @Override protected Connection open(io.sqlmask.introspect.ConnectionSpec spec) {
+        throw new IllegalStateException("open() must not be called; introspect() is stubbed");
+      }
+    };
+    mvc = MockMvcBuilders.standaloneSetup(new MetadataController(capturing, "link-local"))
+        .setControllerAdvice(new ApiExceptionHandler())
+        .build();
+    mvc.perform(post("/api/metadata/pull").contentType("application/json").content("""
+        {"host":"127.0.0.1","database":"d","user":"u","password":"p","sslmode":"require"}
+        """))
+        .andExpect(status().isOk());
+    org.junit.jupiter.api.Assertions.assertEquals("require", captured.get().sslmode());
   }
 
   private PgMetadataIntrospector stubReturning(IntrospectionResult result) {
