@@ -1,4 +1,6 @@
-# 前端（nginx）独立部署：静态页面 + 反向代理到各微服务。
+# 前端（nginx）独立部署：Vite 构建产物 + 反向代理到各微服务。
+# 构建前置：frontend/dist 已存在（本机 npm run build，或在构建主机上
+#           bash frontend/deploy.sh build —— 该脚本同时负责远端 compose 启动）。
 # 依赖策略/元数据/改写服务已在本机运行（镜像内经 host.docker.internal 访问宿主机端口；
 # Linux 引擎由下方 extra_hosts 提供 host-gateway 映射）。
 services:

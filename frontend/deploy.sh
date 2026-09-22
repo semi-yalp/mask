@@ -42,9 +42,11 @@ case "${1:-sync}" in
     ;;
   up)
     sync_src
-    ssh "$HOST" "mkdir -p $ROOT"
-    scp -q ../docker-compose.frontend.yml ../docker/nginx.Dockerfile "$HOST:$ROOT/" 2>/dev/null || true
-    ssh "$HOST" "cd $ROOT && docker compose -f docker-compose.frontend.yml up -d --force-recreate"
+    ssh "$HOST" "mkdir -p $ROOT/docker"
+    scp -q ../docker-compose.frontend.yml "$HOST:$ROOT/"
+    scp -q ../docker/nginx.Dockerfile "$HOST:$ROOT/docker/"
+    scp -q nginx.conf.docker "$HOST:$DEST/"
+    ssh "$HOST" "cd $ROOT && docker compose -f docker-compose.frontend.yml up -d --build --force-recreate"
     echo "frontend: http://$HOST/"
     ;;
   *)

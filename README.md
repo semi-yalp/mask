@@ -166,28 +166,47 @@ java -jar target/sql-mask.jar
 
 ## 前端部署（nginx）
 
-`frontend/` 目录存放独立的静态前端（无构建步骤，纯 HTML/CSS/JS），生产由
-nginx 承载并反向代理 `/api/**` 到各微服务，浏览器与 API 同源、无需 CORS 配置。
+`frontend/` 是统一策略控制台：**Vue 3 + Element Plus + Vite + TypeScript** 工程
+（`src/` 源码，构建产物 `dist/`）。构建需要 Node.js ≥ 18（版本钉在 Node 18 兼容
+档：Vite 5 / TS 5.5）；也可以不装 Node——用 `frontend/deploy.sh` 把源码同步到
+远程构建主机构建，本机零工具链。nginx 承载 `dist/` 并反向代理 `/api/**` 到各
+微服务，浏览器与 API 同源、无需 CORS 配置。
 
-- **策略管理台 `frontend/policy-console.html`**：mask-policy-server(8081) 的
-  管理面与数据面控制台——实例/表结构/策略/UDF CRUD、按主体（user/groups）拉取
-  生效配置预览、跨服务元数据导入；鉴权走 `X-Api-Key` 头（管理 Key 管
-  `/api/instances`，数据 Key 管 `/api/effective`），页面顶部可填写并保存在
-  sessionStorage（关标签即清，刷新需重输）。
+控制台页面（SPA，`/` 直达）：
+
+- **总览**：实例/表/方言分布统计、服务拓扑与门禁状态；
+- **实例管理**：实例 CRUD、载入示例实例（crm + mask_phone）、表结构编辑、
+  策略（datamask/row_filter）CRUD、UDF 多签名注册、按主体（user/groups）拉取
+  生效配置预览、跨服务元数据导入；
+- **改写试验台**：instance 模式或内联 YAML 模式提交 SQL，逐语句查看脱敏改写
+  结果（CodeMirror SQL 编辑器、合并脚本一键复制）；
+- **审计日志**：按 eventType/outcome/实例/主体/时间范围（≤7 天）检索审计事件，
+  审计未启用（无 ES 或 `audit.enabled=false`）时显示引导卡片。
+
+鉴权：页面侧边栏「API Key 设置」填写管理 Key（`/api/instances`）与数据 Key
+（`/api/effective`），以 `X-Api-Key` 头发送，保存在浏览器 localStorage。
+
 - **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective` → 8081，
-  `/api/audit` → 8080（审计查询端点在 mask-core）；另附注释示例：
-  `/api/rewrite`、`/api/config`、`/api/policies` → 8080，`/api/metadata` → 8082
-  （`/api/metadata/pull` 须用 `location =` 精确匹配优先到 8080），`/api/v1/` → 8083。
+  `/api/rewrite`、`/api/audit` → 8080（审计查询端点在 mask-core）；注释示例：
+  `/api/metadata` → 8082（`/api/metadata/pull` 须用 `location =` 精确匹配优先到
+  8080），`/api/v1/` → 8083；`location /` 带 SPA history 路由回退。
+- **`frontend/nginx.conf.docker`**：容器部署专用，同构路由，upstream 改为
+  `host.docker.internal`。
 
 部署方式二选一：
 
 ```bash
+cd frontend && npm install && npm run build   # 先产出 dist/
+
 # 方式一：Docker（镜像内使用 nginx.conf.docker，upstream 指向
 #         host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
 docker compose -f docker-compose.frontend.yml up --build
 
-# 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend 目录绝对路径后 include）
+# 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend/dist 绝对路径后 include）
 nginx -c $(pwd)/frontend/nginx.conf
+
+# 方式三：远程构建主机（本机无 Node 时;sync/build/test/up 子命令见脚本头注释）
+bash frontend/deploy.sh build && bash frontend/deploy.sh up
 ```
 
 两份配置只监听 80 明文并带基础安全响应头；生产部署应在前面加 TLS 终止层，
