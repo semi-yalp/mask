@@ -46,7 +46,15 @@ case "${1:-sync}" in
     scp -q ../docker-compose.frontend.yml "$HOST:$ROOT/"
     scp -q ../docker/nginx.Dockerfile "$HOST:$ROOT/docker/"
     scp -q nginx.conf.docker "$HOST:$DEST/"
-    ssh "$HOST" "cd $ROOT && docker compose -f docker-compose.frontend.yml up -d --build --force-recreate"
+    if ssh "$HOST" "docker compose version >/dev/null 2>&1"; then
+      ssh "$HOST" "cd $ROOT && docker compose -f docker-compose.frontend.yml up -d --build --force-recreate"
+    else
+      # 无 compose 插件:等价的 docker build + docker run(bridge + host-gateway)
+      ssh "$HOST" "cd $ROOT && docker build -f docker/nginx.Dockerfile -t sql-mask-frontend . && \
+        docker rm -f sql-mask-frontend >/dev/null 2>&1 || true && \
+        docker run -d --name sql-mask-frontend --restart unless-stopped \
+          -p 80:80 --add-host host.docker.internal:host-gateway sql-mask-frontend"
+    fi
     echo "frontend: http://$HOST/"
     ;;
   *)
