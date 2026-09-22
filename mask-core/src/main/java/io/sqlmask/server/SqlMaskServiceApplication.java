@@ -21,9 +21,6 @@ import java.util.List;
  * or {@code --pull-metadata ...} for metadata export mode)
  * delegate to {@link SqlMaskApplication} for one-shot command line use.</li>
  * </ul>
- */
-/**
- * Spring Boot entry point.
  *
  * <p>{@code DataSourceAutoConfiguration} is excluded: the rewrite engine is
  * DB-free by design (the only database access is the read-only metadata
@@ -37,7 +34,9 @@ public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
       "--metadata", "--policies", "--groups", "--sql", "--input", "--output", "--dialect",
-      "--help", "--version", "--pull-metadata", "--instance", "--policy-service");
+      "--help", "--version", "--pull-metadata", "--instance", "--policy-service",
+      "--engine", "--host", "--port", "--database", "--user", "--password", "--schema",
+      "--include-views", "--strict", "--sslmode", "--connect-timeout");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {

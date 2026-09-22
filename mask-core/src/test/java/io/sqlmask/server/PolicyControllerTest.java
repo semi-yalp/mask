@@ -1,4 +1,4 @@
-package io.sqlmask.policy.server;
+package io.sqlmask.server;
 
 import io.sqlmask.policy.PolicyException;
 import org.junit.jupiter.api.Test;
