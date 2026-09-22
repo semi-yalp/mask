@@ -4,8 +4,9 @@
 MySQL / Hive / Spark SQL** 五种方言（输入与输出同为该方言，不做跨引擎转写）。
 读取 YAML 中声明的表结构、
 列脱敏策略和 UDF 参数，把查询改写为「原始查询作为内层、最外层对结果列调用脱敏
-UDF」的 SQL。工具只做解析、校验、血缘分析和 SQL 输出，从不执行业务 SQL；唯一的
-数据库访问是 `--pull-metadata` 的只读元数据采集。
+UDF」的 SQL。改写服务自身只做解析、校验、血缘分析和 SQL 输出，从不执行业务
+SQL（数据库访问仅限 `--pull-metadata` 的只读元数据采集）；统一查询服务
+mask-query 是仓库中唯一的受控执行面，且只执行改写产物、只返回脱敏后结果集。
 
 同一个 jar 提供两种使用方式：
 
@@ -25,13 +26,17 @@ mask-policy-server 在 8081 提供。
 
 ## 服务形态
 
-同一仓库产出三个微服务（CLI 内置于改写服务 jar）：
+同一仓库产出四个微服务、一个管理台前端（CLI 内置于改写服务 jar）：
 
 | 服务 | 模块 | 端口 | 职责 |
 |---|---|---|---|
-| 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、内置页面、CLI |
+| 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、`/api/audit` 审计查询、内置页面、CLI |
 | 策略服务 | mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
 | 元数据服务 | mask-metadata | 8082 | 库表结构采集与存储 |
+| 查询服务 | mask-query | 8083 | 统一查询数据面：改写不可绕过地执行并只返回脱敏结果 |
+
+管理台前端（`frontend/`，nginx 部署）按路径前缀反代上述服务，详见
+「前端部署（nginx）」章节。
 
 改写服务的 instance 模式按实例名从策略服务拉取编译配置：`POLICY_SERVICE_URL` +
 `POLICY_SERVICE_API_KEY` 两个环境变量接入；进程内按主体缓存（LRU 256），每
