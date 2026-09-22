@@ -30,8 +30,10 @@ class MetadataServiceClientTest {
       exchange.sendResponseHeaders(status, bytes.length);
       try (var out = exchange.getResponseBody()) { out.write(bytes); }
     });
-    // 空格实例名的编码路径：记录命中的原始路径，验证 URL 编码后仍能路由
-    stub.createContext("/api/instances/pg+prod", exchange -> {
+    // 空格实例名的编码路径：记录命中的原始路径，验证 URL 编码后仍能路由。
+    // （JDK HttpServer 按解码后路径匹配 context，故注册串带字面空格；
+    // 客户端必须编码为 %20——表单编码的 '+' 会被服务端按字面 '+' 解码）
+    stub.createContext("/api/instances/pg prod", exchange -> {
       requestedPath.set(exchange.getRequestURI().getRawPath());
       byte[] bytes = ("{\"name\":\"pg prod\",\"dialect\":\"postgresql\","
           + "\"metadataVersion\":1}").getBytes(StandardCharsets.UTF_8);
@@ -63,11 +65,11 @@ class MetadataServiceClientTest {
   @Test
   void encodesInstanceNameIntoPathSegment() {
     // 修复前：URI.create(".../pg prod") 抛 IllegalArgumentException；修复后：
-    // 空格编码为 '+'，请求命中编码后的路径并正常解析响应。
+    // 空格按路径段规则编码为 %20（表单编码的 '+' 会被服务端按字面 '+' 解码）
     InstanceView view = client.fetch("pg prod");
     assertThat(view.name()).isEqualTo("pg prod");
     assertThat(view.dialect()).isEqualTo("postgresql");
-    assertThat(requestedPath.get()).isEqualTo("/api/instances/pg+prod");
+    assertThat(requestedPath.get()).isEqualTo("/api/instances/pg%20prod");
   }
 
   @Test

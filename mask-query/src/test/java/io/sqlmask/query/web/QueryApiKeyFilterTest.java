@@ -27,4 +27,18 @@ class QueryApiKeyFilterTest {
     guarded.doFilter(req, new MockHttpServletResponse(), chain);
     assertThat(chain.getRequest()).isNotNull();
   }
+
+  @Test
+  void configuredKeyRejectsWrongAndMissingKey() throws Exception {
+    // 错 key 与缺 key 都必须 401（常量时间比较路径的正确性钉）
+    for (String provided : new String[] {"wrong", null}) {
+      MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/v1/query");
+      if (provided != null) {
+        req.addHeader("X-Api-Key", provided);
+      }
+      MockHttpServletResponse res = new MockHttpServletResponse();
+      guarded.doFilter(req, res, new MockFilterChain());
+      assertThat(res.getStatus()).isEqualTo(401);
+    }
+  }
 }

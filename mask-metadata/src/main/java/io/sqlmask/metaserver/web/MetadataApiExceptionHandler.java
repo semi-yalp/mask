@@ -1,6 +1,8 @@
 package io.sqlmask.metaserver.web;
 
 import io.sqlmask.error.SqlMaskException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -12,6 +14,8 @@ import java.util.List;
 /** Maps failures to {code, message, details[]} with spec §4.3 status mapping. */
 @RestControllerAdvice
 public class MetadataApiExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(MetadataApiExceptionHandler.class);
 
   public record ApiError(String code, String message, List<String> details) {
   }
@@ -38,10 +42,20 @@ public class MetadataApiExceptionHandler {
         "request body is not valid JSON: " + e.getMessage(), List.of()));
   }
 
+  /** Unmatched paths are a 404, not the catch-all 500. */
+  @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+  public ResponseEntity<ApiError> handleNoResource(
+      org.springframework.web.servlet.resource.NoResourceFoundException e) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError("NOT_FOUND", "no such endpoint: " + e.getResourcePath(), List.of()));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception e) {
-    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiError(
-        "INTERNAL_ERROR", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
-        List.of()));
+    // log the full story server-side; the response stays generic so store
+    // internals never reach the caller
+    log.error("unhandled error on the metadata service", e);
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(new ApiError("INTERNAL_ERROR", "internal server error", List.of()));
   }
 }

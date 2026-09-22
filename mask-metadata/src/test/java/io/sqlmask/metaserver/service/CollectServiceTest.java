@@ -32,7 +32,7 @@ class CollectServiceTest {
       List.of("column db.public.customer.phone: PG type text is not representable, degraded to varchar"));
 
   private final CollectService service = new CollectService(instances, structures,
-      ref -> "resolved-password", engine -> spec -> result, new CollectMetrics(registry));
+      ref -> "resolved-password", engine -> spec -> result, new CollectMetrics(registry), "link-local");
 
   CollectServiceTest() {
     store.createInstance(new InstanceRow("pg_prod", "postgresql", null,
@@ -73,7 +73,7 @@ class CollectServiceTest {
             List.of(new IntrospectionResult.ColumnInfo("id", "bigint", "int8", false)))),
         List.of());
     CollectService viewService = new CollectService(instances, structures, ref -> "pw",
-        engine -> spec -> viewResult, new CollectMetrics(registry));
+        engine -> spec -> viewResult, new CollectMetrics(registry), "link-local");
     viewService.collect("pg_prod");
     assertEquals("view", store.loadStructure("pg_prod").get(0).kind());
   }
@@ -85,7 +85,7 @@ class CollectServiceTest {
     CollectService failing = new CollectService(instances, structures, ref -> "pw",
         engine -> spec -> {
           throw new SqlMaskException(SqlMaskException.Code.INTROSPECT_ERROR, "db down");
-        }, new CollectMetrics(registry));
+        }, new CollectMetrics(registry), "link-local");
     assertThrows(SqlMaskException.class, () -> failing.collect("pg_prod"));
     assertEquals(versionBefore, store.findInstance("pg_prod").orElseThrow().metadataVersion());
     assertEquals(1, store.loadStructure("pg_prod").size());
@@ -122,13 +122,23 @@ class CollectServiceTest {
         engine -> spec -> {
           captured.add(spec);
           return result;
-        }, new CollectMetrics(registry));
+        }, new CollectMetrics(registry), "link-local");
     capturing.collect("pg_prod");
     ConnectionSpec spec = captured.get(0);
     assertEquals("postgresql", spec.engine());
     assertEquals("resolved-password", spec.password());
     assertEquals(false, spec.strict());
     assertEquals(List.of("public"), spec.schemas());
+  }
+
+  @Test
+  void linkLocalHostIsDeniedBeforeConnecting() {
+    // 存量实例 host 指向云元数据端点：采集在触网/解凭据之前即被守卫拒绝
+    store.createInstance(new InstanceRow("linklocal", "postgresql", null,
+        new ConnectionInfo("169.254.169.254", 5432, "db", "user", "SQLMASK_PG_PASSWORD",
+            "disable", 10, List.of("public"), false), 1));
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> service.collect("linklocal"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
   }
 
   @Test
@@ -140,7 +150,7 @@ class CollectServiceTest {
           throw new SqlMaskException(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE,
               "referenced environment variable '" + ref + "' is not set; collection aborted");
         },
-        engine -> spec -> result, new CollectMetrics(registry));
+        engine -> spec -> result, new CollectMetrics(registry), "link-local");
     SqlMaskException e = assertThrows(SqlMaskException.class,
         () -> noCredentials.collect("pg_prod"));
     assertEquals(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE, e.getCode());

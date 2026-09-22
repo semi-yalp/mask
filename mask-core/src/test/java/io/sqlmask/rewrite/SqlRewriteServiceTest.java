@@ -199,6 +199,23 @@ class SqlRewriteServiceTest {
   }
 
   @Test
+  void unnamedComputedColumnGetsAGeneratedNameAndAliasList() {
+    // M1 修复：Calcite 对未命名计算列派生 EXPR$N，而目标引擎对同一列的实际名字
+    // 不同（PG ?column?），包装层引用 r."EXPR$1" 必然报列不存在。修复后派生表
+    // 通过列别名表定位改名后的 mask_col_N，内层 SQL 保持原样。
+    String sql = "SELECT c.phone, 1 + 1 FROM crm.public.customer c";
+    String out = flat(rewrite(sql));
+    assertTrue(out.contains("mask_phone(r.phone, 3, 4) AS phone"), out);
+    assertTrue(out.contains("r.mask_col_1"), out);
+    assertTrue(out.endsWith(") AS r (phone, mask_col_1)"), out);
+    assertFalse(out.contains("EXPR$"), out);
+    // 用户的内层 SQL 逐字节保持原样
+    String inner = out.substring(out.indexOf("FROM (") + "FROM (".length(),
+        out.lastIndexOf(") AS r ("));
+    assertEquals(flat(validate(sql).originalSql()), flat(inner), () -> out);
+  }
+
+  @Test
   void masksOnlyPolicyColumnsInMultiColumnProjection() {
     String sql = "SELECT id, phone, email, status FROM crm.public.customer";
     String out = flat(rewrite(sql));

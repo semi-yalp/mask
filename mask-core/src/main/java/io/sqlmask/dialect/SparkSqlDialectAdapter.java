@@ -42,25 +42,7 @@ public final class SparkSqlDialectAdapter extends AbstractCalciteDialectAdapter 
         new SparkSqlUnparseDialect(),
         new SparkSqlIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
-        new DialectCapabilities(false)));
+        DialectCapabilities.STRICT_NO_ALIAS_LIST));
   }
 
-  /** Refuses babel-only CREATE TABLE variants whose syntax the composer cannot reproduce. */
-  @Override
-  protected void checkCreateTableVariant(SqlNode writeStatement) {
-    if (!(writeStatement instanceof SqlBabelCreateTable babel)) {
-      return;
-    }
-    List<SqlNode> operands = babel.getOperandList();
-    boolean replace = ((SqlLiteral) operands.get(0)).booleanValue();
-    TableCollectionType collectionType =
-        ((SqlLiteral) operands.get(1)).symbolValue(TableCollectionType.class);
-    boolean volatileTable = ((SqlLiteral) operands.get(2)).booleanValue();
-    if (replace || volatileTable
-        || collectionType == TableCollectionType.MULTISET) {
-      throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
-          "unsupported CREATE TABLE variant (REPLACE / VOLATILE / SET / MULTISET); "
-              + "only plain CREATE TABLE [IF NOT EXISTS] ... AS SELECT is supported (sparksql)");
-    }
-  }
 }

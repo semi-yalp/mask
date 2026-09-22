@@ -60,4 +60,15 @@ public class InMemoryMetaStore implements MetaStore {
   public List<TableStructure> loadStructure(String name) {
     return new ArrayList<>(structures.getOrDefault(name, List.of()));
   }
+
+  @Override
+  public InstanceSnapshot loadSnapshot(String name) {
+    InstanceRow row = instances.get(name);
+    if (row == null) {
+      throw new io.sqlmask.error.SqlMaskException(
+          io.sqlmask.error.SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND,
+          "instance '" + name + "' does not exist");
+    }
+    return new InstanceSnapshot(row, loadStructure(name));
+  }
 }

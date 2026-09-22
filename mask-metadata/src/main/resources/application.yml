@@ -7,7 +7,8 @@ spring:
   datasource:
     url: ${METADATA_PG_URL:jdbc:postgresql://127.0.0.1:5432/mask_metadata}
     username: ${METADATA_PG_USER:postgres}
-    password: ${METADATA_PG_PASSWORD:postgres}
+    # 无默认口令：本地直跑需 export METADATA_PG_PASSWORD，compose 显式注入
+    password: ${METADATA_PG_PASSWORD}
   sql:
     init:
       mode: always
@@ -15,6 +16,12 @@ spring:
 
 metadata:
   api-key: ${METADATA_API_KEY:}
+  # 分面密钥：admin 管 /api/instances/**（含采集），data 管 /api/metadata/**；
+  # 未设置时回退到上面的单 key（兼容存量单 key 部署）
+  admin-api-key: ${METADATA_ADMIN_API_KEY:}
+  data-api-key: ${METADATA_DATA_API_KEY:}
+  # 出网守卫：link-local（默认，拒绝 169.254/fe80 云元数据端点）或 off
+  network-guard: ${METADATA_NETWORK_GUARD:link-local}
 
 audit:
   enabled: ${AUDIT_ENABLED:true}

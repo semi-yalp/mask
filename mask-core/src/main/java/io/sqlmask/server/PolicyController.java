@@ -1,4 +1,4 @@
-package io.sqlmask.policy.server;
+package io.sqlmask.server;
 
 import io.sqlmask.policy.PolicyException;
 import io.sqlmask.policy.model.Policy;
@@ -12,9 +12,10 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Policy YAML validation endpoint. Lives in mask-policy so the combined jar
- * (core's component scan) and a future standalone policy service expose the
- * same contract. Errors are PolicyException; the combined jar maps them via
+ * Policy YAML validation endpoint, served by the rewrite service (the built-in
+ * page's「策略文件」tab parses-and-previews here). Living in mask-core — not in
+ * the mask-policy library — keeps the library free of the web stack (A3) while
+ * serving the same documented contract; errors are PolicyException, mapped by
  * ApiExceptionHandler to 400 CONFIG_ERROR.
  */
 @RestController

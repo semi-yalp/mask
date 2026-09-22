@@ -43,8 +43,9 @@ public final class RewriteServiceClient {
     } catch (IOException e) {
       throw new IllegalStateException(e);
     }
-    // 实例名是用户可见标识（非凭据，可回显）：先编码为合法路径段再拼 URI
-    String encoded = URLEncoder.encode(instance, StandardCharsets.UTF_8);
+    // 实例名是用户可见标识（非凭据，可回显）：编码为合法路径段再拼 URI；
+    // URLEncoder 是表单编码（空格→+），路径段需要 %20
+    String encoded = URLEncoder.encode(instance, StandardCharsets.UTF_8).replace("+", "%20");
     URI uri;
     try {
       uri = URI.create(base + "/api/rewrite/instances/" + encoded);

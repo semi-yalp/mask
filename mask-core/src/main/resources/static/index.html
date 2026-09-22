@@ -240,17 +240,22 @@
 
 <dialog id="import-dialog" style="border:none;border-radius:10px;padding:0;max-width:420px;width:92%">
   <form method="dialog" style="padding:18px">
-    <h3 style="margin:0 0 12px;font-size:15px">连接 PostgreSQL 拉取元数据</h3>
+    <h3 style="margin:0 0 12px;font-size:15px">连接数据库拉取元数据（按引擎下拉选择）</h3>
     <div class="row"><select id="imp-engine">
       <option value="postgresql">postgresql（默认）</option>
       <option value="mysql">mysql</option>
       <option value="trino">trino</option>
-    </select></div>
+    </select>
+      <select id="imp-sslmode">
+        <option value="disable">sslmode: disable（明文）</option>
+        <option value="require">sslmode: require（TLS）</option>
+      </select></div>
     <div class="row"><input id="imp-host" placeholder="host，默认 127.0.0.1">
       <input id="imp-port" placeholder="port，默认 5432" style="flex:0 0 110px"></div>
     <div class="row"><input id="imp-database" placeholder="database（必填）">
       <input id="imp-user" placeholder="user（必填）"></div>
     <div class="row"><input id="imp-password" type="password" placeholder="password（必填）"></div>
+    <div class="row"><input id="imp-admin-key" type="password" placeholder="Admin API Key（服务端配置 SQLMASK_ADMIN_API_KEY 时必填）"></div>
     <div class="row"><input id="imp-schemas" placeholder="schema 过滤，逗号分隔，留空=全部">
       <label class="fixed" style="font-size:12px"><input type="checkbox" id="imp-views" style="margin-right:4px">含视图</label></div>
     <div class="actions">
@@ -694,16 +699,20 @@ async function importFromDatabase() {
   const schemas = $("imp-schemas").value.split(",").map((s) => s.trim()).filter(Boolean);
   $("imp-status").textContent = "连接中…";
   $("imp-submit").disabled = true;
+  const adminKey = $("imp-admin-key").value.trim();
+  const headers = { "Content-Type": "application/json" };
+  if (adminKey) headers["X-Api-Key"] = adminKey;
   try {
     const res = await fetch("/api/metadata/pull", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: headers,
       body: JSON.stringify({
         engine: $("imp-engine").value,
         host: $("imp-host").value.trim() || "127.0.0.1",
         port: parseInt($("imp-port").value, 10) || 5432,
         database, user, password, schemas,
-        includeViews: $("imp-views").checked
+        includeViews: $("imp-views").checked,
+        sslmode: $("imp-sslmode").value
       })
     });
     const payload = await res.json().catch(() => null);

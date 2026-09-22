@@ -29,6 +29,9 @@ import java.util.concurrent.Semaphore;
 @Service
 public class QueryService {
 
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(QueryService.class);
+
   private final InstanceDirectory directory;
   private final RewriteServiceClient rewrites;
   private final QueryProperties props;
@@ -101,8 +104,9 @@ public class QueryService {
     }
     String rewritten = statementView.rewrittenSql();
     String password = credentials.resolve(instance.connection().passwordRef());
-    int effectiveMax = request.maxRows() == null ? props.maxRows()
-        : Math.min(request.maxRows(), props.maxRowsHard());
+    // the hard cap applies to the configured default too, not only explicit asks
+    int effectiveMax = Math.min(request.maxRows() == null ? props.maxRows() : request.maxRows(),
+        props.maxRowsHard());
     long start = System.nanoTime();
     try (Connection connection = connections.connect(engine, instance.connection(), password)) {
       connection.setReadOnly(true);
@@ -110,6 +114,7 @@ public class QueryService {
       if (pgTransaction) {
         connection.setAutoCommit(false);
       }
+      QueryModels.QueryResult result;
       try (Statement statement = connection.createStatement()) {
         registration.attach(statement);
         try {
@@ -131,19 +136,33 @@ public class QueryService {
               truncated = true;
             }
             long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-            return new QueryModels.QueryResult(instance.name(), engine.id(), columns, rows,
+            result = new QueryModels.QueryResult(instance.name(), engine.id(), columns, rows,
                 rows.size(), truncated, statementView.masked(), statementView.rowFiltered(),
                 elapsedMs, Boolean.TRUE.equals(request.includeRewrittenSql()) ? rewritten : null);
           }
+        } catch (SQLException | RuntimeException failure) {
+          // the read failed: roll back best-effort and keep the primary cause —
+          // a rollback failure becomes a suppressed exception, never a mask
+          if (pgTransaction) {
+            try {
+              connection.rollback();
+            } catch (SQLException rollbackFailure) {
+              failure.addSuppressed(rollbackFailure);
+            }
+          }
+          throw failure;
         } finally {
           registration.detach();
         }
-      } finally {
-        if (pgTransaction) {
-          connection.rollback();
-        }
       }
+      if (pgTransaction) {
+        // success-path cleanup; a failing rollback surfaces as QUERY_ERROR
+        connection.rollback();
+      }
+      return result;
     } catch (SQLException e) {
+      LOG.warn("query failed: instance='{}' engine='{}' sqlState={} message={}",
+          instance.name(), engine.id(), e.getSQLState(), e.getMessage());
       throw ErrorClassifier.classify(e);
     }
   }
