@@ -6,6 +6,8 @@ import io.masklite.dialect.DialectRegistry;
 import io.masklite.error.SqlMaskException;
 import io.masklite.lineage.LineageAnalyzer;
 import io.masklite.metadata.YamlCalciteSchemaFactory;
+import io.masklite.rowfilter.RowFilterRegistry;
+import io.masklite.rowfilter.RowFilterRewriter;
 import io.masklite.sql.SqlStatementSplitter;
 import io.masklite.sql.ValidatedSql;
 import org.apache.calcite.schema.SchemaPlus;
@@ -27,10 +29,15 @@ public final class RewriteEngine {
    * by the user (the pre-validation rendering; no trailing ';') — the inner
    * query of a wrapper lives only in {@code rewrittenSql} so callers can
    * always diff input vs output. {@code masked} is true when the statement
-   * got an outer masking wrapper.
+   * got an outer masking wrapper; {@code rowFiltered} is true when at least
+   * one row-filter predicate was injected into its FROM clauses.
    */
   public record StatementRewrite(int ordinal, String originalSql, String rewrittenSql,
-      boolean masked) {
+      boolean masked, boolean rowFiltered) {
+
+    public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked) {
+      this(ordinal, originalSql, rewrittenSql, masked, false);
+    }
 
     public boolean unchanged() {
       return originalSql.equals(rewrittenSql);
@@ -49,6 +56,10 @@ public final class RewriteEngine {
     LineageAnalyzer analyzer = new LineageAnalyzer();
     ColumnMaskSelector selector = ColumnMaskSelector.of(config);
     SqlRewriteService rewriteService = new SqlRewriteService();
+    // an invalid row-filter condition fails the whole run before any
+    // statement is touched (CONFIG_ERROR straight from the registry build)
+    RowFilterRegistry rowFilters = RowFilterRegistry.build(config, dialect, schema);
+    RowFilterRewriter rowFilterRewriter = new RowFilterRewriter(dialect);
 
     List<String> statements = new SqlStatementSplitter().split(sqlText == null ? "" : sqlText);
     List<StatementRewrite> results = new ArrayList<>();
@@ -57,7 +68,7 @@ public final class RewriteEngine {
       ordinal++;
       try {
         results.add(rewriteOne(dialect, analyzer, selector, rewriteService, schema,
-            statement, ordinal));
+            config, rowFilters, rowFilterRewriter, statement, ordinal));
       } catch (SqlMaskException e) {
         // the dialect already prefixes its diagnostics with the statement
         // ordinal; avoid duplicating it
@@ -72,12 +83,21 @@ public final class RewriteEngine {
 
   private StatementRewrite rewriteOne(Dialect dialect, LineageAnalyzer analyzer,
       ColumnMaskSelector selector, SqlRewriteService rewriteService, SchemaPlus schema,
+      MaskingConfig config, RowFilterRegistry rowFilters, RowFilterRewriter rowFilterRewriter,
       String statementText, int ordinal) {
     SqlNode parsed = dialect.parse(statementText, ordinal);
-    ValidatedSql validated = dialect.validate(parsed, schema);
+    // inject row filters between parse and validation: the injected derived
+    // table must exist (and the pre-injection snapshot be captured) before
+    // the validator's in-place edits touch the tree
+    RowFilterRewriter.Result filtered = rowFilterRewriter.apply(parsed, config, rowFilters);
+    String originalSql = filtered.injections() > 0 ? dialect.unparse(parsed) : null;
+    ValidatedSql validated = dialect.validate(filtered.node(), schema);
     RewritePlan plan = RewritePlan.of(analyzer.analyze(validated), selector);
     String rewritten = rewriteService.rewrite(validated, plan, dialect);
-    return new StatementRewrite(ordinal, validated.originalSql(), rewritten, plan.requiresWrapper());
+    boolean rowFiltered = filtered.injections() > 0;
+    return new StatementRewrite(ordinal,
+        rowFiltered ? originalSql : validated.originalSql(),
+        rewritten, plan.requiresWrapper(), rowFiltered);
   }
 
   /** Joins statement results into a single script (semicolon per statement). */

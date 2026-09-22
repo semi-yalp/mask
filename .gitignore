@@ -38,3 +38,9 @@ tpcds/out/
 
 # ZCode session scratch
 .zcode/
+
+# TPC-DS bench: third-party corpus clone (source of corpus/queries, kept out of the repo)
+.bench/
+
+# TPC-DS bench: regenerable raw outputs (summarize into results/*.tsv instead)
+bench/tpcds-mask-lite/results/raw/

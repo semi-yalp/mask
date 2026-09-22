@@ -105,6 +105,7 @@ public final class YamlConfigLoader {
         throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
             tablePath + ": duplicate table '" + catalog + "." + schema + "." + name + "'");
       }
+      String rowFilter = optionalString(tableMap, "rowFilter", tablePath);
       Object columnsNode = tableMap.get("columns");
       requireList(columnsNode, tablePath + ".columns must be a list");
       List<?> columnList = (List<?>) columnsNode;
@@ -135,7 +136,7 @@ public final class YamlConfigLoader {
               columnPath + ": " + e.getMessage(), e);
         }
       }
-      tables.add(new TableMetadata(catalog, schema, name, columns));
+      tables.add(new TableMetadata(catalog, schema, name, columns, rowFilter));
     }
     return tables;
   }
@@ -217,6 +218,19 @@ public final class YamlConfigLoader {
     if (!(value instanceof String s) || s.isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           path + "." + key + ": required non-blank string is missing");
+    }
+    return s;
+  }
+
+  /** Reads an optional string key; present-but-blank is a config error, never a silent skip. */
+  private String optionalString(Map<?, ?> map, String key, String path) {
+    Object value = map.get(key);
+    if (value == null) {
+      return null;
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          path + "." + key + ": must be a non-blank string when present");
     }
     return s;
   }

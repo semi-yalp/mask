@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * The one-entry facade of mask-lite: load a metadata YAML once, rewrite any
  * number of PostgreSQL SELECT statements with the declared column masking
- * policies.
+ * policies and static row-filter conditions.
  *
  * <pre>
  * MaskLite mask = MaskLite.fromYamlFile(Path.of("metadata.yaml"));
@@ -18,8 +18,9 @@ import java.util.List;
  * </pre>
  *
  * Input and output are both PostgreSQL dialect. Only SELECT (and
- * {@code WITH ... SELECT}) statements are accepted; anything else, or any
- * output column whose origin cannot be traced, fails with a
+ * {@code WITH ... SELECT}) statements are accepted; anything else, any
+ * output column whose origin cannot be traced, or any FROM shape that a
+ * declared row filter cannot be injected into safely fails with a
  * {@link io.masklite.error.SqlMaskException} instead of silently passing
  * sensitive data through.
  */

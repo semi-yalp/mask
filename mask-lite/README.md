@@ -5,10 +5,18 @@
 也不依赖 Spring、picocli、JDBC 驱动。输入输出同为 PostgreSQL 方言，
 元数据与脱敏策略沿用同一份 YAML。
 
-只做一件事：把 SELECT（含 `WITH ... SELECT`）改写为
-「原始查询作为内层、最外层对输出列调用脱敏 UDF」的 SQL。不做行过滤、
-不做主体/权限策略、不支持写语句；非 SELECT 或血缘无法追溯的输出列
-直接报错，绝不静默放行。工具只解析和改写 SQL，从不执行它。
+做两件事（共享同一条解析-校验管线）：
+
+1. **列脱敏**：把 SELECT（含 `WITH ... SELECT`）改写为
+   「原始查询作为内层、最外层对输出列调用脱敏 UDF」的 SQL；
+2. **行过滤**：凡 FROM 引用命中声明了 `rowFilter` 的表，校验前把该表引用
+   替换为派生表 `(SELECT * FROM t WHERE <条件>) AS <别名>`，条件经 AST 白名单
+   （列引用/字面量/比较/布尔/算术/IN 常量，禁子查询、函数、CAST、动态参数），
+   与 mask-core 的行过滤行为逐字节一致。
+
+不做主体/权限策略、不支持写语句；非 SELECT、血缘无法追溯的输出列、
+无法安全注入行过滤的 FROM 形态直接报错，绝不静默放行。工具只解析和改写
+SQL，从不执行它。
 
 ## 构建
 
@@ -43,7 +51,8 @@ String masked = mask.rewrite("SELECT phone FROM crm.public.customer");
 ## metadata.yaml 格式
 
 与 sql-mask 的旧格式一致：`metadata.tables` 声明表结构，
-`policies` 声明命名策略（UDF + 标量参数），`columns` 把列绑定到策略。
+`policies` 声明命名策略（UDF + 标量参数），`columns` 把列绑定到策略，
+`rowFilter`（可选，表级）声明静态行过滤条件。
 
 ```yaml
 metadata:
@@ -51,6 +60,7 @@ metadata:
     - catalog: crm
       schema: public
       name: customer
+      rowFilter: "status = 'active'"   # 可选：查询该表时一律注入的静态条件
       columns:
         - name: id
           type: bigint
