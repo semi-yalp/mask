@@ -11,6 +11,7 @@ public class AuditProperties {
 
   private boolean enabled = true;
   private String indexPrefix = "mask-audit";
+  private int indexReplicas = 1;
   private int queueCapacity = 10000;
   private int batchSize = 200;
   private long flushIntervalMs = 2000;
@@ -22,6 +23,8 @@ public class AuditProperties {
   public void setEnabled(boolean enabled) { this.enabled = enabled; }
   public String getIndexPrefix() { return indexPrefix; }
   public void setIndexPrefix(String indexPrefix) { this.indexPrefix = indexPrefix; }
+  public int getIndexReplicas() { return indexReplicas; }
+  public void setIndexReplicas(int indexReplicas) { this.indexReplicas = indexReplicas; }
   public int getQueueCapacity() { return queueCapacity; }
   public void setQueueCapacity(int queueCapacity) { this.queueCapacity = queueCapacity; }
   public int getBatchSize() { return batchSize; }

@@ -1,5 +1,7 @@
 server:
   port: 8081
+  # 审计 sourceIp 记录真实客户端而非 nginx 地址（nginx 已设置 X-Forwarded-For）
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -7,7 +9,8 @@ spring:
   datasource:
     url: ${POLICY_PG_URL:jdbc:postgresql://127.0.0.1:5432/mask_policy}
     username: ${POLICY_PG_USER:postgres}
-    password: ${POLICY_PG_PASSWORD:postgres}
+    # 无默认口令：本地直跑需 export POLICY_PG_PASSWORD，compose 显式注入
+    password: ${POLICY_PG_PASSWORD}
   sql:
     init:
       mode: always

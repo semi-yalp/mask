@@ -29,7 +29,7 @@ class IndexTemplateManagerTest {
 
   @Test
   void putsTemplateOnceAndStaysReady() throws Exception {
-    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit");
+    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit", 1);
     assertTrue(m.ensureIfStale(1000));
     assertTrue(m.ensureIfStale(2000)); // ready: no second PUT
     assertEquals(1, es.requests("/_index_template").size());
@@ -43,7 +43,7 @@ class IndexTemplateManagerTest {
   @Test
   void failureRetriesOnlyAfterSixtySeconds() throws Exception {
     es.setTemplateFailure();
-    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit");
+    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit", 1);
     long t0 = 1_000_000L;
     assertFalse(m.ensureIfStale(t0));                       // fail, records retry-after
     assertFalse(m.ensureIfStale(t0 + 59_000));              // inside window: no attempt
@@ -55,12 +55,15 @@ class IndexTemplateManagerTest {
   @Test
   void recoversWhenEsComesBack() throws Exception {
     es.setTemplateFailure();
-    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit");
+    IndexTemplateManager m = new IndexTemplateManager(client, "mask-audit", 1);
     assertFalse(m.ensureIfStale(1_000_000L));
     es.resetTemplate();
     assertTrue(m.ensureIfStale(1_100_000L));                // past retry window: succeeds
     assertEquals(2, es.requests("/_index_template").size());
-    assertTrue(m.ensureIfStale(1_200_000L));                // ready: stays quiet
-    assertEquals(2, es.requests("/_index_template").size());
+    // ready 后仍按 60s 周期幂等复查（模板在 ES 侧被删时能自动重装）
+    assertTrue(m.ensureIfStale(1_200_000L));
+    assertEquals(3, es.requests("/_index_template").size());
+    assertTrue(m.ensureIfStale(1_300_000L));
+    assertEquals(4, es.requests("/_index_template").size());
   }
 }

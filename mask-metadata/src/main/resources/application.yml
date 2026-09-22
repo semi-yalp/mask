@@ -7,7 +7,8 @@ spring:
   datasource:
     url: ${METADATA_PG_URL:jdbc:postgresql://127.0.0.1:5432/mask_metadata}
     username: ${METADATA_PG_USER:postgres}
-    password: ${METADATA_PG_PASSWORD:postgres}
+    # 无默认口令：本地直跑需 export METADATA_PG_PASSWORD，compose 显式注入
+    password: ${METADATA_PG_PASSWORD}
   sql:
     init:
       mode: always
