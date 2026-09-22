@@ -1,0 +1,50 @@
+=== 按 引擎×模式 汇总（ms 为串行冷启动墙钟,含 JVM 启动） ===
+engine mode         ok  err  masked     rfInj    avgMs     p95Ms changed   sameOut
+lite   mask         95    4      15         3     4140      6635      95         0
+lite   rowfilter    95    4       0        88     4505      6848      95         0
+lite   both         95    4      15        88     4570      7163      95         0
+core   mask         95    4      15         3     5066      8000      95         0
+core   rowfilter    95    4       0        88     5550      8602      95         0
+core   both         95    4      15        88     5331      8672      95         0
+
+=== 错误码分布（引擎×模式×错误码 → 查询数） ===
+      3 lite	rowfilter	VALIDATION_ERROR
+      3 lite	mask	VALIDATION_ERROR
+      3 lite	both	VALIDATION_ERROR
+      3 core	rowfilter	VALIDATION_ERROR
+      3 core	mask	VALIDATION_ERROR
+      3 core	both	VALIDATION_ERROR
+      1 lite	rowfilter	LINEAGE_UNKNOWN
+      1 lite	mask	LINEAGE_UNKNOWN
+      1 lite	both	LINEAGE_UNKNOWN
+      1 engine	mode	errcode
+      1 core	rowfilter	LINEAGE_UNKNOWN
+      1 core	mask	LINEAGE_UNKNOWN
+      1 core	both	LINEAGE_UNKNOWN
+
+=== 失败查询清单 ===
+q05	core	both	VALIDATION_ERROR
+q05	core	mask	VALIDATION_ERROR
+q05	core	rowfilter	VALIDATION_ERROR
+q05	lite	both	VALIDATION_ERROR
+q05	lite	mask	VALIDATION_ERROR
+q05	lite	rowfilter	VALIDATION_ERROR
+q09	core	both	LINEAGE_UNKNOWN
+q09	core	mask	LINEAGE_UNKNOWN
+q09	core	rowfilter	LINEAGE_UNKNOWN
+q09	lite	both	LINEAGE_UNKNOWN
+q09	lite	mask	LINEAGE_UNKNOWN
+q09	lite	rowfilter	LINEAGE_UNKNOWN
+q72	core	both	VALIDATION_ERROR
+q72	core	mask	VALIDATION_ERROR
+q72	core	rowfilter	VALIDATION_ERROR
+q72	lite	both	VALIDATION_ERROR
+q72	lite	mask	VALIDATION_ERROR
+q72	lite	rowfilter	VALIDATION_ERROR
+q80	core	both	VALIDATION_ERROR
+q80	core	mask	VALIDATION_ERROR
+q80	core	rowfilter	VALIDATION_ERROR
+q80	lite	both	VALIDATION_ERROR
+q80	lite	mask	VALIDATION_ERROR
+q80	lite	rowfilter	VALIDATION_ERROR
+qid	engine	mode	errcode
