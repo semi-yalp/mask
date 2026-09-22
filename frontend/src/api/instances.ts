@@ -9,8 +9,8 @@ export function getInstance(name: string): Promise<InstanceInfo> {
   return call("GET", "/api/instances/" + encodeURIComponent(name));
 }
 
-export function createInstance(name: string, dialect: string): Promise<InstanceInfo> {
-  return call("POST", "/api/instances", { name, dialect, tables: [] });
+export function createInstance(name: string, dialect: string, tables: TableDef[] = []): Promise<InstanceInfo> {
+  return call("POST", "/api/instances", { name, dialect, tables });
 }
 
 export function deleteInstance(name: string): Promise<void> {

@@ -74,9 +74,12 @@ export interface EffectiveConfig {
 }
 
 export interface StatementRewrite {
-  originalSql?: string;
-  rewrittenSql?: string;
-  [key: string]: unknown;
+  ordinal: number;
+  originalSql: string;
+  rewrittenSql: string;
+  masked: boolean;
+  rowFiltered: boolean;
+  kind?: string;
 }
 
 export interface RewriteResponse {
@@ -85,14 +88,28 @@ export interface RewriteResponse {
 }
 
 export interface AuditEvent {
-  [key: string]: unknown;
-  ts?: string;
+  timestamp?: string;
   eventType?: string;
+  service?: string;
   outcome?: string;
-  instance?: string;
+  durationMs?: number;
+  sourceIp?: string;
+  actorUser?: string;
+  actorGroups?: string[];
+  authKind?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  dialect?: string;
+  statementCount?: number;
+  masked?: boolean;
+  rowFiltered?: boolean;
+  originalSql?: string;
+  rewrittenSql?: string;
   resourceType?: string;
   action?: string;
-  user?: string;
+  instance?: string;
+  resourceName?: string;
+  detail?: Record<string, unknown>;
 }
 
 export interface AuditQueryResponse {

@@ -15,6 +15,10 @@ beforeEach(() => {
   useSettingsStore().setKeys("", "");
 });
 
+type CapturedInit = { headers?: Record<string, string>; body?: string };
+const okMock = () =>
+  vi.fn(async (_url: string | URL | Request, _init?: CapturedInit) => jsonResponse(200, {}));
+
 describe("call()", () => {
   it("返回 2xx JSON 载荷", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { hello: 1 })));
@@ -32,28 +36,31 @@ describe("call()", () => {
   });
 
   it("admin 角色注入管理 Key,data 角色注入数据 Key", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, {}));
+    const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
     useSettingsStore().setKeys("adm-key", "dat-key");
     await call("GET", "/api/a", undefined, "admin");
     await call("GET", "/api/b", undefined, "data");
-    expect(fetchMock.mock.calls[0][1].headers["X-Api-Key"]).toBe("adm-key");
-    expect(fetchMock.mock.calls[1][1].headers["X-Api-Key"]).toBe("dat-key");
+    const adminInit: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
+    const dataInit: CapturedInit | undefined = fetchMock.mock.calls[1]?.[1];
+    expect(adminInit?.headers?.["X-Api-Key"]).toBe("adm-key");
+    expect(dataInit?.headers?.["X-Api-Key"]).toBe("dat-key");
   });
 
   it("Key 为空时不携带 X-Api-Key", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, {}));
+    const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
     await call("GET", "/api/c");
-    expect(fetchMock.mock.calls[0][1].headers["X-Api-Key"]).toBeUndefined();
+    const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
+    expect(init?.headers?.["X-Api-Key"]).toBeUndefined();
   });
 
   it("带 body 时设置 Content-Type 并序列化", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, {}));
+    const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
     await call("POST", "/api/d", { a: 1 });
-    const init = fetchMock.mock.calls[0][1];
-    expect(init.headers["Content-Type"]).toBe("application/json");
-    expect(init.body).toBe(JSON.stringify({ a: 1 }));
+    const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
+    expect(init?.headers?.["Content-Type"]).toBe("application/json");
+    expect(init?.body).toBe(JSON.stringify({ a: 1 }));
   });
 });
