@@ -42,7 +42,7 @@ public final class SparkSqlDialectAdapter extends AbstractCalciteDialectAdapter 
         new SparkSqlUnparseDialect(),
         new SparkSqlIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
-        new DialectCapabilities(false)));
+        DialectCapabilities.STRICT_NO_ALIAS_LIST));
   }
 
   /** Refuses babel-only CREATE TABLE variants whose syntax the composer cannot reproduce. */

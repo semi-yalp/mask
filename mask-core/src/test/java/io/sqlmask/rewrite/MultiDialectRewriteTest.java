@@ -99,6 +99,18 @@ class MultiDialectRewriteTest {
   }
 
   @Test
+  void trinoUnnamedComputedColumnGetsAliasList() {
+    // M1 修复（Trino 侧正例）：目标引擎对未命名列的实际名字是 _colN，包装层
+    // 必须走列别名表引用改名后的 mask_col_N，而不是必然失败的 EXPR$N
+    String out = flat(engine.rewrite(TRINO_YAML, "SELECT phone, 1 + 1 FROM customer", "trino")
+        .get(0).rewrittenSql());
+    assertTrue(out.startsWith("SELECT mask_phone(r.phone, 3, 4) AS phone, r.mask_col_1 FROM ("),
+        out);
+    assertTrue(out.endsWith(") AS r (phone, mask_col_1)"), out);
+    assertFalse(out.contains("EXPR$"), out);
+  }
+
+  @Test
   void trinoMixedCaseOutputNameGetsDoubleQuoted() {
     String out = flat(engine.rewrite(TRINO_YAML,
         "SELECT phone AS \"Phone\" FROM customer", "trino").get(0).rewrittenSql());
@@ -354,14 +366,15 @@ class MultiDialectRewriteTest {
   }
 
   @Test
-  void unaliasedAggregateOutputKeepsGeneratedNameInWrapper() {
-    // 同缺口的未别名形态：Calcite 生成名 EXPR$0（大写 E 不匹配 PG 的
-    // [a-z_] 开头正则）经标识符策略双引号引用后进入包装层
+  void unaliasedAggregateOutputGetsAliasListInWrapper() {
+    // M1 修复（PG 侧正例）：Calcite 生成名 EXPR$0 在目标引擎里叫 ?column?，
+    // 引用 r."EXPR$0" 必然失败；改名 mask_col_1 并以列别名表定位。
+    // count(phone) 经血缘继承 phone 的策略，因此整个输出列被包装。
     var result = engine.rewrite(TRINO_YAML,
         "SELECT count(phone) FROM customer", "postgresql").get(0);
     assertTrue(result.masked(), result.rewrittenSql());
-    assertEquals("SELECT mask_phone(r.\"EXPR$0\", 3, 4) AS \"EXPR$0\" FROM ( "
-        + "SELECT COUNT(phone) FROM customer ) AS r", flat(result.rewrittenSql()));
+    assertEquals("SELECT mask_phone(r.mask_col_1, 3, 4) AS mask_col_1 FROM ( "
+        + "SELECT COUNT(phone) FROM customer ) AS r (mask_col_1)", flat(result.rewrittenSql()));
     assertFalse(result.rewrittenSql().toUpperCase().contains("CAST("),
         () -> result.rewrittenSql());
   }

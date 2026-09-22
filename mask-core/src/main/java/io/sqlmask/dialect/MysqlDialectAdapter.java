@@ -45,7 +45,7 @@ public final class MysqlDialectAdapter extends AbstractCalciteDialectAdapter {
         new MysqlUnparseDialect(),
         new MysqlIdentifierPolicy(),
         DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
-        new DialectCapabilities(false)));
+        DialectCapabilities.STRICT_NO_ALIAS_LIST));
   }
 
   /** Refuses babel-only CREATE TABLE variants whose syntax the composer cannot reproduce. */

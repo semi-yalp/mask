@@ -62,17 +62,18 @@ class MetadataApiExceptionHandlerTest {
   }
 
   @Test
-  void unexpectedExceptionMapsTo500WithInternalErrorCode() {
+  void unexpectedExceptionMapsTo500WithGenericMessage() {
+    // M6：500 响应收敛为通用文案，原始异常只进服务端日志
     ResponseEntity<MetadataApiExceptionHandler.ApiError> response =
-        handler.handleUnexpected(new IllegalStateException("boom"));
+        handler.handleUnexpected(new IllegalStateException("boom with jdbc://host details"));
     assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
     assertEquals("INTERNAL_ERROR", response.getBody().code());
-    assertEquals("boom", response.getBody().message());
+    assertEquals("internal server error", response.getBody().message());
   }
 
   @Test
-  void unexpectedExceptionWithoutMessageFallsBackToExceptionName() {
-    assertEquals("NullPointerException",
+  void unexpectedExceptionWithoutMessageAlsoGetsGenericMessage() {
+    assertEquals("internal server error",
         handler.handleUnexpected(new NullPointerException()).getBody().message());
   }
 }

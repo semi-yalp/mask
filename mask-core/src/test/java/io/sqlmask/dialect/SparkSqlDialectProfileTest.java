@@ -74,12 +74,15 @@ class SparkSqlDialectProfileTest {
   }
 
   @Test
-  void unnamedOutputColumnIsRenderedWithQuotedAlias() {
-    List<StatementRewrite> out = engine.rewrite(YAML, null,
+  void unnamedComputedColumnIsRefusedWithNamingHint() {
+    // M1 修复：SparkSQL 与 Hive 同族不支持派生表列别名表——未命名计算列
+    // fail-closed 报错并提示显式命名
+    assertThatThrownBy(() -> engine.rewrite(YAML, null,
         "SELECT upper(phone) FROM customer", "sparksql",
-        io.sqlmask.policy.model.Subject.anonymous());
-    assertThat(out.get(0).masked()).isTrue();
-    assertThat(out.get(0).rewrittenSql()).contains("AS `EXPR$0`");
+        io.sqlmask.policy.model.Subject.anonymous()))
+        .isInstanceOf(io.sqlmask.error.SqlMaskException.class)
+        .hasMessageContaining("unnamed computed column")
+        .hasMessageContaining("alias");
   }
 
   @Test

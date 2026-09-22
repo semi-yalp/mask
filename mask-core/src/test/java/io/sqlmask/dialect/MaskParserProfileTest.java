@@ -35,7 +35,7 @@ class MaskParserProfileTest {
       new MysqlUnparseDialect(),
       new MysqlIdentifierPolicy(),
       DialectProfile.SchemaPathStyle.CATALOG_SCHEMA_AND_SCHEMA,
-      new DialectCapabilities(false));
+      new DialectCapabilities(false, true));
 
   private final AbstractCalciteDialectAdapter openAdapter = openAdapter();
 

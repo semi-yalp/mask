@@ -96,7 +96,12 @@ class RewriteInstanceModeFailureTest {
               .contentType(MediaType.APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(Map.of(
                   "instance", "pg_prod", "sql", "SELECT id, phone FROM customer"))))
-          .andExpect(status().isBadRequest())
+          // M6 状态分派：上游 404 映射的 NOT_FOUND 码 → 404，UNAVAILABLE 码 → 503
+          .andExpect(("POLICY_INSTANCE_NOT_FOUND".equals(expectedCode)
+              ? status().isNotFound()
+              : "POLICY_SERVICE_UNAVAILABLE".equals(expectedCode)
+                  ? status().isServiceUnavailable()
+                  : status().isBadRequest()))
           .andExpect(jsonPath("$.code").value(expectedCode))
           .andExpect(jsonPath("$.message", containsString(messageToken)));
     } finally {
