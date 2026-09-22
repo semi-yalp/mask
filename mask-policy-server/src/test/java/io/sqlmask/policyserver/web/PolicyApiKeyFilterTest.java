@@ -10,7 +10,6 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyApiKeyFilterTest {
 
@@ -54,6 +53,19 @@ class PolicyApiKeyFilterTest {
   }
 
   @Test
+  void successfulKeyCheckMarksAuthKind() throws Exception {
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/instances");
+    request.setServletPath("/api/instances");
+    request.addHeader("X-Api-Key", "admin-secret");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    filter.doFilter(request, response, new MockFilterChain());
+    assertEquals(200, response.getStatus());
+    assertEquals(io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY,
+        request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
+  }
+
+  @Test
   void unauthenticatedShapeMatchesMetaserver() throws Exception {
     MockHttpServletResponse response = run(
         new PolicyApiKeyFilter("admin-secret", null), "/api/instances/pg_prod/udfs", null);
@@ -71,42 +83,24 @@ class PolicyApiKeyFilterTest {
   }
 
   @Test
-  void auditSurfaceRequiresAdminKeyAndMarksAuthKind() throws Exception {
+  void auditIsNotAManagedSurfaceHere() throws Exception {
+    // audit query lives in mask-core; policy-server maps no gate onto
+    // /api/audit — the path simply passes through unmanaged (the dispatcher
+    // answers 404 behind the filter).
     PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
-    assertEquals(401, run(filter, "/api/audit/events", "data-secret").getStatus());
-    assertEquals(401, run(filter, "/api/audit/events", null).getStatus());
-
-    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/audit/events");
-    request.setServletPath("/api/audit/events");
-    request.addHeader("X-Api-Key", "admin-secret");
-    MockHttpServletResponse response = new MockHttpServletResponse();
-    java.util.concurrent.atomic.AtomicBoolean chainReached = new java.util.concurrent.atomic.AtomicBoolean();
-    filter.doFilter(request, response, (req, res) -> chainReached.set(true));
-    assertEquals(200, response.getStatus());
-    assertTrue(chainReached.get());
-    assertEquals(io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY,
-        request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
+    assertEquals(200, run(filter, "/api/audit/events", null).getStatus());
+    assertEquals(200, run(filter, "/api/audit/events", "admin-secret").getStatus());
+    assertEquals(200, run(filter, "/api/audit/events", "data-secret").getStatus());
   }
 
   @Test
   void openManagedPathStaysAnonymous() throws Exception {
     PolicyApiKeyFilter filter = new PolicyApiKeyFilter(null, null);
-    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/audit/events");
-    request.setServletPath("/api/audit/events");
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/instances");
+    request.setServletPath("/api/instances");
     MockHttpServletResponse response = new MockHttpServletResponse();
     filter.doFilter(request, response, new MockFilterChain());
     assertNull(request.getAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE));
-  }
-
-  @Test
-  void blankAdminKeyLeavesAuditSurfaceOpen() throws Exception {
-    // requiredKey: blank admin key (the application.yml default is "") is treated
-    // as unconfigured -> the /api/audit branch stays open (fail-open, §4.6 #8).
-    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("   ", "data-secret");
-    assertEquals(200, run(filter, "/api/audit/events", null).getStatus());
-    assertEquals(200, run(filter, "/api/audit/events", "nothing").getStatus());
-    // the data key is still enforced on the data surface in the same filter
-    assertEquals(401, run(filter, "/api/effective/pg_prod", null).getStatus());
   }
 
   @Test

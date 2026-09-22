@@ -1,0 +1,41 @@
+/* sql-mask 控制台主题:专业数据控制台 —— 深色侧边栏 + 浅色内容区 */
+:root {
+  --sm-primary: #2563eb;
+  --sm-primary-dark: #1d4ed8;
+  --sm-sidebar: #0f172a;
+  --sm-sidebar-text: #94a3b8;
+  --sm-sidebar-active: #e2e8f0;
+  --sm-bg: #f4f6fb;
+  --sm-panel: #ffffff;
+  --sm-border: #d8dee9;
+  --sm-text: #1f2937;
+  --sm-muted: #6b7280;
+  --sm-code-bg: #0f172a;
+  --sm-code-text: #e2e8f0;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: var(--sm-bg);
+  color: var(--sm-text);
+  font-size: 13.5px;
+}
+
+.mono {
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+/* 页面通用留白容器 */
+.page {
+  padding: 16px 22px 28px;
+  max-width: 1700px;
+  margin: 0 auto;
+}
+
+.card-block { margin-bottom: 14px; }
+
+.muted { color: var(--sm-muted); }

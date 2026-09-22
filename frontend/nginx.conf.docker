@@ -1,8 +1,9 @@
-# sql-mask 前端（nginx 部署）配置模板
+# sql-mask 前端（nginx 容器部署）配置 —— 与 frontend/nginx.conf 保持同构。
 #
-# 静态资源：frontend/ 下的页面（policy-console.html 策略管理台 / 未来更多页面）
-# 反向代理：按路径前缀路由到各微服务，与页面内的相对 /api/** 调用同源，
-#           浏览器无需处理 CORS，X-Api-Key 请求头原样透传。
+# 唯一差异：upstream 主机用 host.docker.internal（容器内 127.0.0.1 指向容器
+# 自身，不能用于访问宿主机上的微服务）。Linux 引擎需要 compose 的
+# extra_hosts: "host.docker.internal:host-gateway"（docker-compose.frontend.yml
+# 已配置）。
 #
 # 路由表（前缀冲突时 nginx 取最长匹配，`location =` 精确匹配优先）：
 #   /api/instances、/api/effective                    → mask-policy-server :8081
@@ -11,11 +12,6 @@
 #   =/api/metadata/pull                               → mask-core            :8080
 #   /api/metadata                                     → mask-metadata        :8082
 #   /api/v1/                                          → mask-query           :8083
-#
-# 使用方式：
-#   本机 nginx：root 改为 frontend 目录的绝对路径，把本文件 include 进主配置。
-#   Docker：见 docker/nginx.Dockerfile（镜像内使用 nginx.conf.docker，upstream
-#     指向 host.docker.internal——容器内 127.0.0.1 指向容器自身）。
 #
 # TLS：本文件只监听 80 明文；生产部署应在前面加 TLS 终止层（或改本文件
 # listen 443 ssl），管理 Key 不应明文穿越不可信网络。
@@ -34,14 +30,14 @@ server {
 
   # ---- 策略服务 mask-policy-server（8081）：管理面 + 数据面 ----
   location /api/instances {
-    proxy_pass http://127.0.0.1:8081;
+    proxy_pass http://host.docker.internal:8081;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
   }
   location /api/effective {
-    proxy_pass http://127.0.0.1:8081;
+    proxy_pass http://host.docker.internal:8081;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -50,7 +46,7 @@ server {
 
   # ---- 改写服务 mask-core（8080）：审计查询（端点在 core，见上方路由表）----
   location /api/audit {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://host.docker.internal:8080;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -59,37 +55,37 @@ server {
 
   # ---- 改写服务 mask-core（8080）示例（按需开启）----
   # location /api/rewrite {
-  #   proxy_pass http://127.0.0.1:8080;
+  #   proxy_pass http://host.docker.internal:8080;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }
   # location /api/config {
-  #   proxy_pass http://127.0.0.1:8080;
+  #   proxy_pass http://host.docker.internal:8080;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }
   # location /api/policies {
-  #   proxy_pass http://127.0.0.1:8080;
+  #   proxy_pass http://host.docker.internal:8080;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }
   # 精确匹配优先：/api/metadata/pull 必须精确路由到 8080，不能落到 /api/metadata
   # location = /api/metadata/pull {
-  #   proxy_pass http://127.0.0.1:8080;
+  #   proxy_pass http://host.docker.internal:8080;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }
 
   # ---- 元数据服务 mask-metadata（8082）示例 ----
   # location /api/metadata {
-  #   proxy_pass http://127.0.0.1:8082;
+  #   proxy_pass http://host.docker.internal:8082;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }
 
   # ---- 查询服务 mask-query（8083）示例 ----
   # location /api/v1/ {
-  #   proxy_pass http://127.0.0.1:8083;
+  #   proxy_pass http://host.docker.internal:8083;
   #   proxy_set_header Host $host;
   #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   # }

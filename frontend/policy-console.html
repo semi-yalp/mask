@@ -332,18 +332,19 @@ const join = (arr) => (arr || []).filter((x) => String(x).trim() !== "").join(",
 const num = (x) => (x === null || x === undefined) ? "" : String(x);
 
 // ---------- API key ----------
+// 存 sessionStorage（关标签即清）：管理 Key 可改写全量脱敏策略，不宜明文落盘
 function loadKeys() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEYS) || "{}");
+    const saved = JSON.parse(sessionStorage.getItem(KEYS) || "{}");
     $("admin-key").value = saved.admin || "";
     $("data-key").value = saved.data || "";
   } catch (_) { /* 忽略损坏的存储 */ }
   refreshGate();
 }
 function saveKeys() {
-  localStorage.setItem(KEYS, JSON.stringify({ admin: $("admin-key").value, data: $("data-key").value }));
+  sessionStorage.setItem(KEYS, JSON.stringify({ admin: $("admin-key").value, data: $("data-key").value }));
   refreshGate();
-  toast("API Key 已保存到本地", true);
+  toast("API Key 已保存（仅本次会话，关闭标签页后需重输）", true);
 }
 function clearKeys() {
   $("admin-key").value = "";

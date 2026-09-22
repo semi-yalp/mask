@@ -68,9 +68,27 @@ public class SqlMaskServiceApplication {
 
   @Bean
   org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> policyApiKeyFilter() {
+    String adminKey = System.getenv("SQLMASK_ADMIN_API_KEY");
+    String dataKey = System.getenv("SQLMASK_DATA_API_KEY");
+    if (adminKey == null || adminKey.isBlank()) {
+      org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
+          "SQLMASK_ADMIN_API_KEY is not configured: the admin surface (/api/instances/**, "
+              + "imported policy management) is OPEN to anyone who can reach this service");
+    }
+    if (dataKey == null || dataKey.isBlank()) {
+      org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
+          "SQLMASK_DATA_API_KEY is not configured: the data surface (/api/effective/**, "
+              + "compiled masking rules per subject) is OPEN to anyone who can reach this service");
+    }
+    String rewriteKey = System.getenv("SQLMASK_REWRITE_API_KEY");
+    if (rewriteKey == null || rewriteKey.isBlank()) {
+      org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
+          "SQLMASK_REWRITE_API_KEY is not configured: the instance rewrite surface "
+              + "(/api/rewrite/instances/**) is OPEN to anyone who can reach this service");
+    }
     org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> registration =
-        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new PolicyApiKeyFilter(
-            System.getenv("SQLMASK_ADMIN_API_KEY"), System.getenv("SQLMASK_DATA_API_KEY")));
+        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+            new PolicyApiKeyFilter(adminKey, dataKey));
     registration.addUrlPatterns("/api/instances/*", "/api/effective/*", "/api/audit/*");
     registration.setOrder(1);
     return registration;
