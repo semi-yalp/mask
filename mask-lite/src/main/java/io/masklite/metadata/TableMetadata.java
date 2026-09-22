@@ -5,14 +5,21 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import java.util.List;
 
 /**
- * Complete qualified table identity with its ordered column list. Column types
- * are parsed once at configuration load time into Calcite {@link SqlTypeName}
- * descriptors so downstream schema construction never re-parses strings.
+ * Complete qualified table identity with its ordered column list and an
+ * optional static row-filter condition. Column types are parsed once at
+ * configuration load time into Calcite {@link SqlTypeName} descriptors so
+ * downstream schema construction never re-parses strings.
  */
-public record TableMetadata(String catalog, String schema, String name, List<Column> columns) {
+public record TableMetadata(String catalog, String schema, String name, List<Column> columns,
+    String rowFilter) {
 
   public TableMetadata {
     columns = List.copyOf(columns);
+  }
+
+  /** Backward-compatible view of a table without a row filter. */
+  public TableMetadata(String catalog, String schema, String name, List<Column> columns) {
+    this(catalog, schema, name, columns, null);
   }
 
   public String qualifiedName() {

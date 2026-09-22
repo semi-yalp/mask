@@ -65,6 +65,48 @@ class YamlConfigLoaderTest {
   }
 
   @Test
+  void rowFilterLoadsWhenPresent() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              rowFilter: "status = 'active'"
+              columns:
+                - name: phone
+                  type: varchar
+        policies: {}
+        """;
+    MaskingConfig config = loader.loadContent(yaml, "m.yaml");
+    assertEquals("status = 'active'", config.tables().get(0).rowFilter());
+  }
+
+  @Test
+  void rowFilterAbsentIsNull() {
+    MaskingConfig config = loader.loadContent(VALID_WITHOUT_BINDINGS, "m.yaml");
+    assertEquals(null, config.tables().get(0).rowFilter());
+  }
+
+  @Test
+  void blankRowFilterIsConfigError() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              rowFilter: ""
+              columns:
+                - name: phone
+                  type: varchar
+        policies: {}
+        """;
+    SqlMaskException e = loadFails(yaml);
+    assertTrue(e.getMessage().contains("rowFilter"), e::getMessage);
+  }
+
+  @Test
   void columnsSectionIsOptional() {
     MaskingConfig config = loader.loadContent(VALID_WITHOUT_BINDINGS, "m.yaml");
     assertEquals(0, config.columnPolicies().size());
