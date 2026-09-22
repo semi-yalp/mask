@@ -73,6 +73,8 @@ public class MysqlMetadataIntrospector implements MetadataIntrospector {
 
   /** Overridable so tests can supply a mocked connection. */
   protected Connection open(ConnectionSpec spec) throws SQLException {
+    DriverManager.setLoginTimeout(spec.connectTimeoutSeconds() <= 0
+        ? 10 : spec.connectTimeoutSeconds());
     Properties props = new Properties();
     props.setProperty("user", spec.user());
     props.setProperty("password", spec.password() == null ? "" : spec.password());

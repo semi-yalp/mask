@@ -27,10 +27,14 @@ public class JdbcMetaStore implements MetaStore {
 
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
+  private final TransactionTemplate snapshotTx;
 
   public JdbcMetaStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
     this.jdbc = jdbc;
     this.tx = new TransactionTemplate(transactionManager);
+    this.snapshotTx = new TransactionTemplate(transactionManager);
+    this.snapshotTx.setIsolationLevel(
+        org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
   }
 
   private static final org.springframework.jdbc.core.RowMapper<InstanceRow> INSTANCE_ROW =
@@ -63,18 +67,25 @@ public class JdbcMetaStore implements MetaStore {
   @Override
   public void createInstance(InstanceRow row) {
     ConnectionInfo c = row.connection();
-    jdbc.update("""
-        INSERT INTO meta_instance (name, dialect, engine, host, port, database, db_user,
-                                   password_ref, sslmode, connect_timeout_seconds, schemas,
-                                   include_views)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
-        """,
-        row.name(), row.dialect(), row.engine(),
-        c == null ? null : c.host(), c == null ? null : c.port(),
-        c == null ? null : c.database(), c == null ? null : c.dbUser(),
-        c == null ? null : c.passwordRef(), c == null ? null : c.sslmode(),
-        c == null ? null : c.connectTimeoutSeconds(),
-        c == null ? null : toJson(c.schemas()), c != null && c.includeViews());
+    try {
+      jdbc.update("""
+          INSERT INTO meta_instance (name, dialect, engine, host, port, database, db_user,
+                                     password_ref, sslmode, connect_timeout_seconds, schemas,
+                                     include_views)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+          """,
+          row.name(), row.dialect(), row.engine(),
+          c == null ? null : c.host(), c == null ? null : c.port(),
+          c == null ? null : c.database(), c == null ? null : c.dbUser(),
+          c == null ? null : c.passwordRef(), c == null ? null : c.sslmode(),
+          c == null ? null : c.connectTimeoutSeconds(),
+          c == null ? null : toJson(c.schemas()), c != null && c.includeViews());
+    } catch (org.springframework.dao.DuplicateKeyException e) {
+      // concurrent create lost the race against the unique key: a 409, not a 500 (M10)
+      throw new io.sqlmask.error.SqlMaskException(
+          io.sqlmask.error.SqlMaskException.Code.METADATA_INSTANCE_EXISTS,
+          "instance '" + row.name() + "' already exists");
+    }
   }
 
   @Override
@@ -120,7 +131,7 @@ public class JdbcMetaStore implements MetaStore {
   @Override
   public void replaceStructure(String name, List<TableStructure> tables) {
     tx.execute(status -> {
-      Long id = jdbc.queryForObject("SELECT id FROM meta_instance WHERE name = ?", Long.class, name);
+      Long id = findId(name);
       jdbc.update(
           "UPDATE meta_instance SET metadata_version = metadata_version + 1, updated_at = now() "
               + "WHERE id = ?", id);
@@ -149,8 +160,37 @@ public class JdbcMetaStore implements MetaStore {
 
   @Override
   public List<TableStructure> loadStructure(String name) {
-    Long id = jdbc.queryForObject("SELECT id FROM meta_instance WHERE name = ?", Long.class, name);
-    List<TableStructure> tables = jdbc.query(
+    return loadStructureOf(findId(name));
+  }
+
+  @Override
+  public InstanceSnapshot loadSnapshot(String name) {
+    // repeatable read: the first statement pins the snapshot, so the row and
+    // the structure read afterwards are one consistent version pair (M7)
+    return snapshotTx.execute(status -> {
+      Long id = findId(name);
+      InstanceRow row = findInstance(name)
+          .orElseThrow(() -> new io.sqlmask.error.SqlMaskException(
+              io.sqlmask.error.SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND,
+              "instance '" + name + "' does not exist"));
+      return new InstanceSnapshot(row, loadStructureOf(id));
+    });
+  }
+
+  /** Id-or-not-found in one query, so a concurrent delete yields a 404 (M10). */
+  private Long findId(String name) {
+    List<Long> ids = jdbc.query("SELECT id FROM meta_instance WHERE name = ?",
+        (ResultSet rs, int i) -> rs.getLong("id"), name);
+    if (ids.isEmpty()) {
+      throw new io.sqlmask.error.SqlMaskException(
+          io.sqlmask.error.SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND,
+          "instance '" + name + "' does not exist");
+    }
+    return ids.get(0);
+  }
+
+  private List<TableStructure> loadStructureOf(long id) {
+    return jdbc.query(
         "SELECT id, catalog, schema_name, table_name, kind FROM meta_table "
             + "WHERE instance_id = ? ORDER BY position", (rs, i) -> new TableStructure(
             rs.getString("catalog"), rs.getString("schema_name"), rs.getString("table_name"),
@@ -161,7 +201,6 @@ public class JdbcMetaStore implements MetaStore {
                     crs.getString("type_declaration")),
                 rs.getLong("id"))),
         id);
-    return tables;
   }
 
   private static String toJson(List<String> schemas) {

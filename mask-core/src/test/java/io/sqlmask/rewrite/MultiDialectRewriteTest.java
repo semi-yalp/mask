@@ -141,6 +141,21 @@ class MultiDialectRewriteTest {
   }
 
   @Test
+  void upsertIsNeverSilentlyRenderedAsInsert() {
+    // M2：重组层硬编码 INSERT 语义——UPSERT 若能走到重组，必须被显式拒绝
+    // （若解析层先行拒绝为 PARSE_ERROR，同样是 fail-closed，可接受）
+    for (String dialect : new String[] {"postgresql", "mysql", "trino"}) {
+      SqlMaskException e = assertThrows(SqlMaskException.class,
+          () -> engine.rewrite(TRINO_YAML,
+              "UPSERT INTO crm.public.archive (id, phone) SELECT id, phone FROM customer",
+              dialect));
+      assertTrue(e.getCode() == SqlMaskException.Code.UNSUPPORTED_STATEMENT
+              || e.getCode() == SqlMaskException.Code.PARSE_ERROR,
+          () -> dialect + ": " + e.getCode() + " " + e.getMessage());
+    }
+  }
+
+  @Test
   void trinoPolicyKeysMatchCaseInsensitivelyFoldedNames() {
     // unquoted 大写引用折叠小写后命中策略键
     String out = flat(engine.rewrite(TRINO_YAML, "SELECT PHONE FROM CUSTOMER", "trino")

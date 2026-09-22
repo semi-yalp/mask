@@ -46,6 +46,15 @@ public record ConnectionSpec(String engine, String host, int port, String databa
     return new ArrayList<>(schemas);
   }
 
+  /** Masks the password: one log line must never leak the credential. */
+  @Override
+  public String toString() {
+    return "ConnectionSpec[engine=" + engine + ", host=" + host + ", port=" + port
+        + ", database=" + database + ", user=" + user + ", password=****, schemas=" + schemas
+        + ", includeViews=" + includeViews + ", strict=" + strict + ", sslmode=" + sslmode
+        + ", connectTimeoutSeconds=" + connectTimeoutSeconds + "]";
+  }
+
   /** URL carries read-only + timeouts as defense in depth; password goes via the JDBC properties. */
   public String toJdbcUrl() {
     return switch (engine) {

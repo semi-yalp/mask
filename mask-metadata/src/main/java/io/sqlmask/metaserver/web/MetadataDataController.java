@@ -3,7 +3,7 @@ package io.sqlmask.metaserver.web;
 import io.sqlmask.metaserver.model.InstanceRow;
 import io.sqlmask.metaserver.model.TableStructure;
 import io.sqlmask.metaserver.service.MetadataService;
-import io.sqlmask.metaserver.service.StructureService;
+import io.sqlmask.metaserver.store.MetaStore;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,11 +20,9 @@ import java.util.List;
 public class MetadataDataController {
 
   private final MetadataService instances;
-  private final StructureService structures;
 
-  public MetadataDataController(MetadataService instances, StructureService structures) {
+  public MetadataDataController(MetadataService instances) {
     this.instances = instances;
-    this.structures = structures;
   }
 
   @GetMapping("/instances")
@@ -37,10 +35,11 @@ public class MetadataDataController {
 
   @GetMapping("/instances/{name}")
   public MetadataDtos.MetadataResponse structure(@PathVariable("name") String name) {
-    InstanceRow row = instances.get(name);
-    List<TableStructure> tables = structures.load(name);
+    // one consistent snapshot: version and tables always pair (M7)
+    MetaStore.InstanceSnapshot snapshot = instances.snapshot(name);
+    InstanceRow row = snapshot.instance();
     return new MetadataDtos.MetadataResponse(row.name(), row.dialect(), row.metadataVersion(),
-        tables.stream().map(MetadataDataController::toPayload).toList());
+        snapshot.tables().stream().map(MetadataDataController::toPayload).toList());
   }
 
   @GetMapping("/instances/{name}/version")

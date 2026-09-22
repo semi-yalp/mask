@@ -195,6 +195,14 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
       case INSERT: {
         org.apache.calcite.sql.SqlInsert insert =
             (org.apache.calcite.sql.SqlInsert) writeStatement;
+        if (insert.isUpsert()) {
+          // recomposition hardcodes INSERT semantics; UPSERT would silently
+          // downgrade update-or-insert into plain insert, changing write
+          // behavior (M2) — refuse instead
+          throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
+              "UPSERT is not supported: the wrapped query would silently degrade "
+                  + "to a plain INSERT; rewrite the statement as INSERT");
+        }
         StringBuilder sql = new StringBuilder(
             insert instanceof io.sqlmask.parser.SqlInsertOverwrite
                 ? "INSERT OVERWRITE TABLE " : "INSERT INTO ");
