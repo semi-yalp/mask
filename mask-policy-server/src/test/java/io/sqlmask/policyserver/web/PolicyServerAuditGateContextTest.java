@@ -20,8 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Context-level gate test (gap §4.6 #1 / P0): with an admin/data API key
  * configured, the API key gate must reject unauthenticated requests through the
- * real servlet filter chain, and the registration blind spot around
- * {@code /api/audit/**} must stay visible.
+ * real servlet filter chain.
  *
  * <p>The production bean ({@code PolicyServerApplication.policyApiKeyFilter})
  * builds the filter from {@code System.getenv("SQLMASK_ADMIN_API_KEY")}/
@@ -30,21 +29,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * definition and this test registers the closed-key filter under the exact
  * production URL patterns ({@code /api/instances/*}, {@code /api/effective/*}).
  * The companion unit test {@link PolicyApiKeyFilterTest} pins {@code requiredKey}
- * directly, including the /api/audit branch.
+ * directly.
  *
  * <p>{@code PolicyApiKeyFilter#doFilter} keys off {@code getServletPath()}, which
  * a real container sets to the decoded request path but MockMvc leaves empty —
  * each request therefore carries an explicit servletPath (same shape the unit
  * tests and the container use), keeping the path gates faithful.
  *
- * <p>Blind spot pinned here: the filter's {@code /api/audit} branch is dead code
- * because the registration never maps the gate to {@code /api/audit/*}. Today an
- * unauthenticated {@code /api/audit/**} request does NOT get a 401 from the gate —
- * it falls through to the dispatcher where policy-server has no audit query
- * surface and the catch-all {@link PolicyApiExceptionHandler} turns the unmatched
- * path into a 500 {@code INTERNAL_ERROR}. The load-bearing assertion is "not 401";
- * the concrete status is pinned so any future fix (extending the registration
- * and/or adding an audit controller) makes this test visibly fail.
+ * <p>Audit routing: the audit query surface lives in mask-core (:8080) and the
+ * nginx frontend routes /api/audit there; policy-server deliberately serves no
+ * audit endpoint and maps no gate onto it. An /api/audit/** request reaching
+ * this service falls through the gate and is answered by the dispatcher as a
+ * 404 {@code NOT_FOUND} (never a 401 from the gate, never the old catch-all
+ * 500).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -109,21 +106,19 @@ class PolicyServerAuditGateContextTest {
   }
 
   @Test
-  void auditSurfaceIsNotGatedByCurrentRegistration() throws Exception {
-    // The /api/audit branch of PolicyApiKeyFilter#requiredKey never runs: the
-    // registration maps only /api/instances/* and /api/effective/*. Pinning the
-    // current behaviour so the dead-code blind spot stays visible: whichever key
-    // (or none) is sent, the response is the dispatcher's catch-all 500
-    // INTERNAL_ERROR, never a 401 from the gate.
+  void auditSurfaceIsNotServedByThisService() throws Exception {
+    // /api/audit belongs to mask-core; the nginx frontend routes it there. This
+    // service maps no gate onto it, so any key (or none) passes the filter and
+    // the dispatcher answers 404 NOT_FOUND — not a 401, not the old 500.
     mvc.perform(get("/api/audit/events").with(servletPath("/api/audit/events")))
-        .andExpect(status().isInternalServerError())
-        .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     mvc.perform(get("/api/audit/events").with(servletPath("/api/audit/events"))
             .header("X-Api-Key", ADMIN_KEY))
-        .andExpect(status().isInternalServerError());
+        .andExpect(status().isNotFound());
     mvc.perform(get("/api/audit/events").with(servletPath("/api/audit/events"))
             .header("X-Api-Key", DATA_KEY))
-        .andExpect(status().isInternalServerError());
+        .andExpect(status().isNotFound());
   }
 
   /** Minimal container emulation: servletPath = decoded request path without context path. */

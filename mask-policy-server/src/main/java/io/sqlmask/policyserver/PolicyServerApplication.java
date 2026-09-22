@@ -68,9 +68,20 @@ public class PolicyServerApplication {
 
   @Bean
   FilterRegistrationBean<PolicyApiKeyFilter> policyApiKeyFilter() {
+    String adminKey = System.getenv("SQLMASK_ADMIN_API_KEY");
+    String dataKey = System.getenv("SQLMASK_DATA_API_KEY");
+    if (adminKey == null || adminKey.isBlank()) {
+      log.warn("SQLMASK_ADMIN_API_KEY is not configured: the admin surface "
+          + "(/api/instances/**, instance/policy/UDF management) is OPEN to anyone "
+          + "who can reach this service");
+    }
+    if (dataKey == null || dataKey.isBlank()) {
+      log.warn("SQLMASK_DATA_API_KEY is not configured: the data surface "
+          + "(/api/effective/**, compiled masking rules per subject) is OPEN to anyone "
+          + "who can reach this service");
+    }
     FilterRegistrationBean<PolicyApiKeyFilter> registration =
-        new FilterRegistrationBean<>(new PolicyApiKeyFilter(
-            System.getenv("SQLMASK_ADMIN_API_KEY"), System.getenv("SQLMASK_DATA_API_KEY")));
+        new FilterRegistrationBean<>(new PolicyApiKeyFilter(adminKey, dataKey));
     registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
     registration.setOrder(1);
     return registration;

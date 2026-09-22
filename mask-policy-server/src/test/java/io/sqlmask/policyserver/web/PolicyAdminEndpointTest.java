@@ -56,6 +56,14 @@ class PolicyAdminEndpointTest {
        "udf": "mask_phone", "arguments": [3, 4]}
       """;
 
+  private static final String EMPTY_SUBJECTS_POLICY_BODY = """
+      {"name": "phone_mask_everyone", "policyType": "datamask", "isEnabled": true,
+       "resource": {"catalog": "crm", "schema": "public", "table": "customer",
+                    "columns": ["phone"]},
+       "subjects": {"users": [], "groups": []},
+       "udf": "mask_phone", "arguments": [3, 4]}
+      """;
+
   @Autowired
   private MockMvc mvc;
 
@@ -66,6 +74,11 @@ class PolicyAdminEndpointTest {
   void cleanUp() {
     try {
       service.deletePolicy("pg_prod", "phone_mask_analysts");
+    } catch (io.sqlmask.error.SqlMaskException absent) {
+      // 无遗留
+    }
+    try {
+      service.deletePolicy("pg_prod", "phone_mask_everyone");
     } catch (io.sqlmask.error.SqlMaskException absent) {
       // 无遗留
     }
@@ -231,6 +244,28 @@ class PolicyAdminEndpointTest {
             .content(POLICY_BODY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.priority").value(0));
+  }
+
+  @Test
+  void emptySubjectsMeanEveryone() throws Exception {
+    // the console submits empty users/groups arrays for "applies to everyone"
+    // (its hint reads 空=任意); both-empty sets must normalize to the wildcard
+    // instead of failing SubjectSelector's non-empty guard with a 400.
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY)).andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(EMPTY_SUBJECTS_POLICY_BODY))
+        .andExpect(status().isOk());
+
+    // wildcard reach: a subject matching nothing specific still hits the policy
+    mvc.perform(get("/api/effective/pg_prod").param("user", "mallory"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.columns.length()").value(1))
+        .andExpect(jsonPath("$.config.columns[0].policy").value("phone_mask_everyone"));
   }
 
   private static String instanceTableJson() {

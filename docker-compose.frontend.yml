@@ -1,7 +1,6 @@
 # 前端（nginx）独立部署：静态页面 + 反向代理到各微服务。
-# 依赖策略/元数据/改写服务已在本机或容器网络中运行（见 docker-compose.policy.yml 等）。
-# 注意：镜像内 127.0.0.1 指向容器自身；容器化部署时把 nginx.conf 里的
-#       upstream 主机改为 host.docker.internal 或 compose 服务名。
+# 依赖策略/元数据/改写服务已在本机运行（镜像内经 host.docker.internal 访问宿主机端口；
+# Linux 引擎由下方 extra_hosts 提供 host-gateway 映射）。
 services:
   frontend:
     build:
@@ -9,3 +8,6 @@ services:
       dockerfile: docker/nginx.Dockerfile
     ports:
       - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

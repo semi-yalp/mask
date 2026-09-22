@@ -44,6 +44,15 @@ public class PolicyApiExceptionHandler {
         "request body is not valid JSON: " + e.getMessage()));
   }
 
+  /** Unmatched paths (this service serves no /api/audit surface — audit query
+   * lives in mask-core) are a 404, not the catch-all 500. */
+  @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+  public ResponseEntity<ApiError> handleNoResource(
+      org.springframework.web.servlet.resource.NoResourceFoundException e) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError("NOT_FOUND", "no such endpoint: " + e.getResourcePath()));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception e) {
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiError(

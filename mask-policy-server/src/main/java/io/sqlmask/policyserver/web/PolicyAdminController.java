@@ -206,14 +206,32 @@ public class PolicyAdminController {
 
   private static PolicyEntity toModel(PolicyDto dto) {
     requireResource(dto);
-    SubjectSelector subjects = dto.subjects() == null ? null
-        : new SubjectSelector(dto.subjects().users(), dto.subjects().groups());
     return new PolicyEntity(dto.name(), parseType(dto.policyType()), dto.isEnabled(),
         dto.priority(),
         new ResourceSelector(dto.resource().catalog(), dto.resource().schema(),
             dto.resource().table(), dto.resource().columns() == null
                 ? List.of() : dto.resource().columns()),
-        subjects, dto.udf(), dto.arguments(), dto.filterExpr());
+        toSelector(dto.subjects(), dto.name()), dto.udf(), dto.arguments(), dto.filterExpr());
+  }
+
+  /**
+   * {@code null} subjects mean "everyone"; the console submits empty users and
+   * groups arrays for the same intent (its hint reads 空=任意), so both empty
+   * sets normalize to the wildcard instead of failing SubjectSelector's
+   * non-empty guard with a 400.
+   */
+  private static SubjectSelector toSelector(SubjectDto subjects, String policyName) {
+    if (subjects == null) {
+      return null;
+    }
+    boolean noUsers = subjects.users() == null || subjects.users().isEmpty();
+    boolean noGroups = subjects.groups() == null || subjects.groups().isEmpty();
+    if (noUsers && noGroups) {
+      return null;
+    }
+    return new SubjectSelector(
+        noUsers ? Set.of() : subjects.users(),
+        noGroups ? Set.of() : subjects.groups());
   }
 
   /**

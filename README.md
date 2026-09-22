@@ -172,23 +172,26 @@ nginx 承载并反向代理 `/api/**` 到各微服务，浏览器与 API 同源�
 - **策略管理台 `frontend/policy-console.html`**：mask-policy-server(8081) 的
   管理面与数据面控制台——实例/表结构/策略/UDF CRUD、按主体（user/groups）拉取
   生效配置预览、跨服务元数据导入；鉴权走 `X-Api-Key` 头（管理 Key 管
-  `/api/instances` 与 `/api/audit`，数据 Key 管 `/api/effective`），页面顶部可
-  填写并持久化到 localStorage。
-- **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective`、
-  `/api/audit` → 8081；另附注释示例：`/api/rewrite`、`/api/config`、
-  `/api/policies` → 8080，`/api/metadata` → 8082（`/api/metadata/pull` 须用
-  `location =` 精确匹配优先到 8080），`/api/v1/` → 8083。
+  `/api/instances`，数据 Key 管 `/api/effective`），页面顶部可填写并保存在
+  sessionStorage（关标签即清，刷新需重输）。
+- **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective` → 8081，
+  `/api/audit` → 8080（审计查询端点在 mask-core）；另附注释示例：
+  `/api/rewrite`、`/api/config`、`/api/policies` → 8080，`/api/metadata` → 8082
+  （`/api/metadata/pull` 须用 `location =` 精确匹配优先到 8080），`/api/v1/` → 8083。
 
 部署方式二选一：
 
 ```bash
-# 方式一：Docker（镜像内 upstream 用 127.0.0.1，容器化时改为
-#         host.docker.internal 或 compose 服务名）
+# 方式一：Docker（镜像内使用 nginx.conf.docker，upstream 指向
+#         host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
 docker compose -f docker-compose.frontend.yml up --build
 
 # 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend 目录绝对路径后 include）
 nginx -c $(pwd)/frontend/nginx.conf
 ```
+
+两份配置只监听 80 明文并带基础安全响应头；生产部署应在前面加 TLS 终止层，
+管理 Key 不应明文穿越不可信网络。
 
 ## REST API
 
