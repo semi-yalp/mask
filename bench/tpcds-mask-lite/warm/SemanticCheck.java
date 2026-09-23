@@ -134,6 +134,13 @@ public final class SemanticCheck {
     if (orig.rows.equals(rw.rows)) {
       return "same";
     }
+    // ORDER BY ties (ROLLUP NULLs, duplicate sort keys) make row order
+    // nondeterministic across executions of equivalent SQL; the comparison
+    // standard of this bench is the multiset — same rows in a different
+    // order is still "same" for every check below
+    if (rowMultiset(orig).equals(rowMultiset(rw))) {
+      return "same";
+    }
     if (orig.headers.size() != rw.headers.size()) {
       return "VIOLATION-column-count " + orig.headers.size() + "->" + rw.headers.size();
     }
@@ -388,6 +395,15 @@ public final class SemanticCheck {
   private static String cell(List<String> row, int index) {
     String v = row.get(index);
     return v == null ? "NULL" : v;
+  }
+
+  /** Row multiset: rows rendered as strings, counted — order-insensitive. */
+  private static Map<List<String>, Long> rowMultiset(Result r) {
+    Map<List<String>, Long> counts = new HashMap<>();
+    for (List<String> row : r.rows) {
+      counts.merge(row, 1L, Long::sum);
+    }
+    return counts;
   }
 
   private static String clip(String message) {

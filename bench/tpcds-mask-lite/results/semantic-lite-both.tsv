@@ -3,11 +3,11 @@ q01	both	104	94
 q02	both	1974	1967	
 q03	same	0	0	
 q04	same	0	0	
-q05	skipped	0	0	rewrite failed
+q05	same	137	137	
 q06	both	2	1	
 q07	same	54	54	
 q08	same	0	0	
-q09	skipped	0	0	rewrite failed
+q09	same	1	1	
 q10	same	0	0	
 q11	same	0	0	
 q12	same	14	14	
@@ -70,7 +70,7 @@ q68	both	16	15
 q69	both	8	6	
 q70	same	3	3	
 q71	same	8	8	
-q72	skipped	0	0	rewrite failed
+q72	same	10	10	
 q73	same	0	0	
 q74	same	0	0	
 q75	same	8	8	
@@ -78,7 +78,7 @@ q76	both	219	218
 q77	same	8	8	
 q78	same	261	261	
 q79	both	84	73	
-q80	skipped	0	0	rewrite failed
+q80	same	30	30	
 q81	both	9	5	
 q82	same	0	0	
 q83	same	0	0	

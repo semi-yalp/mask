@@ -22,14 +22,16 @@ import org.apache.calcite.config.CalciteConnectionConfigImpl;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import io.masklite.dialect.UnknownFunctionTable;
+import org.apache.calcite.sql.validate.implicit.TypeCoercionFactory;
 
 import java.util.List;
 
 /**
  * Wires the Calcite validator and SQL-to-relational converter against a
- * YAML-backed schema. Name matching, conformance and the engine-defined
- * function table come from the caller; unqualified tables resolve against
- * every declared search path.
+ * YAML-backed schema. Name matching, conformance, the engine-defined
+ * function table and the engine-defined implicit type coercion rules come
+ * from the caller; unqualified tables resolve against every declared
+ * search path.
  */
 public final class SqlValidatorFactory {
 
@@ -39,17 +41,20 @@ public final class SqlValidatorFactory {
   private final SqlConformance conformance;
   private final boolean caseSensitiveNameMatching;
   private final SqlOperatorTable functionTable;
+  private final TypeCoercionFactory typeCoercionFactory;
 
   public SqlValidatorFactory(SchemaPlus rootSchema, List<List<String>> schemaPaths,
       SqlConformance conformance,
       boolean caseSensitiveNameMatching,
-      SqlOperatorTable functionTable) {
+      SqlOperatorTable functionTable,
+      TypeCoercionFactory typeCoercionFactory) {
     this.rootSchema = CalciteSchema.from(rootSchema);
     this.schemaPaths = List.copyOf(schemaPaths);
     this.typeFactory = new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
     this.conformance = conformance;
     this.caseSensitiveNameMatching = caseSensitiveNameMatching;
     this.functionTable = functionTable;
+    this.typeCoercionFactory = typeCoercionFactory;
   }
 
   public SqlValidator createValidator() {
@@ -61,7 +66,8 @@ public final class SqlValidatorFactory {
         // resolve as opaque scalar UDFs (see UnknownFunctionTable)
         new UnknownFunctionTable(functionTable));
     SqlValidator.Config config = SqlValidator.Config.DEFAULT
-        .withSqlConformance(conformance);
+        .withSqlConformance(conformance)
+        .withTypeCoercionFactory(typeCoercionFactory);
     return SqlValidatorUtil.newValidator(operators, catalogReader, typeFactory, config);
   }
 

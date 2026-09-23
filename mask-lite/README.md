@@ -84,15 +84,30 @@ policies:
 
 - 输出列血缘追溯到声明的列即脱敏：派生表达式（如 `upper(phone)`）、聚合
   （如 `count(phone)`）、子查询、CTE、JOIN 的列同样生效；
+- **投影中的标量子查询可追溯血缘**：`(SELECT max(phone) FROM customer)` 的
+  输出按子查询投影列的来源脱敏；EXISTS/IN/ANY 等非标量子查询仍然拒绝改写
+  （fail-closed，防止无法证明血缘的静默放行）；
 - 一个输出列追溯到多个命中列时，取字典序最小的列键的策略；
 - 无策略命中的语句原样输出（准确说是**解析后快照**：Calcite 会做规范化，
   如 `count` → `COUNT`、`LIMIT n` → `FETCH NEXT n ROWS ONLY`）；常量列
   （无列来源）原样通过；
-- 递归 CTE、血缘不可追溯（如投影里的标量子查询）→ 报错拒绝改写；
+- 递归 CTE、血缘不可追溯（如投影里的 EXISTS/IN 子查询）→ 报错拒绝改写；
 - **内层用户 SQL 逐字保留，命名全部在包装层完成**：外层用 PostgreSQL 派生表
   列别名表（`FROM (...) AS r (a, b, c)`）按位置命名输出列——未起别名的表达式
   列（PG 里不可引用的 `?column?`）命名为 `mask_col_N`，重复的输出列名加
   `_2/_3` 后缀。无策略命中的语句不包装、原样返回。
+
+PostgreSQL 方言实测（TPC-DS 99 条全量回归）：
+
+- `concat(a, b, ...)`：variadic、NULL 按空串处理的 PG 语义（Calcite PG
+  library 自带，大小写不敏感解析）；
+- **未知函数（如 `concat2`、`mask_idcard`）按宽松 UDF 处理**：任意数量/类型
+  参数、返回类型取首参类型，血缘照常穿过参数（`concat2(phone)` 里的脱敏列
+  会被命中）；函数表保证每个名字恰好一个候选——lib 与 std 同名者
+  （如 `power`）只保留 std 版本，防止重复重载导致的解析失败；
+- `date ± integer`（整数字面量）：按 PG 语义（加/减天数）校验通过，产物保留
+  用户原文（`date + 5` 不改写为 interval 形式）；非字面量整数表达式或
+  `timestamp ± integer`（PG 本身也不允许）仍然 fail-closed。
 
 表引用形式（实测）：
 
