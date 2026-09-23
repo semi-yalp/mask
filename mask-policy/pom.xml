@@ -14,17 +14,13 @@
   <packaging>jar</packaging>
 
   <name>mask-policy</name>
-  <description>Masking policy microservice: Ranger-style policy model, decision engine and REST API.</description>
+  <description>Ranger-style policy matching library: policy model, glob/subject matching, YAML loader (Spring-free).</description>
 
   <dependencies>
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
       <version>${snakeyaml.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -1,4 +1,4 @@
-package io.sqlmask.policy.server;
+package io.sqlmask.server;
 
 import io.sqlmask.policy.PolicyException;
 import org.junit.jupiter.api.Test;
@@ -9,11 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyControllerTest {
 
-  private final PolicyController controller = new PolicyController();
+  private final PoliciesParseController controller = new PoliciesParseController();
 
   @Test
   void parseReturnsStructuredSummary() {
-    var response = controller.parse(new PolicyController.PolicyParseRequest("""
+    var response = controller.parse(new PoliciesParseController.PolicyParseRequest("""
         policies:
           - name: mask-phone
             priority: 2
@@ -34,13 +34,13 @@ class PolicyControllerTest {
   @Test
   void blankPayloadIsRejected() {
     PolicyException e = assertThrows(PolicyException.class,
-        () -> controller.parse(new PolicyController.PolicyParseRequest(" ")));
+        () -> controller.parse(new PoliciesParseController.PolicyParseRequest(" ")));
     assertTrue(e.getMessage().contains("policyYaml is required"));
   }
 
   @Test
   void invalidPolicyYamlBubblesAsPolicyException() {
     assertThrows(PolicyException.class,
-        () -> controller.parse(new PolicyController.PolicyParseRequest("policies: [ {")));
+        () -> controller.parse(new PoliciesParseController.PolicyParseRequest("policies: [ {")));
   }
 }

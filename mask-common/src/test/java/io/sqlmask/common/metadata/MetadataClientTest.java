@@ -1,4 +1,4 @@
-package io.sqlmask.metadataclient;
+package io.sqlmask.common.metadata;
 
 import com.sun.net.httpserver.HttpServer;
 import io.sqlmask.error.SqlMaskException;

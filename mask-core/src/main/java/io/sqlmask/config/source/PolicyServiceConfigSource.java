@@ -1,9 +1,10 @@
 package io.sqlmask.config.source;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
-import io.sqlmask.server.EffectiveMetrics;
+import io.sqlmask.common.metrics.EffectiveMetrics;
 
 import java.io.IOException;
 import java.net.URI;

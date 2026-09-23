@@ -1,4 +1,4 @@
-package io.sqlmask.policy.server;
+package io.sqlmask.server;
 
 import io.sqlmask.policy.PolicyException;
 import io.sqlmask.policy.model.Policy;
@@ -12,14 +12,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Policy YAML validation endpoint. Lives in mask-policy so the combined jar
- * (core's component scan) and a future standalone policy service expose the
- * same contract. Errors are PolicyException; the combined jar maps them via
+ * Policy YAML validation endpoint (POST /api/policies/parse). Errors are PolicyException; the combined jar maps them via
  * ApiExceptionHandler to 400 CONFIG_ERROR.
  */
 @RestController
 @RequestMapping("/api/policies")
-public class PolicyController {
+public class PoliciesParseController {
 
   private final PolicyYamlLoader loader = new PolicyYamlLoader();
 

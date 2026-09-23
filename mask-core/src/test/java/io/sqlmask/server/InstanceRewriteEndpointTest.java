@@ -1,10 +1,11 @@
 package io.sqlmask.server;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.sqlmask.config.source.InstanceQueryAssembler;
 import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -205,13 +206,13 @@ class InstanceRewriteEndpointTest {
 
   @Test
   void apiKeyGateIsOpenWhenUnconfigured() throws Exception {
-    assertEquals(200, run(new InstanceRewriteApiKeyFilter(null), null).getStatus());
-    assertEquals(200, run(new InstanceRewriteApiKeyFilter("  "), null).getStatus());
+    assertEquals(200, run(io.sqlmask.common.web.ApiKeyFilter.failOpen(null), null).getStatus());
+    assertEquals(200, run(io.sqlmask.common.web.ApiKeyFilter.failOpen("  "), null).getStatus());
   }
 
   @Test
   void apiKeyGateEnforcesConfiguredKey() throws Exception {
-    InstanceRewriteApiKeyFilter filter = new InstanceRewriteApiKeyFilter("rewrite-secret");
+    var filter = io.sqlmask.common.web.ApiKeyFilter.failOpen("rewrite-secret");
     assertEquals(200, run(filter, "rewrite-secret").getStatus());
     assertEquals(401, run(filter, "wrong").getStatus());
     assertEquals(401, run(filter, null).getStatus());
@@ -220,7 +221,7 @@ class InstanceRewriteEndpointTest {
   @Test
   void apiKeyGateErrorShapeMatchesPolicyGate() throws Exception {
     MockHttpServletResponse response =
-        run(new InstanceRewriteApiKeyFilter("rewrite-secret"), null);
+        run(io.sqlmask.common.web.ApiKeyFilter.failOpen("rewrite-secret"), null);
     assertEquals(401, response.getStatus());
     assertEquals("application/json", response.getContentType());
     assertEquals("{\"code\":\"UNAUTHORIZED\",\"message\":\"missing or invalid API key\","
@@ -237,7 +238,7 @@ class InstanceRewriteEndpointTest {
     return request;
   }
 
-  private static MockHttpServletResponse run(InstanceRewriteApiKeyFilter filter, String key)
+  private static MockHttpServletResponse run(io.sqlmask.common.web.ApiKeyFilter filter, String key)
       throws Exception {
     MockHttpServletResponse response = new MockHttpServletResponse();
     filter.doFilter(request(key), response, new MockFilterChain());

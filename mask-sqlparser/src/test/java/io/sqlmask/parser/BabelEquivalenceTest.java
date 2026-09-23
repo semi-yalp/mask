@@ -34,7 +34,7 @@ class BabelEquivalenceTest {
         StandardCharsets.UTF_8));
     // golden 改写语料：mask-core golden 目录多语句文件，按分号切（spec §7.2）
     java.nio.file.Path golden = java.nio.file.Path.of(
-        "../mask-core/src/test/resources/golden/tpcds-common.sql");
+        "../mask-engine/src/test/resources/golden/tpcds-common.sql");
     if (java.nio.file.Files.exists(golden)) {
       for (String stmt : java.nio.file.Files.readString(golden, StandardCharsets.UTF_8)
           .split(";\\s*\\n")) {

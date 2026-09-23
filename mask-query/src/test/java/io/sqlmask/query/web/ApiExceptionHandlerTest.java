@@ -1,5 +1,6 @@
 package io.sqlmask.query.web;
 
+import io.sqlmask.common.web.ApiError;
 import io.sqlmask.query.error.QueryException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -14,18 +15,15 @@ class ApiExceptionHandlerTest {
     var handler = new ApiExceptionHandler();
     var response = handler.queryException(new QueryException("QUERY_BUSY", "busy"));
     assertThat(response.getStatusCode().value()).isEqualTo(400);
-    assertThat(response.getBody()).containsEntry("code", "QUERY_BUSY")
-        .containsEntry("message", "busy").containsKey("details");
+    assertThat(response.getBody()).isEqualTo(new ApiError("QUERY_BUSY", "busy", java.util.List.of()));
   }
 
   @Test
   void mapsMalformedJsonBodyToConfigError() {
     var handler = new ApiExceptionHandler();
-    var response = handler.malformedJsonBody(new HttpMessageNotReadableException(
+    var response = handler.handleUnreadable(new HttpMessageNotReadableException(
         "JSON parse error", new MockHttpInputMessage(new byte[0])));
     assertThat(response.getStatusCode().value()).isEqualTo(400);
-    assertThat(response.getBody()).containsEntry("code", "CONFIG_ERROR")
-        .containsEntry("message", "malformed JSON body")
-        .containsEntry("details", java.util.List.of());
+    assertThat(response.getBody()).isEqualTo(new ApiError("CONFIG_ERROR", "malformed JSON body", java.util.List.of()));
   }
 }

@@ -1,7 +1,7 @@
-package io.sqlmask.server;
+package io.sqlmask.common.metrics;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

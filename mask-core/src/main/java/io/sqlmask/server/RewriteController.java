@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 package io.sqlmask.server;
+import io.sqlmask.common.metrics.EffectiveMetrics;
+import io.sqlmask.common.metrics.RewriteMetrics;
 
 import io.sqlmask.audit.AuditEvent;
 import io.sqlmask.audit.AuditEvents;

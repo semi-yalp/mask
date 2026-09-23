@@ -1,4 +1,4 @@
-package io.sqlmask.server;
+package io.sqlmask.common.metrics;
 
 import io.micrometer.core.instrument.distribution.CountAtBucket;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

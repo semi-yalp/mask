@@ -1,7 +1,7 @@
 package io.sqlmask.server;
 
 import io.sqlmask.config.source.PolicyServiceConfigSource;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;

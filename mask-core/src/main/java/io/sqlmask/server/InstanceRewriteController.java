@@ -5,7 +5,7 @@ import io.sqlmask.config.source.ConfigSource;
 import io.sqlmask.config.source.InstanceQueryAssembler;
 import io.sqlmask.config.source.PolicyServiceConfigSource;
 import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.rewrite.RewriteEngine;
 import io.sqlmask.rewrite.RewriteEngine.StatementRewrite;

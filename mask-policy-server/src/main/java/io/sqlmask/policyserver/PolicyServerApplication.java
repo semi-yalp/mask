@@ -4,7 +4,6 @@ import io.sqlmask.policyserver.store.InMemoryPolicyStore;
 import io.sqlmask.policyserver.store.JdbcPolicyStore;
 import io.sqlmask.policyserver.store.PolicyStore;
 import io.sqlmask.policyserver.web.MetadataStructureFetcher;
-import io.sqlmask.policyserver.web.PolicyApiKeyFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -67,7 +66,7 @@ public class PolicyServerApplication {
   }
 
   @Bean
-  FilterRegistrationBean<PolicyApiKeyFilter> policyApiKeyFilter() {
+  FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> policyApiKeyFilter() {
     String adminKey = System.getenv("SQLMASK_ADMIN_API_KEY");
     String dataKey = System.getenv("SQLMASK_DATA_API_KEY");
     if (adminKey == null || adminKey.isBlank()) {
@@ -80,8 +79,10 @@ public class PolicyServerApplication {
           + "(/api/effective/**, compiled masking rules per subject) is OPEN to anyone "
           + "who can reach this service");
     }
-    FilterRegistrationBean<PolicyApiKeyFilter> registration =
-        new FilterRegistrationBean<>(new PolicyApiKeyFilter(adminKey, dataKey));
+    FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> registration =
+        new FilterRegistrationBean<>(io.sqlmask.common.web.ApiKeyFilter.surfaces(
+            new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/instances", adminKey),
+            new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/effective", dataKey)));
     registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
     registration.setOrder(1);
     return registration;

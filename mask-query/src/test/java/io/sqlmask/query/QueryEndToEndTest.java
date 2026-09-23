@@ -47,10 +47,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * are stubbed with JDK HttpServers whose payloads mirror their wire contracts;
  * audit events land in a captured in-memory sink instead of the audit bridge.
  *
- * <p>The {@code QueryApiKeyFilter} fails closed with no SQLMASK_QUERY_API_KEY
+ * <p>The {@code common ApiKeyFilter} fails closed with no SQLMASK_QUERY_API_KEY
  * in the process environment, so MockMvc runs with {@code addFilters=false}
  * (same convention as {@code QueryControllerTest}); the filter's own semantics
- * are covered by {@code QueryApiKeyFilterTest}.
+ * are covered by {@code common ApiKeyFilterTest}.
  */
 @SpringBootTest(properties = "query.timeout-seconds=2")
 @AutoConfigureMockMvc(addFilters = false)

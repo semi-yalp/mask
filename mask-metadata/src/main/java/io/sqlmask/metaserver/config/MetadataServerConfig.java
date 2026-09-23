@@ -1,5 +1,6 @@
 package io.sqlmask.metaserver.config;
 
+import io.sqlmask.common.web.ApiKeyFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -8,11 +9,12 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class MetadataServerConfig {
 
+  /** Fail-closed gate: an unconfigured server key rejects every request. */
   @Bean
   public FilterRegistrationBean<ApiKeyFilter> apiKeyFilter(
       @Value("${metadata.api-key:}") String configuredKey) {
-    ApiKeyFilter filter = new ApiKeyFilter(configuredKey);
-    FilterRegistrationBean<ApiKeyFilter> registration = new FilterRegistrationBean<>(filter);
+    FilterRegistrationBean<ApiKeyFilter> registration =
+        new FilterRegistrationBean<>(ApiKeyFilter.failClosed(configuredKey));
     registration.addUrlPatterns("/api/*");
     registration.setOrder(1);
     return registration;

@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.sqlmask</groupId>
+    <artifactId>sql-mask-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>mask-engine</artifactId>
+  <packaging>jar</packaging>
+
+  <name>mask-engine</name>
+  <description>Pure masking rewrite kernel extracted from mask-core: dialects, lineage, row filters, YAML config, metadata introspection. Declares no Spring, no picocli (enforced).</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.sqlmask</groupId>
+      <artifactId>mask-sqlparser</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.sqlmask</groupId>
+      <artifactId>mask-policy</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-core</artifactId>
+      <version>${calcite.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-babel</artifactId>
+      <version>${calcite.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
+    </dependency>
+    <!-- introspect connects PG / MySQL / Trino system catalogs read-only -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-jdbc</artifactId>
+      <version>446</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-parser</artifactId>
+      <version>446</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.zonky.test</groupId>
+      <artifactId>embedded-postgres</artifactId>
+      <version>2.0.7</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${surefire.version}</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.4.1</version>
+        <executions>
+          <execution>
+            <id>enforce-kernel-purity</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <!-- the kernel must not grow a service-framework surface;
+                       transitive baggage from platform modules is out of scope
+                       here because this module declares no such deps at all -->
+                  <excludes>
+                    <exclude>org.springframework:*:*:jar:compile</exclude>
+                    <exclude>org.springframework:*:*:jar:runtime</exclude>
+                    <exclude>org.springframework:*:*:jar:provided</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:compile</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:runtime</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:provided</exclude>
+                    <exclude>info.picocli:*:*:jar:compile</exclude>
+                    <exclude>info.picocli:*:*:jar:runtime</exclude>
+                    <exclude>info.picocli:*:*:jar:provided</exclude>
+                  </excludes>
+                  <message>mask-engine is a Spring-free/picocli-free kernel library; service-plane code belongs in mask-common or the apps</message>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

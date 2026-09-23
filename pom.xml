@@ -14,14 +14,15 @@
   <modules>
     <module>mask-build-tools</module>
     <module>mask-sqlparser</module>
-    <module>mask-core</module>
-    <module>mask-audit</module>
-    <module>mask-query</module>
     <module>mask-policy</module>
+    <module>mask-engine</module>
+    <module>mask-audit</module>
+    <module>mask-common</module>
+    <module>mask-core</module>
+    <module>mask-query</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>
-    <!-- standalone pom (no parent), aggregated so `mvn test` covers it -->
-    <module>mask-lite</module>
+    <module>mask-risk-server</module>
   </modules>
 
   <properties>
@@ -37,6 +38,7 @@
     <surefire.version>3.2.5</surefire.version>
     <jar.plugin.version>3.3.0</jar.plugin.version>
     <shade.version>3.5.1</shade.version>
+    <enforcer.version>3.4.1</enforcer.version>
   </properties>
 
   <dependencyManagement>
@@ -50,4 +52,25 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${enforcer.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-java</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion><version>[17,)</version></requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

@@ -2,7 +2,7 @@ package io.sqlmask.policyserver.web;
 
 import io.sqlmask.audit.AuditAdminHelper;
 import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import io.sqlmask.policyserver.PolicyService;
 import io.sqlmask.policyserver.metrics.AdminMetrics;
 import io.sqlmask.policyserver.model.ColumnDef;

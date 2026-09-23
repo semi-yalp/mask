@@ -4,7 +4,6 @@ import io.sqlmask.query.config.UpstreamProperties;
 import io.sqlmask.query.metadata.MetadataServiceClient;
 import io.sqlmask.query.rewrite.RewriteServiceClient;
 import io.sqlmask.query.service.QueryService;
-import io.sqlmask.query.web.QueryApiKeyFilter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
@@ -50,9 +49,11 @@ public class QueryServerApplication {
   }
 
   @Bean
-  org.springframework.boot.web.servlet.FilterRegistrationBean<QueryApiKeyFilter> queryApiKeyFilter() {
+  org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter>
+      queryApiKeyFilter() {
+    // fail-closed: an unconfigured key rejects everything (SQLMASK_QUERY_API_KEY)
     var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
-        new QueryApiKeyFilter(System.getenv("SQLMASK_QUERY_API_KEY")));
+        io.sqlmask.common.web.ApiKeyFilter.failClosed(System.getenv("SQLMASK_QUERY_API_KEY")));
     registration.addUrlPatterns("/api/*");
     registration.setOrder(1);
     return registration;
