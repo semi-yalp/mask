@@ -72,12 +72,16 @@ class HiveDialectProfileTest {
   }
 
   @Test
-  void unnamedOutputColumnIsRenderedWithQuotedAlias() {
-    List<StatementRewrite> out = engine.rewrite(YAML, null,
+  void unnamedComputedColumnIsRefusedWithNamingHint() {
+    // M1 修复：Hive/SparkSQL 不支持派生表列别名表（FROM (...) AS r (a, b)），
+    // 未命名计算列（EXPR$N）改名后无法被包装层引用——fail-closed 报错并提示
+    // 显式命名，而不是产出必然失败的 SQL
+    assertThatThrownBy(() -> engine.rewrite(YAML, null,
         "SELECT upper(phone) FROM customer", "hive",
-        io.sqlmask.policy.model.Subject.anonymous());
-    assertThat(out.get(0).masked()).isTrue();
-    assertThat(out.get(0).rewrittenSql()).contains("AS `EXPR$0`");
+        io.sqlmask.policy.model.Subject.anonymous()))
+        .isInstanceOf(SqlMaskException.class)
+        .hasMessageContaining("unnamed computed column")
+        .hasMessageContaining("alias");
   }
 
   @Test

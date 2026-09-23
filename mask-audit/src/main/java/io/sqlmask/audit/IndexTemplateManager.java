@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory;
 import java.io.StringReader;
 
 /**
- * Idempotently PUTs the audit index template (spec §4.3) at most once per 60s
- * until it succeeds; a template failure never blocks writes (ES falls back to
- * dynamic mapping until the template lands).
+ * Idempotently PUTs the audit index template (spec §4.3), re-checking at most
+ * once per 60s forever: after the first success a later failed PUT (template
+ * deleted on the ES side) flips back to not-ready and retries — a template
+ * failure never blocks writes (ES falls back to dynamic mapping until the
+ * template lands).
  */
 public final class IndexTemplateManager {
 
@@ -18,40 +20,55 @@ public final class IndexTemplateManager {
 
   private final ElasticsearchClient client;
   private final String indexPrefix;
+  private final int replicas;
   private volatile boolean ready;
   /** Half of MIN_VALUE: any real timestamp reads as "retry due", so the very
    * first call always attempts the PUT. */
   private volatile long lastAttempt = Long.MIN_VALUE / 2;
 
-  public IndexTemplateManager(ElasticsearchClient client, String indexPrefix) {
+  public IndexTemplateManager(ElasticsearchClient client, String indexPrefix, int replicas) {
+    if (client == null || indexPrefix == null || !indexPrefix.matches("[A-Za-z0-9._\\-]+")) {
+      throw new IllegalArgumentException(
+          "audit index prefix must match [A-Za-z0-9._-]+ (got '" + indexPrefix + "')");
+    }
     this.client = client;
     this.indexPrefix = indexPrefix;
+    this.replicas = replicas;
   }
 
   public boolean ensureIfStale(long nowMillis) {
-    if (ready || nowMillis - lastAttempt < RETRY_AFTER_MS) {
+    if (nowMillis - lastAttempt < RETRY_AFTER_MS) {
       return ready;
     }
     lastAttempt = nowMillis;
     try {
       client.indices().putIndexTemplate(r -> r.name(indexPrefix)
-          .withJson(new StringReader(templateJson(indexPrefix))));
+          .withJson(new StringReader(templateJson(indexPrefix, replicas))));
+      boolean wasReady = ready;
       ready = true;
-      log.info("audit: index template '{}' installed", indexPrefix);
+      if (!wasReady) {
+        log.info("audit: index template '{}' installed", indexPrefix);
+      }
       return true;
     } catch (Exception e) {
-      log.warn("audit: index template PUT failed, will retry in {}s: {}",
-          RETRY_AFTER_MS / 1000, e.getMessage());
+      if (ready) {
+        ready = false;
+        log.warn("audit: index template re-check failed (deleted on the ES side?), "
+            + "will retry in {}s: {}", RETRY_AFTER_MS / 1000, e.getMessage());
+      } else {
+        log.warn("audit: index template PUT failed, will retry in {}s: {}",
+            RETRY_AFTER_MS / 1000, e.getMessage());
+      }
       return false;
     }
   }
 
-  static String templateJson(String prefix) {
+  static String templateJson(String prefix, int replicas) {
     return """
         {
           "index_patterns": ["%s-*"],
           "template": {
-            "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+            "settings": { "number_of_shards": 1, "number_of_replicas": %d },
             "mappings": {
               "properties": {
                 "@timestamp": {"type": "date"},
@@ -90,6 +107,6 @@ public final class IndexTemplateManager {
               }
             }
           }
-        }""".formatted(prefix);
+        }""".formatted(prefix, replicas);
   }
 }

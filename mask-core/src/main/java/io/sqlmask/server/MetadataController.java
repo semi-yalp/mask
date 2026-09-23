@@ -6,6 +6,7 @@ import io.sqlmask.introspect.IntrospectionResult;
 import io.sqlmask.introspect.MetadataIntrospector;
 import io.sqlmask.introspect.MetadataIntrospectors;
 import io.sqlmask.introspect.MetadataYamlGenerator;
+import io.sqlmask.introspect.NetworkGuard;
 import io.sqlmask.introspect.PgMetadataIntrospector;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,16 +18,21 @@ import java.util.List;
 /**
  * Pulls table/column metadata from a live PostgreSQL, MySQL or Trino database
  * and returns a skeleton YAML for the editor. The password lives only inside
- * this request; nothing is logged and nothing is echoed back.
+ * this request; nothing is logged and nothing is echoed back. The target host
+ * passes the {@link NetworkGuard} egress check (link-local denied by default).
  */
 @RestController
 @RequestMapping("/api/metadata")
 public class MetadataController {
 
   private final PgMetadataIntrospector introspector;
+  private final NetworkGuard.Policy networkGuard;
 
-  public MetadataController(PgMetadataIntrospector introspector) {
+  public MetadataController(PgMetadataIntrospector introspector,
+      @org.springframework.beans.factory.annotation.Value(
+          "${sqlmask.network-guard:link-local}") String networkGuard) {
     this.introspector = introspector;
+    this.networkGuard = NetworkGuard.parsePolicy(networkGuard);
   }
 
   @PostMapping("/pull")
@@ -51,12 +57,15 @@ public class MetadataController {
     if (request.password() == null || request.password().isBlank()) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "password is required");
     }
+    String host = request.host() == null || request.host().isBlank()
+        ? "127.0.0.1" : request.host();
+    NetworkGuard.checkHost(host, networkGuard);
     ConnectionSpec spec = new ConnectionSpec(resolvedEngine,
-        request.host() == null || request.host().isBlank() ? "127.0.0.1" : request.host(),
+        host,
         request.port() == null ? 5432 : request.port(),
         request.database(), request.user(), request.password(),
         request.schemas() == null ? List.of() : request.schemas(),
-        request.includeViews(), false, "disable", 10);
+        request.includeViews(), false, request.sslmode(), 10);
     IntrospectionResult result = engineIntrospector.introspect(spec);
     int columnCount = result.tables().stream().mapToInt(t -> t.columns().size()).sum();
     return new MetadataPullResponse(new MetadataYamlGenerator().generate(result),
@@ -64,7 +73,8 @@ public class MetadataController {
   }
 
   public record MetadataPullRequest(String engine, String host, Integer port, String database,
-      String user, String password, List<String> schemas, boolean includeViews) {
+      String user, String password, List<String> schemas, boolean includeViews,
+      String sslmode) {
   }
 
   public record MetadataPullResponse(String yaml, int tableCount, int columnCount,

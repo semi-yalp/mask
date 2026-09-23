@@ -1,28 +1,40 @@
+# 本地联调模板。生产部署必须：改用密钥管理注入凭据、收紧端口绑定、
+# 前置 TLS，并按需启用 ES 鉴权（xpack.security）。
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # 强制外部注入，缺省启动失败（本地可 export METADATA_PG_PASSWORD=...）
+      POSTGRES_PASSWORD: ${METADATA_PG_PASSWORD:?set METADATA_PG_PASSWORD}
       POSTGRES_DB: mask_metadata
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mask_metadata"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   metadata:
     build:
       context: .
       dockerfile: docker/metadata.Dockerfile
     environment:
-      METADATA_API_KEY: local-dev-key
+      METADATA_API_KEY: ${METADATA_API_KEY:?set METADATA_API_KEY}
       METADATA_PG_URL: jdbc:postgresql://postgres:5432/mask_metadata
       METADATA_PG_USER: postgres
-      METADATA_PG_PASSWORD: postgres
-      # password_ref 指向的环境变量由部署侧注入，例如：
+      METADATA_PG_PASSWORD: ${METADATA_PG_PASSWORD}
+      # 分面密钥（可选，缺省回退 METADATA_API_KEY）：
+      # METADATA_ADMIN_API_KEY / METADATA_DATA_API_KEY
+      # password_ref 指向的环境变量由部署侧注入（必须 SQLMASK_ 前缀），例如：
       # SQLMASK_DS_PG_PROD_PASSWORD: s3cret
     ports:
-      - "8082:8082"
+      - "127.0.0.1:8082:8082"
+    restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -35,6 +47,7 @@ services:
     volumes:
       - esdata:/usr/share/elasticsearch/data
     mem_limit: 1073741824
+    restart: unless-stopped
 
 volumes:
   esdata:

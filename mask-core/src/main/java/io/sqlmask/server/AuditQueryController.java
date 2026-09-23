@@ -69,6 +69,13 @@ public class AuditQueryController {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           "page must be >= 0");
     }
+    // ES index.max_result_window: from+size beyond 10000 makes the search fail
+    // as "ES unavailable" (502) — answer a plain 400 instead
+    if ((long) pageNumber * pageSize + pageSize > 10_000L) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "page*size exceeds the 10000-result search window; narrow the time range "
+              + "or walk fewer pages");
+    }
     Instant toAt = parseTime(to, "to", Instant.now());
     Instant fromAt = parseTime(from, "from", toAt.minusSeconds(24 * 3600L));
     if (!fromAt.isBefore(toAt)) {

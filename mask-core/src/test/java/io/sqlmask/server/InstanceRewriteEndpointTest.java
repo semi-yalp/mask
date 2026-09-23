@@ -140,7 +140,7 @@ class InstanceRewriteEndpointTest {
   void missingInstancePropagatesNotFoundCode() throws Exception {
     mockMvc.perform(post("/api/rewrite/instances/missing")
             .contentType("application/json").content("{\"sql\":\"SELECT 1\"}"))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("METADATA_INSTANCE_NOT_FOUND"));
   }
 

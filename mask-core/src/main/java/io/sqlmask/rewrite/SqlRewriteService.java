@@ -50,6 +50,16 @@ public final class SqlRewriteService {
    * column.
    */
   private void ensureWrapperIsSafe(RewritePlan plan, DialectAdapter dialect) {
+    boolean hasSynthetic = plan.outputs().stream()
+        .anyMatch(output -> SYNTHETIC_NAME.matcher(output.outputName()).matches());
+    if (hasSynthetic && !dialect.capabilities().supportsDerivedColumnAliasList()) {
+      // Hive/SparkSQL cannot parse FROM (...) AS r (a, b): the renamed columns
+      // would be unreferenceable, so refuse with an actionable hint instead
+      throw new SqlMaskException(SqlMaskException.Code.REWRITE_ERROR,
+          "cannot wrap a query whose output contains an unnamed computed column (EXPR$N) "
+              + "in dialect '" + dialect.name() + "': add an explicit alias to the projection "
+              + "so every output column has a name");
+    }
     if (dialect.capabilities().canWrapDuplicateOutputNames()) {
       return;
     }
@@ -64,21 +74,58 @@ public final class SqlRewriteService {
     }
   }
 
+  /**
+   * Final referenceable names for the wrapper, one per output in order.
+   * Calcite derives synthetic EXPR$N names for unnamed computed columns, but
+   * the target engine names those columns differently (PG {@code ?column?},
+   * Trino {@code _col0}), so referencing {@code r."EXPR$1"} would fail with
+   * "column does not exist". Synthetics are renamed to generated
+   * {@code mask_col_N} names and the derived table gets an explicit column
+   * alias list ({@code FROM (...) AS r (a, b, c)}), keeping the user's inner
+   * SQL byte-for-byte untouched.
+   */
+  private List<String> finalColumnNames(RewritePlan plan) {
+    List<String> names = new ArrayList<>();
+    int generated = 0;
+    for (OutputRewrite output : plan.outputs()) {
+      String name = output.outputName();
+      if (SYNTHETIC_NAME.matcher(name).matches()) {
+        name = GENERATED_PREFIX + ++generated;
+      }
+      names.add(name);
+    }
+    return names;
+  }
+
   private String buildWrapper(ValidatedSql validated, RewritePlan plan, DialectAdapter dialect) {
     IdentifierPolicy ids = dialect.profile().identifierPolicy();
+    List<String> columnNames = finalColumnNames(plan);
+    boolean renamed = false;
     List<String> items = new ArrayList<>();
-    for (OutputRewrite output : plan.outputs()) {
-      String reference = ids.renderQualified(WRAPPER_ALIAS, output.outputName());
+    for (int i = 0; i < plan.outputs().size(); i++) {
+      OutputRewrite output = plan.outputs().get(i);
+      String name = columnNames.get(i);
+      renamed |= !name.equals(output.outputName());
+      String reference = ids.renderQualified(WRAPPER_ALIAS, name);
       if (output.isMasked()) {
         String call = renderUdfCall(output.policy().orElseThrow(), reference,
             ids, dialect.profile().sqlDialect());
-        items.add(call + " AS " + ids.render(output.outputName()));
+        items.add(call + " AS " + ids.render(name));
       } else {
         items.add(reference);
       }
     }
-    return "SELECT " + String.join(", ", items)
-        + " FROM (\n" + validated.originalSql() + "\n) AS " + ids.render(WRAPPER_ALIAS);
+    StringBuilder sql = new StringBuilder("SELECT ").append(String.join(", ", items))
+        .append(" FROM (\n").append(validated.originalSql()).append("\n) AS ")
+        .append(ids.render(WRAPPER_ALIAS));
+    if (renamed) {
+      // positionally renames the derived-table columns, including the renamed
+      // synthetic ones; Hive/SparkSQL cannot parse this form, see below
+      String aliases = columnNames.stream().map(ids::render)
+          .collect(java.util.stream.Collectors.joining(", "));
+      sql.append(" (").append(aliases).append(')');
+    }
+    return sql.toString();
   }
 
   /** Renders {@code udf(reference, arg1, arg2, ...)} with ordered scalar literals. */
@@ -125,4 +172,11 @@ public final class SqlRewriteService {
   }
 
   private static final String WRAPPER_ALIAS = "r";
+
+  /** Calcite's synthetic names for projection items without an alias. */
+  private static final java.util.regex.Pattern SYNTHETIC_NAME =
+      java.util.regex.Pattern.compile("^EXPR\\$\\d+$");
+
+  /** Prefix of names synthesized for those items at the wrapper's alias list. */
+  private static final String GENERATED_PREFIX = "mask_col_";
 }

@@ -228,7 +228,7 @@ class QueryEndToEndTest {
         .andExpect(request().asyncStarted())
         .andReturn();
     mockMvc.perform(asyncDispatch(mvcResult))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isGatewayTimeout())
         .andExpect(jsonPath("$.code").value(QueryException.QUERY_TIMEOUT));
 
     List<AuditEvent> failures = auditEventsSince(auditBefore, AuditEvent.FAILURE);

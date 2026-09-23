@@ -21,9 +21,6 @@ import java.util.List;
  * or {@code --pull-metadata ...} for metadata export mode)
  * delegate to {@link SqlMaskApplication} for one-shot command line use.</li>
  * </ul>
- */
-/**
- * Spring Boot entry point.
  *
  * <p>{@code DataSourceAutoConfiguration} is excluded: the rewrite engine is
  * DB-free by design (the only database access is the read-only metadata
@@ -37,7 +34,9 @@ public class SqlMaskServiceApplication {
 
   private static final List<String> CLI_OPTIONS = List.of(
       "--metadata", "--policies", "--groups", "--sql", "--input", "--output", "--dialect",
-      "--help", "--version", "--pull-metadata", "--instance", "--policy-service");
+      "--help", "--version", "--pull-metadata", "--instance", "--policy-service",
+      "--engine", "--host", "--port", "--database", "--user", "--password", "--schema",
+      "--include-views", "--strict", "--sslmode", "--connect-timeout");
 
   public static void main(String[] args) {
     if (looksLikeCliInvocation(args)) {
@@ -72,8 +71,8 @@ public class SqlMaskServiceApplication {
     String dataKey = System.getenv("SQLMASK_DATA_API_KEY");
     if (adminKey == null || adminKey.isBlank()) {
       org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
-          "SQLMASK_ADMIN_API_KEY is not configured: the admin surface (/api/instances/**, "
-              + "imported policy management) is OPEN to anyone who can reach this service");
+          "SQLMASK_ADMIN_API_KEY is not configured: the admin surfaces (/api/instances/**, "
+              + "/api/metadata/**, /api/audit/**) are OPEN to anyone who can reach this service");
     }
     if (dataKey == null || dataKey.isBlank()) {
       org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
@@ -89,7 +88,8 @@ public class SqlMaskServiceApplication {
     org.springframework.boot.web.servlet.FilterRegistrationBean<PolicyApiKeyFilter> registration =
         new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
             new PolicyApiKeyFilter(adminKey, dataKey));
-    registration.addUrlPatterns("/api/instances/*", "/api/effective/*", "/api/audit/*");
+    registration.addUrlPatterns("/api/instances/*", "/api/effective/*", "/api/audit/*",
+        "/api/metadata/*");
     registration.setOrder(1);
     return registration;
   }

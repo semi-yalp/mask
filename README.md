@@ -71,17 +71,20 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
 - `--database` / `--user` / `--output` 必填；`--host` 缺省 127.0.0.1，
   `--port` 缺省 5432；
 - `--database` 语义按引擎：PostgreSQL / MySQL 是库名，Trino 是 catalog 名；
-- Trino 无密码认证：`--password` 传任意非空占位值（如 `x`）即可，CLI 要求
-  密码非空；明文（`sslmode=disable`，缺省）连接不发送密码——占位密码不会进
-  JDBC Properties，被静默丢弃；Trino 真实启用密码认证时须加
-  `--sslmode require`（经 TLS 发送）。Web 请求体暂无 sslmode 字段，密码认证的
-  Trino 暂只能走 CLI；
+- Trino 无密码认证：`sslmode=disable`（缺省）时 CLI 跳过密码要求，不必再编造
+  占位值；Trino 真实启用密码认证时须加 `--sslmode require`（经 TLS 发送）。
+  Web `/api/metadata/pull` 已支持 `sslmode` 请求字段（缺省 disable）；
 - `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema
   （PostgreSQL）、当前库（MySQL）或该 catalog 下全部 schema（Trino）；
 - `--include-views`：连同视图与物化视图一起导出；
 - `--strict`：只要有列类型降级为 varchar 就拒绝导出（退出码 1，
   错误码 `STRICT_DEGRADED`）；
-- 密码来源：`--password` 优先于环境变量 `PGPASSWORD`，两者都没有则退出码 2。
+- 密码来源：`--password` 优先于环境变量 `SQLMASK_PASSWORD`，再退
+  `PGPASSWORD`（仅 PostgreSQL），都没有则退出码 2。注意 `--password` 对同机
+  所有用户可见（进程列表/Shell history），推荐用环境变量；
+- 出网守卫：采集目标 host 解析到链路本地地址（169.254/16、fe80/10，云元数据
+  端点）时拒绝连接（`CONFIG_ERROR`）；`sqlmask.network-guard=off`
+  （env `SQLMASK_NETWORK_GUARD`）可关闭。
 
 行为要点：
 
@@ -136,13 +139,15 @@ hive-jdbc 依赖注记（mask-query，client-only 用法）：`org.apache.hive:h
 本地起策略服务 + PG：
 
 ```bash
+export POLICY_PG_PASSWORD=your-pg-password   # PG 口令不再有弱默认
 mvn -pl mask-policy-server -am package
 docker compose -f docker-compose.policy.yml up -d
 ```
 
-环境变量：`POLICY_PG_URL/USER/PASSWORD`（PG 连接）、`SQLMASK_ADMIN_API_KEY`
-（管理面 `/api/instances/**`）、`SQLMASK_DATA_API_KEY`（数据面 `/api/effective/**`），
-未配置 Key 则不拦截。
+环境变量：`POLICY_PG_URL/USER/PASSWORD`（PG 连接，口令无默认值，缺环境变量
+启动失败）、`SQLMASK_ADMIN_API_KEY`（管理面 `/api/instances/**`）、
+`SQLMASK_DATA_API_KEY`（数据面 `/api/effective/**`）。key 未配置时该面不拦截，
+但启动日志会输出显式 WARN 提醒。
 
 ## Web 服务与页面
 
@@ -558,6 +563,12 @@ Trino、MySQL、Hive 与 Spark SQL 输出中保留原义（Calcite 默认渲染�
 无需处理）；`BETWEEN SYMMETRIC` 不做特殊处理，按 Calcite 原渲染输出——
 PostgreSQL 可执行；其余四方言会在引擎侧报错。
 
+未命名计算列（如 `SELECT phone, 1+1 FROM t` 中的 `1+1`）在包装层曾引用 Calcite
+派生名 `EXPR$N`（目标引擎列名不同，必然"列不存在"）。现在：PostgreSQL / MySQL
+（≥8.0.19）/ Trino 通过派生表列别名表定位改名的 `mask_col_N`
+（`FROM (...) AS r (phone, mask_col_1)`）；Hive / Spark SQL 不支持该语法，
+遇到未命名计算列直接 `REWRITE_ERROR` 拒绝并提示显式命名。
+
 ### 各引擎类型集（metadata.yaml 的 `type:`）
 
 - **PostgreSQL**：`boolean`、`smallint`、`integer`、`bigint`、`real`、
@@ -676,15 +687,22 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 本地起套：`mvn -pl mask-metadata -am package && docker compose -f docker-compose.metadata.yml up`
 （需先 `mvn -pl mask-metadata -am package` 生成 fat jar）。
 
-- 鉴权：`X-Api-Key`（服务端 Key 来自 `METADATA_API_KEY`；未配置 = 全 401）
-- 密码：实例只登记环境变量名（`passwordRef`，推荐 `SQLMASK_DS_<INSTANCE>_PASSWORD`），
+- 鉴权：`X-Api-Key` 按**面分 key**——管理面 `/api/instances/**`（含采集）用
+  `METADATA_ADMIN_API_KEY`，数据面 `/api/metadata/**` 用 `METADATA_DATA_API_KEY`；
+  两者都未设置时回退单 key `METADATA_API_KEY`（兼容存量部署）。任一面 key
+  未配置 = 该面全 401（fail-closed）
+- 密码：实例只登记环境变量名（`passwordRef`，**必须 `SQLMASK_` 前缀**，
+  如 `SQLMASK_DS_<INSTANCE>_PASSWORD`；带其他前缀的存量引用会被拒绝并提示迁移），
   采集时服务端解析；密码不落库、不进日志、不进 URL
+- 出网守卫：采集目标 host 解析到链路本地地址（云元数据端点）时拒绝
+  （`CONFIG_ERROR`），`METADATA_NETWORK_GUARD=off` 可关闭
 - 采集边界：`hive` / `sparksql` 方言实例**不支持 pull-metadata**——采集端点对
   这两方言明确拒绝（`CONFIG_ERROR`，「执行优先不采集」的硬边界），表结构一律用
   YAML 导入（`POST /api/instances/import`）；被拒方言的采集请求不计入 FAILURE
   指标（拒绝门在 metrics 记录之外）
 - 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
-  字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略
+  字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略；结构步骤失败时
+  会补偿删除刚创建的实例，不留"有实例无结构"的空壳
 
 ## 查询服务（mask-query，8083）
 
@@ -695,10 +713,10 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 
 | engine | 改写方言 | 缺省端口 | JDBC URL 形态 |
 |---|---|---|---|
-| `postgresql` | `postgresql` | 5432 | `jdbc:postgresql://H:P/DB?sslmode=…&connectTimeout=…&readOnly=true` |
-| `mysql` | `mysql` | 3306 | `jdbc:mysql://H:P/DB?…&useCursorFetch=true` |
+| `postgresql` | `postgresql` | 5432 | `jdbc:postgresql://H:P/DB?sslmode=…&connectTimeout=…&socketTimeout=…&readOnly=true` |
+| `mysql` | `mysql` | 3306 | `jdbc:mysql://H:P/DB?…connectTimeout/socketTimeout…&useCursorFetch=true` |
 | `starrocks` | `mysql`（复用 MySQL 方言改写产物） | 9030 | 同 `mysql` |
-| `trino` | `trino` | 8080 | `jdbc:trino://H:P/CATALOG?SSL=…` |
+| `trino` | `trino` | 8080 | `jdbc:trino://H:P/CATALOG?SSL=…`（连接超时由 `DriverManager.setLoginTimeout` 兜底） |
 | `hive` | `hive` | 10000 | `jdbc:hive2://H:P/DB`（binary transport）；`sslmode=require` 追加 `;ssl=true` |
 | `sparksql` | `sparksql` | 10000 | 同 `hive`（Spark ThriftServer 同一 HS2 协议；DB 可为空 → `jdbc:hive2://H:P/`） |
 
@@ -751,8 +769,12 @@ Spark ThriftServer。
 
 ### 错误码
 
-业务错误统一 HTTP 400，错误体为 `{code, message, details[]}`（与 mask-metadata
-同构）；鉴权失败 401；容器兜底超时（`onTimeout` → 取消语句）返回 503。
+状态码按失败类别分派（与标准重试/网关语义对齐）：请求级问题 400；
+`QUERY_BUSY` → 429；`QUERY_TIMEOUT` → 504；`REWRITE_SERVICE_UNAVAILABLE` /
+`METADATA_SERVICE_UNAVAILABLE` → 502；鉴权失败 401；容器兜底超时
+（`onTimeout` → 取消语句）返回 503。错误体为 `{code, message, details[]}`。
+`QUERY_ERROR` / `QUERY_TIMEOUT` 的 message 只含 code+SQLState 粗化描述——
+驱动原文（可能含内网主机与 schema 细节）留在服务端日志与审计中。
 
 - mask-query 自有：`MULTI_STATEMENT`、`WRITE_STATEMENT`（只读数据面，非
   `SELECT` 拒绝）、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（YAML 导入

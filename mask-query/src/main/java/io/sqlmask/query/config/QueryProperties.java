@@ -11,6 +11,8 @@ public record QueryProperties(Integer timeoutSeconds, Integer maxRows, Integer m
     if (timeoutSeconds == null || timeoutSeconds <= 0) timeoutSeconds = 30;
     if (maxRows == null || maxRows <= 0) maxRows = 1000;
     if (maxRowsHard == null || maxRowsHard <= 0) maxRowsHard = 10000;
+    // the "hard" cap must cap the default too, or it is not hard
+    if (maxRows > maxRowsHard) maxRows = maxRowsHard;
     if (fetchSize == null || fetchSize <= 0) fetchSize = 500;
     if (maxConcurrentPerInstance == null || maxConcurrentPerInstance <= 0) {
       maxConcurrentPerInstance = 10;

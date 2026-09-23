@@ -10,12 +10,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ApiExceptionHandlerTest {
 
   @Test
-  void mapsQueryExceptionToPayload() {
+  void mapsQueryExceptionToPayloadWithClassSpecificStatus() {
     var handler = new ApiExceptionHandler();
-    var response = handler.queryException(new QueryException("QUERY_BUSY", "busy"));
-    assertThat(response.getStatusCode().value()).isEqualTo(400);
-    assertThat(response.getBody()).containsEntry("code", "QUERY_BUSY")
+    var busy = handler.queryException(new QueryException("QUERY_BUSY", "busy"));
+    assertThat(busy.getStatusCode().value()).isEqualTo(429);
+    assertThat(busy.getBody()).containsEntry("code", "QUERY_BUSY")
         .containsEntry("message", "busy").containsKey("details");
+
+    assertThat(handler.queryException(new QueryException("QUERY_TIMEOUT", "t"))
+        .getStatusCode().value()).isEqualTo(504);
+    assertThat(handler.queryException(new QueryException("REWRITE_SERVICE_UNAVAILABLE", "u"))
+        .getStatusCode().value()).isEqualTo(502);
+    assertThat(handler.queryException(new QueryException("METADATA_SERVICE_UNAVAILABLE", "u"))
+        .getStatusCode().value()).isEqualTo(502);
+    // 请求级问题仍是 400
+    assertThat(handler.queryException(new QueryException("QUERY_ERROR", "e"))
+        .getStatusCode().value()).isEqualTo(400);
+    assertThat(handler.queryException(new QueryException("WRITE_STATEMENT", "w"))
+        .getStatusCode().value()).isEqualTo(400);
   }
 
   @Test

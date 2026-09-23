@@ -29,15 +29,19 @@ public class CollectService {
   private final CredentialResolver credentials;
   private final IntrospectorFactory introspectors;
   private final CollectMetrics collectMetrics;
+  private final io.sqlmask.introspect.NetworkGuard.Policy networkGuard;
 
   public CollectService(MetadataService instances, StructureService structures,
       CredentialResolver credentials, IntrospectorFactory introspectors,
-      CollectMetrics collectMetrics) {
+      CollectMetrics collectMetrics,
+      @org.springframework.beans.factory.annotation.Value(
+          "${metadata.network-guard:link-local}") String networkGuard) {
     this.instances = instances;
     this.structures = structures;
     this.credentials = credentials;
     this.introspectors = introspectors;
     this.collectMetrics = collectMetrics;
+    this.networkGuard = io.sqlmask.introspect.NetworkGuard.parsePolicy(networkGuard);
   }
 
   public MetadataDtos.CollectResponse collect(String name) {
@@ -56,6 +60,7 @@ public class CollectService {
               + "'; import table structures via instance YAML import instead");
     }
     return collectMetrics.record(row.dialect(), () -> {
+      io.sqlmask.introspect.NetworkGuard.checkHost(connection.host(), networkGuard);
       ConnectionSpec spec = new ConnectionSpec(row.dialect(), connection.host(), connection.port(),
           connection.database(), connection.dbUser(), credentials.resolve(connection.passwordRef()),
           connection.schemas(), connection.includeViews(), false, connection.sslmode(),

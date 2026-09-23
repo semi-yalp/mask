@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.server.EffectiveMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -28,8 +30,18 @@ import java.util.TreeSet;
  * unreachable (stale-but-available); a subject with no cache entry plus an
  * unreachable service fails closed with POLICY_SERVICE_UNAVAILABLE — never
  * degrades to the unmasked input.
+ *
+ * <p>Locking discipline (M4): the LRU map is the monitor and only cache
+ * reads/writes happen inside it — the HTTP call runs outside the lock, so a
+ * slow policy service cannot serialize every subject load behind one held
+ * monitor. {@link #refresh()} is per-subject tolerant: a failing subject keeps
+ * its stale entry (and logs a warning) while the remaining subjects still
+ * refresh. Concurrent duplicate fetches of the same key are possible and
+ * harmless — the fetch is a read-only GET.
  */
 public final class PolicyServiceConfigSource implements ConfigSource {
+
+  private static final Logger log = LoggerFactory.getLogger(PolicyServiceConfigSource.class);
 
   private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -67,30 +79,50 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   }
 
   @Override
-  public synchronized ResolvedConfig load() {
+  public ResolvedConfig load() {
     return load(Subject.anonymous());
   }
 
   /** Loads (and caches) the effective config compiled for one subject. */
-  public synchronized ResolvedConfig load(Subject subject) {
+  public ResolvedConfig load(Subject subject) {
     SubjectKey key = keyOf(subject);
-    ResolvedConfig cached = cache.get(key);
+    ResolvedConfig cached;
+    synchronized (cache) {
+      cached = cache.get(key);
+    }
     if (cached != null) {
       return cached;
     }
     ResolvedConfig fresh = fetchAndAssemble(key);
-    cache.put(key, fresh);
+    synchronized (cache) {
+      cache.put(key, fresh);
+    }
     return fresh;
   }
 
   /** Polls every cached subject; true when any subject's version moved. */
-  public synchronized boolean refresh() {
+  public boolean refresh() {
+    List<SubjectKey> keys;
+    synchronized (cache) {
+      keys = List.copyOf(cache.keySet());
+    }
     boolean anyUpdated = false;
-    for (Map.Entry<SubjectKey, ResolvedConfig> entry : cache.entrySet()) {
-      ResolvedConfig fresh = fetchAndAssemble(entry.getKey());
-      if (entry.getValue().configVersion() != fresh.configVersion()) {
-        entry.setValue(fresh);
-        anyUpdated = true;
+    for (SubjectKey key : keys) {
+      ResolvedConfig fresh;
+      try {
+        fresh = fetchAndAssemble(key);
+      } catch (RuntimeException e) {
+        // stale-but-available: this subject keeps serving its cached config
+        log.warn("policy-service refresh failed for instance '{}' user='{}': {} — "
+                + "serving stale cache", instanceName, key.user(), e.getMessage());
+        continue;
+      }
+      synchronized (cache) {
+        ResolvedConfig current = cache.get(key);
+        if (current != null && current.configVersion() != fresh.configVersion()) {
+          cache.put(key, fresh);
+          anyUpdated = true;
+        }
       }
     }
     return anyUpdated;
@@ -104,12 +136,16 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   private ResolvedConfig fetchAndAssemble(SubjectKey key) {
     long start = System.nanoTime();
     URI effectiveUri = effectiveUri(key);
-    HttpRequest request = HttpRequest.newBuilder(effectiveUri)
+    HttpRequest.Builder builder = HttpRequest.newBuilder(effectiveUri)
         .header("Accept", "application/json")
-        .header("X-Api-Key", apiKey == null ? "" : apiKey)
         .timeout(Duration.ofSeconds(10))
-        .GET()
-        .build();
+        .GET();
+    if (apiKey != null && !apiKey.isBlank()) {
+      // omit the header entirely when unconfigured: an empty X-Api-Key would
+      // read as a wrong key (401) instead of an unauthenticated deployment
+      builder.header("X-Api-Key", apiKey);
+    }
+    HttpRequest request = builder.build();
     HttpResponse<String> response;
     try {
       response = http.send(request, HttpResponse.BodyHandlers.ofString());
@@ -175,6 +211,9 @@ public final class PolicyServiceConfigSource implements ConfigSource {
       params.add("groups=" + URLEncoder.encode(group, StandardCharsets.UTF_8));
     }
     String query = params.isEmpty() ? "" : "?" + String.join("&", params);
-    return URI.create(baseUrl + "/api/effective/" + instanceName + query);
+    // form-encoding uses '+' for spaces; path segments need %20
+    String encodedInstance =
+        URLEncoder.encode(instanceName, StandardCharsets.UTF_8).replace("+", "%20");
+    return URI.create(baseUrl + "/api/effective/" + encodedInstance + query);
   }
 }

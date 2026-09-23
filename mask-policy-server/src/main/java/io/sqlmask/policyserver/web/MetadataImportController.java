@@ -57,10 +57,35 @@ public class MetadataImportController {
         throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
             "metadataBaseUrl and metadataInstance are required");
       }
+      requireSafeBaseUrl(request.metadataBaseUrl());
       return audit.adminChange(httpRequest, "IMPORT", "TABLES", name, name,
           () -> Map.of("sourceInstance", request.metadataInstance()),
           () -> doImport(name, request));
     });
+  }
+
+  /**
+   * Egress guard for the admin-supplied metadata service URL: http/https only,
+   * no userinfo component — an admin key holder must not turn this endpoint
+   * into an internal-network or cloud-metadata probe.
+   */
+  private static void requireSafeBaseUrl(String raw) {
+    java.net.URI uri;
+    try {
+      uri = java.net.URI.create(raw);
+    } catch (IllegalArgumentException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "metadataBaseUrl is not a usable URL: '" + raw + "'");
+    }
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+    if (!scheme.equals("http") && !scheme.equals("https")) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "metadataBaseUrl must use http or https (got '" + uri.getScheme() + "')");
+    }
+    if (uri.getUserInfo() != null) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "metadataBaseUrl must not carry credentials (userinfo component)");
+    }
   }
 
   private ImportResponse doImport(String name, ImportRequest request) {

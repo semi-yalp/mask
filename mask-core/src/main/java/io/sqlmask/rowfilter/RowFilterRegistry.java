@@ -54,6 +54,7 @@ public final class RowFilterRegistry {
       SqlKind.LESS_THAN, SqlKind.LESS_THAN_OR_EQUAL,
       SqlKind.GREATER_THAN, SqlKind.GREATER_THAN_OR_EQUAL,
       SqlKind.PLUS, SqlKind.MINUS, SqlKind.TIMES, SqlKind.DIVIDE, SqlKind.MOD,
+      SqlKind.PLUS_PREFIX, SqlKind.MINUS_PREFIX,
       SqlKind.IS_NULL, SqlKind.IS_NOT_NULL,
       SqlKind.IS_DISTINCT_FROM, SqlKind.IS_NOT_DISTINCT_FROM,
       SqlKind.IN);

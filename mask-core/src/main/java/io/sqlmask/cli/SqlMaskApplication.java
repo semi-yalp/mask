@@ -77,7 +77,9 @@ public final class SqlMaskApplication implements Callable<Integer> {
   private List<String> groups;
 
   @Option(names = "--password", paramLabel = "<pw>",
-      description = "Password for --pull-metadata; falls back to $PGPASSWORD.")
+      description = "Password for --pull-metadata; falls back to $SQLMASK_PASSWORD, then "
+          + "$PGPASSWORD (PostgreSQL only). Prefer the environment variables: command-line "
+          + "values are visible in process listings and shell history.")
   private String password;
 
   @Option(names = "--schema", arity = "1..*", paramLabel = "<schema>",
@@ -241,10 +243,23 @@ public final class SqlMaskApplication implements Callable<Integer> {
       err.println("sql-mask: --pull-metadata requires --output");
       return 2;
     }
-    String resolvedPassword = password != null ? password : System.getenv("PGPASSWORD");
-    if (resolvedPassword == null || resolvedPassword.isBlank()) {
-      err.println("sql-mask: provide --password or set PGPASSWORD");
+    String resolvedPassword = password;
+    if (resolvedPassword == null) {
+      resolvedPassword = System.getenv("SQLMASK_PASSWORD");
+    }
+    if (resolvedPassword == null && "postgresql".equalsIgnoreCase(engine)) {
+      resolvedPassword = System.getenv("PGPASSWORD"); // legacy, PG-only fallback
+    }
+    boolean passwordOptional = "trino".equalsIgnoreCase(engine)
+        && "disable".equalsIgnoreCase(sslmode);
+    // trino without TLS never sends the password, so a placeholder is pointless
+    if (!passwordOptional && (resolvedPassword == null || resolvedPassword.isBlank())) {
+      err.println("sql-mask: provide --password or set SQLMASK_PASSWORD"
+          + ("postgresql".equalsIgnoreCase(engine) ? " (or PGPASSWORD)" : ""));
       return 2;
+    }
+    if (resolvedPassword == null) {
+      resolvedPassword = "";
     }
     ConnectionSpec spec = new ConnectionSpec(engine, host, port, database, user, resolvedPassword,
         schemas == null ? List.of() : schemas, includeViews, strict, sslmode, connectTimeout);

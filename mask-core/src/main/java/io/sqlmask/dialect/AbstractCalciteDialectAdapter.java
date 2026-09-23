@@ -12,6 +12,7 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlWith;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
+import org.apache.calcite.sql.babel.TableCollectionType;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 
@@ -195,6 +196,14 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
       case INSERT: {
         org.apache.calcite.sql.SqlInsert insert =
             (org.apache.calcite.sql.SqlInsert) writeStatement;
+        if (insert.isUpsert()) {
+          // recomposition hardcodes INSERT semantics; UPSERT would silently
+          // downgrade update-or-insert into plain insert, changing write
+          // behavior (M2) — refuse instead
+          throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
+              "UPSERT is not supported: the wrapped query would silently degrade "
+                  + "to a plain INSERT; rewrite the statement as INSERT");
+        }
         StringBuilder sql = new StringBuilder(
             insert instanceof io.sqlmask.parser.SqlInsertOverwrite
                 ? "INSERT OVERWRITE TABLE " : "INSERT INTO ");
@@ -220,10 +229,30 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
     }
   }
 
-  /** Hook for dialect-specific CREATE TABLE variant rejection (default: none). */
+  /**
+   * CREATE TABLE variant rejection shared by every dialect (A2): the babel
+   * parse of {@code CREATE TABLE} hides REPLACE / VOLATILE / SET / TEMP
+   * modifiers that the composer cannot reproduce — refuse them here, once,
+   * instead of in five per-dialect copies.
+   */
   protected void checkCreateTableVariant(SqlNode writeStatement) {
+    if (!(writeStatement instanceof org.apache.calcite.sql.babel.SqlBabelCreateTable babel)) {
+      return;
+    }
+    List<SqlNode> operands = babel.getOperandList();
+    boolean replace = ((org.apache.calcite.sql.SqlLiteral) operands.get(0)).booleanValue();
+    TableCollectionType collectionType =
+        ((org.apache.calcite.sql.SqlLiteral) operands.get(1))
+            .symbolValue(TableCollectionType.class);
+    boolean volatileTable = ((org.apache.calcite.sql.SqlLiteral) operands.get(2)).booleanValue();
+    if (replace || volatileTable
+        || collectionType == TableCollectionType.MULTISET) {
+      throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
+          "unsupported CREATE TABLE variant (REPLACE / VOLATILE / SET / MULTISET); "
+              + "only plain CREATE TABLE [IF NOT EXISTS] ... AS SELECT is supported ("
+              + profile.name() + ")");
+    }
   }
-
   private String renderColumnList(SqlNodeList columnList) {
     if (columnList == null || columnList.isEmpty()) {
       return "";

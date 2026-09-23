@@ -24,6 +24,16 @@ import java.util.Set;
  * (via {@link PolicyValidator}) so the store only ever holds self-consistent
  * state, and {@link #effective} compiles the stored state into the wire
  * contract stamped with the store's current {@code config_version}.
+ *
+ * <p>All mutations and the effective snapshot are {@code synchronized}: the
+ * validators read store state ("does an overlapping policy exist?", "does the
+ * instance still exist?") and the store methods lock only per call, so two
+ * concurrent writes could each pass validation against the same pre-state
+ * (M3). Serializing the whole facade closes that check-then-act window, keeps
+ * {@link #effective}'s version and policy list one consistent snapshot, and
+ * closes the deleteInstance-vs-createPolicy interleave where the new policy
+ * would be cascade-deleted silently. The admin surface and the 30s data-plane
+ * polling are low volume, so a single monitor costs nothing here.
  */
 public class PolicyService {
 
@@ -35,13 +45,13 @@ public class PolicyService {
     this.validator = validator;
   }
 
-  public EngineInstance createInstance(String name, String dialect, List<TableDef> tables) {
+  public synchronized EngineInstance createInstance(String name, String dialect, List<TableDef> tables) {
     EngineInstance instance = new EngineInstance(name, dialect, tables);
     validator.validateInstance(instance);
     return store.createInstance(instance);
   }
 
-  public EngineInstance updateInstanceTables(String name, List<TableDef> tables) {
+  public synchronized EngineInstance updateInstanceTables(String name, List<TableDef> tables) {
     EngineInstance current = requireInstance(name);
     EngineInstance updated = new EngineInstance(name, current.dialect(), tables);
     validator.validateInstance(updated);
@@ -57,25 +67,25 @@ public class PolicyService {
     return store.listInstances();
   }
 
-  public void deleteInstance(String name) {
+  public synchronized void deleteInstance(String name) {
     store.deleteInstance(name);
   }
 
-  public PolicyEntity createPolicy(String instanceName, PolicyEntity policy) {
+  public synchronized PolicyEntity createPolicy(String instanceName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
     validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
         enabledOthers(instanceName, null));
     return store.createPolicy(instanceName, policy);
   }
 
-  public PolicyEntity updatePolicy(String instanceName, String policyName, PolicyEntity policy) {
+  public synchronized PolicyEntity updatePolicy(String instanceName, String policyName, PolicyEntity policy) {
     EngineInstance instance = requireInstance(instanceName);
     validator.validatePolicy(instance, store.listUdfs(instanceName), policy,
         enabledOthers(instanceName, policyName));
     return store.updatePolicy(instanceName, policyName, policy);
   }
 
-  public void deletePolicy(String instanceName, String policyName) {
+  public synchronized void deletePolicy(String instanceName, String policyName) {
     requireInstance(instanceName);
     store.deletePolicy(instanceName, policyName);
   }
@@ -84,13 +94,13 @@ public class PolicyService {
     return store.listPolicies(instanceName);
   }
 
-  public UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
+  public synchronized UdfDefinition createUdf(String instanceName, UdfDefinition udf) {
     EngineInstance instance = requireInstance(instanceName);
     validator.validateUdf(instance, udf);
     return store.createUdf(instanceName, udf);
   }
 
-  public UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf) {
+  public synchronized UdfDefinition replaceUdf(String instanceName, String udfName, UdfDefinition udf) {
     requireInstance(instanceName);
     if (!udf.name().equals(udfName)) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, "udf name mismatch: '"
@@ -111,7 +121,7 @@ public class PolicyService {
     return store.listUdfs(instanceName);
   }
 
-  public void deleteUdf(String instanceName, String udfName) {
+  public synchronized void deleteUdf(String instanceName, String udfName) {
     requireInstance(instanceName);
     ensureEnabledPoliciesResolveUdfs(instanceName,
         store.listUdfs(instanceName).stream()
@@ -119,7 +129,7 @@ public class PolicyService {
     store.deleteUdf(instanceName, udfName);
   }
 
-  public EffectiveConfigResponse effective(String name, Subject subject) {
+  public synchronized EffectiveConfigResponse effective(String name, Subject subject) {
     EngineInstance instance = requireInstance(name);
     long configVersion = store.currentVersion(name);
     EffectiveConfigResponse compiled =

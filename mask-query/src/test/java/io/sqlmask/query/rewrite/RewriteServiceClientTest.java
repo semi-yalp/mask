@@ -25,8 +25,9 @@ class RewriteServiceClientTest {
   static void start() throws Exception {
     stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     stub.createContext("/api/rewrite/instances/x", RewriteServiceClientTest::respondBody);
-    // 空格实例名的编码路径：与共享响应体复用同一处理器
-    stub.createContext("/api/rewrite/instances/my+inst", RewriteServiceClientTest::respondBody);
+    // 空格实例名的编码路径（JDK HttpServer 按解码后路径匹配 context，注册串带
+    // 字面空格；客户端必须编码为 %20 而非表单编码的 '+'）：与共享响应体复用同一处理器
+    stub.createContext("/api/rewrite/instances/my inst", RewriteServiceClientTest::respondBody);
     stub.start();
     client = new RewriteServiceClient(
         "http://127.0.0.1:" + stub.getAddress().getPort(), "k");

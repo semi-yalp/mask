@@ -6,7 +6,6 @@ import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
 import io.sqlmask.metaserver.store.MetaStore;
 import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.Locale;
 
@@ -41,6 +40,11 @@ public class MetadataService {
 
   public List<InstanceRow> list() {
     return store.listInstances();
+  }
+
+  /** One consistent read of the instance row plus its structure (M7). */
+  public MetaStore.InstanceSnapshot snapshot(String name) {
+    return store.loadSnapshot(requireName(name));
   }
 
   public InstanceRow updateConnection(String name, ConnectionInfo connection) {

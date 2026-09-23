@@ -20,4 +20,15 @@ class EnvCredentialResolverTest {
     assertEquals(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE, e.getCode());
     assertTrue(e.getMessage().contains("SQLMASK_TEST_UNSET_CREDENTIAL_2026"), () -> e.getMessage());
   }
+
+  @Test
+  void nonPrefixedReferenceIsRejectedBeforeTouchingTheEnvironment() {
+    // passwordRef 由采集载荷决定：无 SQLMASK_ 前缀的引用（可指向任意环境变量，
+    // 包括云凭证）一律拒绝——迁移说明见 README
+    for (String bad : new String[] {"PGPASSWORD", "AWS_SECRET_ACCESS_KEY", "sqlmask_pw", "", null}) {
+      SqlMaskException e = assertThrows(SqlMaskException.class, () -> resolver.resolve(bad));
+      assertEquals(SqlMaskException.Code.METADATA_CREDENTIAL_UNAVAILABLE, e.getCode());
+      assertTrue(e.getMessage().contains("SQLMASK_"), () -> e.getMessage());
+    }
+  }
 }

@@ -5,9 +5,11 @@ import io.sqlmask.error.SqlMaskException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.OptionalLong;
@@ -35,7 +37,7 @@ public final class MetadataClient {
   /** 200 → version; 404 → empty; 401/other/unreachable → fail-closed exceptions. */
   public OptionalLong versionOf(String instance) {
     HttpResponse<String> response = send(request(URI.create(
-        base + "/api/metadata/instances/" + instance + "/version")));
+        base + "/api/metadata/instances/" + encode(instance) + "/version")));
     if (response.statusCode() == 404) {
       return OptionalLong.empty();
     }
@@ -50,7 +52,7 @@ public final class MetadataClient {
 
   public MetadataSnapshot fetch(String instance) {
     HttpResponse<String> response = send(request(URI.create(
-        base + "/api/metadata/instances/" + instance)));
+        base + "/api/metadata/instances/" + encode(instance))));
     if (response.statusCode() == 404) {
       throw new SqlMaskException(SqlMaskException.Code.METADATA_INSTANCE_NOT_FOUND,
           "metadata instance '" + instance + "' does not exist on the metadata service");
@@ -63,20 +65,42 @@ public final class MetadataClient {
     }
   }
 
+  /** Path-segment encoding: URLEncoder is form-encoding ('+' for space), a
+   * segment needs %20 so the server decodes the original name. */
+  private static String encode(String instance) {
+    return URLEncoder.encode(instance, StandardCharsets.UTF_8).replace("+", "%20");
+  }
+
   private HttpRequest request(URI uri) {
-    return HttpRequest.newBuilder(uri)
+    HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
         .header("Accept", "application/json")
-        .header("X-Api-Key", apiKey == null ? "" : apiKey)
         .timeout(Duration.ofSeconds(10))
-        .GET()
-        .build();
+        .GET();
+    if (apiKey != null && !apiKey.isBlank()) {
+      builder.header("X-Api-Key", apiKey);
+    }
+    return builder.build();
   }
 
   private HttpResponse<String> send(HttpRequest request) {
     try {
       return http.send(request, HttpResponse.BodyHandlers.ofString());
-    } catch (IOException e) {
-      throw unavailable("metadata service unreachable at '" + request.uri() + "'", e);
+    } catch (IOException first) {
+      // idempotent GET: one short backoff rides out transient connection resets
+      try {
+        Thread.sleep(200);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw unavailable("interrupted while calling the metadata service", interrupted);
+      }
+      try {
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
+      } catch (IOException e) {
+        throw unavailable("metadata service unreachable at '" + request.uri() + "'", e);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw unavailable("interrupted while calling the metadata service", e);
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw unavailable("interrupted while calling the metadata service", e);

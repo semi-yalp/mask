@@ -56,7 +56,7 @@ class RewriteInstanceModeUnreachableTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(Map.of(
                 "instance", "pg_prod", "sql", "SELECT id, phone FROM customer"))))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.code").value("POLICY_SERVICE_UNAVAILABLE"))
         .andExpect(jsonPath("$.message", containsString("unreachable")));
 

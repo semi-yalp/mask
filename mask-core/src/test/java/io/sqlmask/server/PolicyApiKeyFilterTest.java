@@ -99,6 +99,15 @@ class PolicyApiKeyFilterTest {
   }
 
   @Test
+  void metadataPullSurfaceRequiresAdminKey() throws Exception {
+    // /api/metadata/pull 以调用方凭证连接任意库：必须归入 admin 面
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(401, run(filter, "/api/metadata/pull", "data-secret").getStatus());
+    assertEquals(401, run(filter, "/api/metadata/pull", null).getStatus());
+    assertEquals(200, run(filter, "/api/metadata/pull", "admin-secret").getStatus());
+  }
+
+  @Test
   void segmentBoundaryIsEnforced() throws Exception {
     // a prefix must not unlock a sibling surface (/api/instances-evil, /api/effectiveX)
     PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");

@@ -1,5 +1,6 @@
 package io.sqlmask.query;
 
+import io.sqlmask.query.config.QueryProperties;
 import io.sqlmask.query.config.UpstreamProperties;
 import io.sqlmask.query.metadata.MetadataServiceClient;
 import io.sqlmask.query.rewrite.RewriteServiceClient;
@@ -44,9 +45,16 @@ public class QueryServerApplication {
   }
 
   @Bean
-  QueryService.ConnectionFactory queryConnectionFactory() {
-    return (engine, c, password) -> java.sql.DriverManager.getConnection(
-        engine.jdbcUrl(c), c.dbUser(), password);
+  QueryService.ConnectionFactory queryConnectionFactory(QueryProperties props) {
+    return (engine, c, password) -> {
+      // Trino's driver has no connect-timeout URL property; the global login
+      // timeout is the connect backstop for every engine. This service is a
+      // stateless single-purpose process, so a process-wide default is safe.
+      int loginTimeout = c.connectTimeoutSeconds() <= 0 ? 10 : c.connectTimeoutSeconds();
+      java.sql.DriverManager.setLoginTimeout(loginTimeout);
+      return java.sql.DriverManager.getConnection(
+          engine.jdbcUrl(c, props.timeoutSeconds()), c.dbUser(), password);
+    };
   }
 
   @Bean

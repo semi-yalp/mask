@@ -69,7 +69,7 @@ public final class EsAuditRecorder implements AuditRecorder, AutoCloseable {
     this.properties = properties;
     this.registry = registry;
     this.queue = new ArrayBlockingQueue<>(properties.getQueueCapacity());
-    this.templates = new IndexTemplateManager(client, properties.getIndexPrefix());
+    this.templates = new IndexTemplateManager(client, properties.getIndexPrefix(), properties.getIndexReplicas());
     this.worker = new Thread(this::loop, "audit-es-writer");
     this.worker.setDaemon(true);
     // Micrometer gauges hold only a WeakReference to the observed object by

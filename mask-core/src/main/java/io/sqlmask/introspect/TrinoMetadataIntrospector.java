@@ -66,6 +66,10 @@ public class TrinoMetadataIntrospector implements MetadataIntrospector {
 
   /** Overridable so tests can supply a mocked connection. */
   protected Connection open(ConnectionSpec spec) throws SQLException {
+    // the 446 driver has no connect-timeout URL property; the global login
+    // timeout is the only connect backstop (M12)
+    DriverManager.setLoginTimeout(spec.connectTimeoutSeconds() <= 0
+        ? 10 : spec.connectTimeoutSeconds());
     return DriverManager.getConnection(spec.toJdbcUrl(), connectionProperties(spec));
   }
 

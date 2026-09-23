@@ -282,4 +282,21 @@ class RowFilterRegistryTest {
     assertTrue(rendered.contains("status = 'active'"), () -> rendered);
     assertTrue(rendered.contains("region = 'north'"), () -> rendered);
   }
+
+  @org.junit.jupiter.api.Test
+  void unaryMinusIsAllowedInFilterExpressions() {
+    // 白名单含二元 MINUS 却漏了一元 MINUS_PREFIX：amount > -1 这类合法条件
+    // 之前被 fail-closed 误拒
+    RowFilterRegistry registry = buildFromPolicies("""
+        policies:
+          - name: f
+            resources:
+              - {catalog: crm, schema: public, table: customer}
+            rowFilterItems:
+              - {groups: ["*"], filterExpr: "status = 'active' AND region <> 'x' AND id > -1"}
+        """);
+    assertFalse(registry.isEmpty());
+    assertTrue(registry.conditionTemplateOf("crm", "public", "customer").isPresent(),
+        () -> "unary minus must not be rejected");
+  }
 }

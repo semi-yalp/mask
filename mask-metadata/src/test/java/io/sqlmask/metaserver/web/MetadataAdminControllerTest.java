@@ -115,6 +115,10 @@ class MetadataAdminControllerTest {
                 "metadata:\\n  tables:\\n    - catalog: crm\\n      schema: public\\n      name: customer\\n      columns:\\n        - { name: id, type: definitely-not-a-type }\\n"}
                 """))
         .andExpect(status().isBadRequest());
+    // M8：结构步骤失败时补偿删除，不留"有实例无结构"的空壳
+    mockMvc.perform(get("/api/instances/pg_bad_type").header("X-Api-Key", KEY))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("METADATA_INSTANCE_NOT_FOUND"));
   }
 
   @Test

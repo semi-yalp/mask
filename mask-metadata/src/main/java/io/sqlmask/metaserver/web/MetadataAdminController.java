@@ -143,10 +143,21 @@ public class MetadataAdminController {
       List<TableStructure> tables) {
     instances.create(request.name(), request.dialect(), null,
         ofNullable(request.connection()));
-    long version = structures.replace(request.name().trim(), tables);
-    int columnCount = tables.stream().mapToInt(t -> t.columns().size()).sum();
-    return new MetadataDtos.ImportResponse(request.name().trim(), tables.size(), columnCount,
-        version);
+    try {
+      long version = structures.replace(request.name().trim(), tables);
+      int columnCount = tables.stream().mapToInt(t -> t.columns().size()).sum();
+      return new MetadataDtos.ImportResponse(request.name().trim(), tables.size(), columnCount,
+          version);
+    } catch (RuntimeException failure) {
+      // M8: never leave an empty-shell instance behind when the structure step
+      // fails — compensate by removing what create() just wrote, then rethrow
+      try {
+        instances.delete(request.name().trim());
+      } catch (RuntimeException suppressed) {
+        failure.addSuppressed(suppressed);
+      }
+      throw failure;
+    }
   }
 
   static ConnectionInfo ofNullable(MetadataDtos.ConnectionRequest request) {
