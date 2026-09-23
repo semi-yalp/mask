@@ -166,28 +166,57 @@ java -jar target/sql-mask.jar
 
 ## 前端部署（nginx）
 
-`frontend/` 目录存放独立的静态前端（无构建步骤，纯 HTML/CSS/JS），生产由
-nginx 承载并反向代理 `/api/**` 到各微服务，浏览器与 API 同源、无需 CORS 配置。
+`frontend/` 是 Vue 3 + Element Plus 的管理台 SPA（参考 Apache Ranger Admin 的
+信息架构：深蓝侧边栏 + 访问管理服务网格 + 策略管理器 + 分类审计页签），
+vite 构建产出 `dist/`，生产由 nginx 承载并反向代理 `/api/**` 到各微服务，
+浏览器与 API 同源、无需 CORS 配置。
 
-- **策略管理台 `frontend/policy-console.html`**：mask-policy-server(8081) 的
-  管理面与数据面控制台——实例/表结构/策略/UDF CRUD、按主体（user/groups）拉取
-  生效配置预览、跨服务元数据导入；鉴权走 `X-Api-Key` 头（管理 Key 管
-  `/api/instances`，数据 Key 管 `/api/effective`），页面顶部可填写并保存在
-  sessionStorage（关标签即清，刷新需重输）。
+页面结构（`/` 即控制台入口，history 路由，nginx 已配 SPA 回退）：
+
+- **总览 `/`**：实例/表结构统计、快速开始、近期实例与门禁状态；
+- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql）分组的
+  Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
+  侧边栏「访问管理」悬停菜单同样按方言分组直达实例；
+- **策略管理器 `/policy-manager/:name`**：Ranger 式顶栏（方言标题、服务切换
+  下拉、管理实例菜单、绿色 Add New Policy），四个页签——策略（表格 + 分区式
+  编辑抽屉）、资源/表结构（表格 + 抽屉编辑 + 跨服务元数据导入）、脱敏
+  UDF、按主体拉取的生效配置预览；
+- **改写试验台 `/playground`**：instance 模式或内联 YAML 提交 SQL，
+  CodeMirror 编辑器，逐语句展示改写结果；
+- **审计 `/audit?eventType=…`**：Ranger 式审计页签（全部/访问审计 REWRITE/
+  查询执行 QUERY/管理审计 ADMIN_CHANGE/生效拉取 EFFECTIVE_PULL）+ 时间预设
+  与字段筛选，行可展开查看原始/改写 SQL；
+- **设置 `/settings`**：双 API Key（管理/数据，`X-Api-Key` 头，存
+  localStorage）与服务拓扑。
+
+旧版单文件 `frontend/policy-console.html` 保留作应急入口，不再作为 nginx
+默认首页（`index` 已改为 `index.html`）。
+
 - **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective` → 8081，
   `/api/audit` → 8080（审计查询端点在 mask-core）；另附注释示例：
   `/api/rewrite`、`/api/config`、`/api/policies` → 8080，`/api/metadata` → 8082
-  （`/api/metadata/pull` 须用 `location =` 精确匹配优先到 8080），`/api/v1/` → 8083。
+  （`/api/metadata/pull` 须用 `location =` 精确匹配优先到 8080），`/api/v1/` → 8083；
+  深链路由经 `try_files … /index.html` 回退到 SPA。
 
-部署方式二选一：
+构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行）：
 
 ```bash
-# 方式一：Docker（镜像内使用 nginx.conf.docker，upstream 指向
-#         host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
-docker compose -f docker-compose.frontend.yml up --build
+cd frontend
+bash deploy.sh sync   # 仅同步源码
+bash deploy.sh test   # 同步 + vitest 单测
+bash deploy.sh build  # 同步 + vue-tsc 类型检查 + vite 构建(产出 dist/)
+bash deploy.sh up     # 同步 + 构建镜像并启动 nginx(端口 80)
 
-# 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend 目录绝对路径后 include）
+# 方式二：本机 nginx（把 nginx.conf 的 root 改为 dist 目录绝对路径后 include）
 nginx -c $(pwd)/frontend/nginx.conf
+```
+
+Docker 镜像只打包 `frontend/dist/`（`docker/nginx.Dockerfile`），因此远程
+执行 `up` 前须先 `build`；镜像内使用 nginx.conf.docker，upstream 指向
+`host.docker.internal`，Linux 由 compose 的 host-gateway 映射提供：
+
+```bash
+docker compose -f docker-compose.frontend.yml up --build
 ```
 
 两份配置只监听 80 明文并带基础安全响应头；生产部署应在前面加 TLS 终止层，

@@ -1,23 +1,34 @@
 <template>
   <div>
-    <div class="actions-bar">
-      <el-button type="primary" plain @click="openForm(null)">＋ 注册 UDF</el-button>
-      <span class="muted">注册后供脱敏策略引用</span>
+    <div class="toolbar">
+      <el-input v-model="keyword" placeholder="按 UDF 名过滤" clearable style="width: 240px" :prefix-icon="Search" />
+      <span class="muted">注册脱敏 UDF 及其签名,供策略引用</span>
+      <span class="spacer" />
+      <el-button type="primary" @click="openForm(null)">注册 UDF</el-button>
     </div>
 
-    <div v-for="(u, i) in udfs" :key="u.name" class="udf-card">
-      <div class="udf-head">
-        <span class="udf-name">{{ u.name }}</span>
-        <span class="spacer" />
-        <el-button size="small" @click="openForm(u)">编辑</el-button>
-        <el-button size="small" type="danger" plain @click="removeUdf(i)">删除</el-button>
-      </div>
-      <div v-for="(s, si) in u.signatures" :key="si" class="kv">
-        <b>签名 {{ si + 1 }}</b>({{ (s.params || []).join(", ") || "—" }}) → {{ s.returns || "varchar" }}
-      </div>
-      <EmptyHint v-if="!u.signatures || !u.signatures.length">无签名</EmptyHint>
-    </div>
-    <EmptyHint v-if="!udfs.length">{{ loadError ? "加载失败:" + loadError : "暂无 UDF" }}</EmptyHint>
+    <el-table :data="filtered" size="default" stripe>
+      <el-table-column label="UDF 名" min-width="200">
+        <template #default="{ row }">
+          <a class="udf-link mono" @click="openForm(row)">{{ row.name }}</a>
+        </template>
+      </el-table-column>
+      <el-table-column label="签名数" width="90" align="center">
+        <template #default="{ row }">{{ (row.signatures || []).length }}</template>
+      </el-table-column>
+      <el-table-column label="签名(参数 → 返回)" min-width="420" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span class="mono muted">{{ sigText(row) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="120" align="center">
+        <template #default="{ row }">
+          <el-button size="small" text type="primary" @click="openForm(row)">编辑</el-button>
+          <el-button size="small" text type="danger" @click="removeUdf(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <EmptyHint v-if="!filtered.length">{{ loadError ? "加载失败:" + loadError : (keyword ? "无匹配 UDF" : "暂无 UDF") }}</EmptyHint>
 
     <el-drawer v-model="drawer" :title="editing ? '编辑 UDF:' + editing.name : '注册 UDF'" size="480px" destroy-on-close>
       <el-form label-width="86px" label-position="left">
@@ -26,7 +37,7 @@
           <div class="sig-list">
             <div v-for="(s, si) in form.signatures" :key="si" class="sig-row">
               <el-input v-model="s.paramsText" placeholder="参数类型,逗号分隔,如 varchar, integer, integer" />
-              <el-input v-model="s.returns" placeholder="返回类型,如 varchar" style="width: 120px" />
+              <el-input v-model="s.returns" placeholder="返回类型" style="width: 120px" />
               <el-button size="small" type="danger" plain :disabled="form.signatures.length <= 1"
                 @click="form.signatures.splice(si, 1)">✕</el-button>
             </div>
@@ -43,8 +54,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { Search } from "@element-plus/icons-vue";
 import { createUdf, deleteUdf, listUdfs, updateUdf } from "@/api/udfs";
 import type { Udf } from "@/types/domain";
 import EmptyHint from "@/components/EmptyHint.vue";
@@ -53,12 +65,18 @@ const props = defineProps<{ instance: string }>();
 
 const udfs = ref<Udf[]>([]);
 const loadError = ref("");
+const keyword = ref("");
 const drawer = ref(false);
 const editing = ref<Udf | null>(null);
 const saving = ref(false);
 const formError = ref("");
 
 const form = ref(emptyForm());
+
+const filtered = computed(() => {
+  const k = keyword.value.trim().toLowerCase();
+  return k ? udfs.value.filter((u) => (u.name || "").toLowerCase().includes(k)) : udfs.value;
+});
 
 function emptyForm() {
   return { name: "", signatures: [{ paramsText: "varchar", returns: "varchar" }] };
@@ -70,6 +88,10 @@ async function load() {
   catch (e) { loadError.value = (e as Error).message; }
 }
 onMounted(load);
+
+function sigText(u: Udf): string {
+  return (u.signatures || []).map((s) => `(${(s.params || []).join(", ") || "—"}) → ${s.returns || "varchar"}`).join("  |  ") || "—";
+}
 
 function openForm(u: Udf | null) {
   editing.value = u;
@@ -106,8 +128,7 @@ async function submit() {
   finally { saving.value = false; }
 }
 
-async function removeUdf(i: number) {
-  const u = udfs.value[i];
+async function removeUdf(u: Udf) {
   try { await ElMessageBox.confirm(`删除 UDF ${u.name}?`, "删除确认", { type: "warning" }); } catch { return; }
   try {
     await deleteUdf(props.instance, u.name);
@@ -118,18 +139,10 @@ async function removeUdf(i: number) {
 </script>
 
 <style scoped lang="scss">
-.actions-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.udf-card {
-  border: 1px solid var(--sm-border); border-radius: 8px; padding: 12px;
-  margin-bottom: 10px; background: #fbfcfe;
-}
-.udf-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
-  .udf-name { font-weight: 700; font-size: 13.5px; color: var(--sm-primary-dark); }
-  .spacer { flex: 1; }
-}
-.kv { font-size: 12.5px; line-height: 1.8; b { color: var(--sm-primary-dark); display: inline-block; min-width: 52px; } }
+.toolbar { display: flex; align-items: center; gap: 12px; margin: 10px 0 12px; .spacer { flex: 1; } }
+.udf-link { color: var(--sm-primary-dark); font-weight: 600; cursor: pointer; &:hover { text-decoration: underline; } }
 .sig-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
 .sig-row { display: flex; gap: 8px; }
 .drawer-foot { display: flex; align-items: center; gap: 10px; }
-.form-error { color: var(--el-color-danger, #dc2626); font-size: 12.5px; word-break: break-all; }
+.form-error { color: var(--el-color-danger, #dc3545); font-size: 12.5px; word-break: break-all; }
 </style>
