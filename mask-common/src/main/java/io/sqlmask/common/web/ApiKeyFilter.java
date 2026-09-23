@@ -38,7 +38,9 @@ import java.util.List;
  * the gate while still routing to the controllers.
  *
  * <p>On a successful key check the request is marked with
- * {@code audit.authKind=API_KEY} for the audit recorder.
+ * {@code audit.authKind=API_KEY} for the audit recorder; a request already
+ * bearer-authenticated by the mask-auth gate passes through marked
+ * {@code audit.authKind=LDAP} instead.
  */
 public final class ApiKeyFilter implements Filter {
 
@@ -90,6 +92,16 @@ public final class ApiKeyFilter implements Filter {
       throws IOException, ServletException {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
+    // a verified bearer token (the mask-auth console user, stamped by
+    // BearerAuthFilter at order 0) satisfies this gate as well. Literal
+    // attribute contract — not a compile-time reference to
+    // io.sqlmask.auth.AuthTokens#BEARER_AUTHENTICATED_ATTRIBUTE — so this
+    // module gains no dependency on mask-auth.
+    if (Boolean.TRUE.equals(request.getAttribute("auth.bearer"))) {
+      request.setAttribute(AuditEvents.AUTH_KIND_ATTRIBUTE, AuditEvents.AUTH_KIND_LDAP);
+      chain.doFilter(req, res);
+      return;
+    }
     String required = requiredKey(request.getServletPath());
     if (required == null) {
       chain.doFilter(req, res);

@@ -172,4 +172,39 @@ class ApiKeyFilterTest {
     assertEquals(request, passed.getRequest());
     assertTrue(passed.getResponse() instanceof HttpServletResponse);
   }
+
+  // ---- bearer 豁免（mask-auth 控制台用户）----
+
+  /**
+   * BearerAuthFilter 在 order 0 验签后打的 {@code auth.bearer} 标记应豁免
+   * key 门禁（含 fail-closed 的未配 key 面），并改标 authKind=LDAP。
+   */
+  @Test
+  void bearerAuthenticatedRequestBypassesEvenFailClosedUnconfiguredGate() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/x");
+    request.setServletPath("/api/x");
+    // failClosed(null)：任何 key 都过不了，唯有 bearer 标记放行
+    request.setAttribute("auth.bearer", Boolean.TRUE);
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    MockFilterChain chain = new MockFilterChain();
+    ApiKeyFilter.failClosed(null).doFilter(request, response, chain);
+
+    assertEquals(200, response.getStatus());
+    assertEquals(request, chain.getRequest());
+    assertEquals(AuditEvents.AUTH_KIND_LDAP,
+        request.getAttribute(AuditEvents.AUTH_KIND_ATTRIBUTE));
+  }
+
+  @Test
+  void bearerAuthorizationHeaderAloneDoesNotBypass() throws Exception {
+    // 只有 Authorization 头而没有 BearerAuthFilter 打的标记，不构成豁免：
+    // fail-closed 未配 key 照拒、配 key 的面错 key 照拒
+    assertEquals(401, run(ApiKeyFilter.failClosed(null), "/api/x", null).getStatus());
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/x");
+    request.setServletPath("/api/x");
+    request.addHeader("Authorization", "Bearer whatever");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    ApiKeyFilter.failClosed("secret").doFilter(request, response, new MockFilterChain());
+    assertEquals(401, response.getStatus());
+  }
 }

@@ -21,11 +21,12 @@ public class QueryAuditor {
     this.sink = sink;
   }
 
+  /** authKind comes from the request context (LDAP bearer / API_KEY / ANONYMOUS). */
   public void success(QueryResult result, String originalSql, String user,
-      List<String> groups, String sourceIp) {
+      List<String> groups, String sourceIp, String authKind) {
     try {
       sink.accept(AuditEvent.query(SERVICE, AuditEvent.SUCCESS, result.elapsedMs(), sourceIp,
-          "API_KEY", user, groups, result.instance(), dialectOf(result), result.masked(),
+          authKind, user, groups, result.instance(), dialectOf(result), result.masked(),
           result.rowFiltered(), originalSql, null, null,
           Map.of("engine", engineOf(result),
               "rowCount", result.rowCount(),
@@ -36,9 +37,9 @@ public class QueryAuditor {
   }
 
   public void failure(QueryException e, String originalSql, String user, List<String> groups,
-      String sourceIp, String instance) {
+      String sourceIp, String instance, String authKind) {
     try {
-      sink.accept(AuditEvent.query(SERVICE, AuditEvent.FAILURE, null, sourceIp, "API_KEY",
+      sink.accept(AuditEvent.query(SERVICE, AuditEvent.FAILURE, null, sourceIp, authKind,
           user, groups, instance, null, null, null, originalSql, e.code(), e.getMessage(),
           null));
     } catch (RuntimeException ignored) {

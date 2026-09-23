@@ -13,7 +13,7 @@
           @click.prevent.stop="go('/', 'dashboard')">
           <el-icon><Odometer /></el-icon><span>总览</span>
         </a>
-        <a class="nav-item" id="nav-access" :class="{ active: isActive('access'), open: drawer === 'access' }"
+        <a v-if="showAdmin" class="nav-item" id="nav-access" :class="{ active: isActive('access'), open: drawer === 'access' }"
           href="#/access-manager" @click.prevent.stop="toggleDrawer('access')">
           <el-icon><Coin /></el-icon><span>访问管理</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
@@ -22,7 +22,7 @@
           @click.prevent.stop="go('/metadata-manager', 'metadata-manager')">
           <el-icon><FolderOpened /></el-icon><span>元数据服务</span>
         </a>
-        <a class="nav-item" :class="{ active: isActive('policy') }" href="#/access-manager"
+        <a v-if="showAdmin" class="nav-item" :class="{ active: isActive('policy') }" href="#/access-manager"
           @click.prevent.stop="go('/access-manager', 'access')">
           <el-icon><Collection /></el-icon><span>策略管理器</span>
         </a>
@@ -34,7 +34,7 @@
           @click.prevent.stop="go('/playground', 'playground')">
           <el-icon><EditPen /></el-icon><span>改写试验台</span>
         </a>
-        <a class="nav-item" id="nav-audit" :class="{ active: isActive('audit'), open: drawer === 'audit' }"
+        <a v-if="showAudit" class="nav-item" id="nav-audit" :class="{ active: isActive('audit'), open: drawer === 'audit' }"
           href="#/audit" @click.prevent.stop="toggleDrawer('audit')">
           <el-icon><Document /></el-icon><span>审计</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
@@ -44,17 +44,25 @@
           <el-icon><Warning /></el-icon><span>风险监控</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
         </a>
-        <a class="nav-item" id="nav-settings" :class="{ active: route.name === 'settings', open: drawer === 'settings' }"
+        <a v-if="showAdmin" class="nav-item" id="nav-settings" :class="{ active: route.name === 'settings', open: drawer === 'settings' }"
           href="#/settings" @click.prevent.stop="toggleDrawer('settings')">
           <el-icon><Setting /></el-icon><span>设置</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
         </a>
       </nav>
       <div class="sidebar-foot">
-        <div class="gate" :class="{ open: !settings.gateConfigured }">
-          {{ settings.gateConfigured ? "门禁:已配置鉴权" : "门禁:未配置(开放)" }}
+        <div class="gate" :class="{ open: !settings.gateConfigured && !auth.isLoggedIn }">
+          {{ auth.isLoggedIn ? "认证:LDAP 已登录" : settings.gateConfigured ? "门禁:已配置鉴权" : "门禁:未配置(开放)" }}
         </div>
-        <a class="foot-link" href="#/settings" @click.prevent.stop="openKeyDialog">API Key 设置</a>
+        <div v-if="auth.isLoggedIn && auth.user" class="whoami">
+          <div class="whoami-name" :title="auth.user.displayName">{{ auth.user.displayName || auth.user.username }}</div>
+          <div class="whoami-meta">
+            <span class="role-badge" :class="'role-' + (auth.role || 'USER').toLowerCase()">{{ auth.role }}</span>
+            <span class="whoami-user">{{ auth.user.username }}</span>
+          </div>
+          <a class="logout-link" href="#/login" @click.prevent.stop="logout">退出登录</a>
+        </div>
+        <a v-else class="foot-link" href="#/settings" @click.prevent.stop="openKeyDialog">API Key 设置</a>
       </div>
     </aside>
 
@@ -185,11 +193,17 @@ import { useSettingsStore } from "@/stores/settings";
 import { useInstancesStore } from "@/stores/instances";
 import { POLICY_DIALECTS } from "@/constants";
 import { UNAUTHORIZED_EVENT } from "@/api/http";
+import { useAuthStore, SESSION_EXPIRED_EVENT } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
 const settings = useSettingsStore();
 const instances = useInstancesStore();
+const auth = useAuthStore();
+
+// LDAP 模式下按角色显隐；API Key 模式（未登录）保持原样全显
+const showAdmin = computed(() => !auth.isLoggedIn || auth.isAdmin);
+const showAudit = computed(() => !auth.isLoggedIn || auth.isAuditorPlus);
 
 const drawer = ref<"access" | "audit" | "risk" | "settings" | null>(null);
 const dialectFilter = ref<string[]>([]);
@@ -266,6 +280,18 @@ function clearKeys() {
   ElMessage.info("API Key 已清除");
 }
 
+function logout() {
+  drawer.value = null;
+  auth.logout();
+  router.push({ name: "login" }).catch(() => undefined);
+}
+
+function onSessionExpired() {
+  if (route.name !== "login") {
+    router.push({ name: "login", query: { redirect: route.fullPath } }).catch(() => undefined);
+  }
+}
+
 function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") drawer.value = null;
 }
@@ -274,10 +300,12 @@ onMounted(() => {
   instances.load();
   document.addEventListener("keydown", onKey);
   window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
+  window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
 });
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKey);
   window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
+  window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
 });
 
 watch(() => route.fullPath, () => { drawer.value = null; });
@@ -316,6 +344,30 @@ watch(() => route.fullPath, () => { drawer.value = null; });
   font-size: 11px; border: 1px dashed #46658a; border-radius: 999px;
   padding: 4px 8px; text-align: center; margin-bottom: 8px; color: #9fc0d8;
   &.open { color: #f0b849; border-color: #8a6a1f; }
+}
+.whoami {
+  margin-bottom: 6px; padding: 8px 10px; border: 1px solid #1c4467; border-radius: 6px;
+  background: rgba(10, 44, 71, 0.5);
+}
+.whoami-name {
+  color: #fff; font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.whoami-meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  .whoami-user { color: #6d8ca6; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+}
+.role-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.6px; border-radius: 3px;
+  padding: 1px 5px; color: #0a2237;
+  &.role-admin { background: #f0b849; }
+  &.role-auditor { background: #7fd1a8; }
+  &.role-user { background: #9fc0d8; }
+}
+.logout-link {
+  display: block; margin-top: 6px; color: var(--sm-sidebar-text); font-size: 12px;
+  text-decoration: none; text-align: center; padding: 3px 0; border-radius: 4px;
+  &:hover { color: #ff9d9d; background: var(--sm-navy-hover); }
 }
 .foot-link {
   display: block; text-align: center; color: var(--sm-sidebar-text); font-size: 12px;

@@ -9,6 +9,8 @@ public final class AuditEvents {
   public static final String AUTH_KIND_ATTRIBUTE = "audit.authKind";
   public static final String AUTH_KIND_API_KEY = "API_KEY";
   public static final String AUTH_KIND_ANONYMOUS = "ANONYMOUS";
+  /** Set by the bearer gate when a console user's LDAP token verified. */
+  public static final String AUTH_KIND_LDAP = "LDAP";
 
   private AuditEvents() {
   }

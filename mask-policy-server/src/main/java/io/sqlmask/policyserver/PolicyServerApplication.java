@@ -13,6 +13,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.List;
+
 /**
  * Standalone policy service: engine instances, UDF registry and policies with
  * their admin REST, plus the subject-parameterized effective-config data
@@ -86,5 +88,67 @@ public class PolicyServerApplication {
     registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
     registration.setOrder(1);
     return registration;
+  }
+
+  // ---- console-user (LDAP) authentication & authorization ----
+
+  @Bean
+  io.sqlmask.auth.AuthConfig authConfig() {
+    return io.sqlmask.auth.AuthConfig.fromEnv();
+  }
+
+  /** Present only when MASK_AUTH_SECRET is strong enough; null ⇒ feature off. */
+  @Bean
+  io.sqlmask.auth.AuthTokenService authTokenService(io.sqlmask.auth.AuthConfig config) {
+    return config.tokenEnabled()
+        ? new io.sqlmask.auth.AuthTokenService(config.secret(), config.tokenTtl())
+        : null;
+  }
+
+  /** Present only when the LDAP URL + base DN pair is configured; null ⇒ login disabled. */
+  @Bean
+  io.sqlmask.auth.LdapAuthenticator ldapAuthenticator(io.sqlmask.auth.AuthConfig config) {
+    return config.ldapEnabled() ? new io.sqlmask.auth.LdapAuthenticator(config) : null;
+  }
+
+  /**
+   * Bearer gate ahead of the API-key filters. Console rules here: instance
+   * management reads for any logged-in user, writes (create/update/delete of
+   * instances, policies, UDFs, metadata imports) for admins, effective-config
+   * pulls for any logged-in user with the subject taken from the token.
+   */
+  @Bean
+  FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> bearerAuthFilter(
+      io.sqlmask.auth.AuthConfig config,
+      ObjectProvider<io.sqlmask.auth.AuthTokenService> tokens) {
+    if (!config.tokenEnabled()) {
+      return disabledRegistration(); // no secret configured → pre-LDAP behaviour
+    }
+    List<io.sqlmask.auth.AuthRule> rules = new io.sqlmask.auth.AuthRule.Builder()
+        .readOnly("/api/instances", io.sqlmask.auth.Role.USER, io.sqlmask.auth.Role.ADMIN)
+        .prefix("/api/effective", io.sqlmask.auth.Role.USER)
+        .build();
+    FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> registration =
+        new FilterRegistrationBean<>(new io.sqlmask.auth.BearerAuthFilter(
+            tokens.getObject(), rules));
+    registration.addUrlPatterns("/api/*");
+    registration.setOrder(0);
+    log.info("MASK_AUTH_SECRET is configured: LDAP bearer-token auth is armed "
+        + "(token TTL {}, rules: /api/instances read=USER write=ADMIN, /api/effective=USER)",
+        config.tokenTtl());
+    return registration;
+  }
+
+  /**
+   * A disabled registration rather than a null @Bean return: null would
+   * surface as a NullBean of type FilterRegistrationBean and break the
+   * MockMvc builder's filter collection (observed as BeanNotOfRequiredType
+   * in tests booting the default context).
+   */
+  private static FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> disabledRegistration() {
+    FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
+        new FilterRegistrationBean<>();
+    off.setEnabled(false);
+    return off;
   }
 }

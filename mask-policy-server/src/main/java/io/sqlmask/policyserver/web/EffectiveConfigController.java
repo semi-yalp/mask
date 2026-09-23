@@ -46,11 +46,16 @@ public class EffectiveConfigController {
       @RequestParam(value = "user", required = false) String user,
       @RequestParam(value = "groups", required = false) List<String> groups,
       HttpServletRequest httpRequest) {
+    // a verified console identity wins over caller-asserted subject parameters:
+    // policies must compile for who actually asked, not for who the caller claims
+    io.sqlmask.auth.AuthPrincipal principal = io.sqlmask.auth.AuthTokens.principal(httpRequest);
+    String subjectUser = principal != null ? principal.username() : user;
+    List<String> subjectGroups = principal != null ? principal.groups() : groups;
     long start = System.nanoTime();
     try {
-      EffectiveConfigResponse response = service.effective(instance, Subject.of(user, groups));
+      EffectiveConfigResponse response = service.effective(instance, Subject.of(subjectUser, subjectGroups));
       metrics.success(instance, response, start);
-      record(httpRequest, instance, user, groups, start, AuditEvent.SUCCESS, null, null);
+      record(httpRequest, instance, subjectUser, subjectGroups, start, AuditEvent.SUCCESS, null, null);
       return response;
     } catch (RuntimeException e) {
       if (e instanceof SqlMaskException sme
@@ -59,7 +64,7 @@ public class EffectiveConfigController {
       } else {
         metrics.failure(instance, start);
       }
-      record(httpRequest, instance, user, groups, start, AuditEvent.FAILURE,
+      record(httpRequest, instance, subjectUser, subjectGroups, start, AuditEvent.FAILURE,
           e instanceof SqlMaskException sme ? sme.getCode().name() : e.getClass().getSimpleName(),
           e.getMessage());
       throw e;

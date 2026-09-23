@@ -22,6 +22,7 @@
     <module>mask-query</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>
+    <module>mask-auth</module>
     <module>mask-risk-server</module>
   </modules>
 
