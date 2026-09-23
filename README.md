@@ -890,6 +890,13 @@ export MASK_AUTH_AUDITOR_GROUPS=mask-auditors
 #    amy / amy-secret（ADMIN）、bob / bob-secret（AUDITOR）、carol / carol-secret（USER）
 ```
 
+跑通后可对运行中的 policy-server 执行认证授权断言套件（登录/角色门禁/
+主体绑定，全部通过退出码 0）：
+
+```bash
+BASE_URL=http://127.0.0.1:8081 ./docker/auth/smoke.sh
+```
+
 对接真实 AD 的差异要点：用户过滤器用 `(sAMAccountName={0})` 或
 `(userPrincipalName={0})`；AD 自动维护 `memberOf`，保持组检索基为空即可；
 `ldaps://` 走 TLS（信任 JVM 缺省信任库，企业根证书需先导入）。
