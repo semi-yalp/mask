@@ -1,0 +1,35 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  backend:
+    name: backend (mvn package, 9 modules incl. mask-lite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # `package` (not `test`) so the shade fat-jars are assembled too —
+      # META-INF/manifest breakage (cf. 944d4a2) must fail here, not at deploy
+      - name: Build and test
+        run: mvn -B package
+
+  frontend:
+    name: frontend (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # package-lock.json is committed (cb3cd43); fall back to npm install if
+      # it ever goes missing (deploy.sh's documented flow)
+      - name: Install and unit-test
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm test

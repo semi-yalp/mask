@@ -20,6 +20,8 @@
     <module>mask-policy</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>
+    <!-- standalone pom (no parent), aggregated so `mvn test` covers it -->
+    <module>mask-lite</module>
   </modules>
 
   <properties>

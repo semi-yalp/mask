@@ -5,6 +5,7 @@ import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -19,7 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Real pg_catalog introspection against an embedded PostgreSQL: schema
  * filtering, view inclusion, type mapping (including degraded types) and the
  * no-tables warning — the paths a mocked Connection cannot reach.
+ *
+ * <p>Runs by default (zonky binaries arrive as normal Maven artifacts). On a
+ * constrained/offline machine set {@code MASK_SKIP_REAL_PG=true} to skip it;
+ * CI keeps it enabled so the introspector is always exercised end to end.
  */
+@DisabledIfEnvironmentVariable(named = "MASK_SKIP_REAL_PG", matches = "(?i)true|1|on")
 class PgMetadataIntrospectorRealTest {
 
   private static EmbeddedPostgres embedded;
