@@ -11,7 +11,9 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          # JDK 21:trino-parser 446 的 class 版本是 65.0(Java 21),JDK 17 无法
+          # 读取其测试类路径;产物仍经 maven.compiler.release=17 保持 17 兼容。
+          java-version: '21'
           cache: maven
       # `package` (not `test`) so the shade fat-jars are assembled too —
       # META-INF/manifest breakage (cf. 944d4a2) must fail here, not at deploy
