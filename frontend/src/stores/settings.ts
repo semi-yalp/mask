@@ -26,7 +26,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const gateConfigured = computed(() =>
     Boolean(adminKey.value.trim() || dataKey.value.trim() || queryKey.value.trim()));
 
-  function setKeys(admin: string, data: string, query: string) {
+  function setKeys(admin: string, data: string, query = "") {
     adminKey.value = admin;
     dataKey.value = data;
     queryKey.value = query;
