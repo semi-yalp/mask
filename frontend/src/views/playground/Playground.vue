@@ -1,9 +1,10 @@
 <template>
-  <div class="page playground">
-    <div class="page-head">
-      <h2>改写试验台</h2>
-      <span class="muted">原始查询作为内层子查询,最外层对结果列调用脱敏 UDF</span>
+  <div>
+    <div class="page-topnav">
+      <span class="topnav-title">改写试验台 · Playground</span>
+      <span class="muted">原始查询作为内层子查询,最外层对结果列调用脱敏 UDF;只解析与改写,从不执行业务 SQL</span>
     </div>
+    <div class="page playground">
 
     <el-row :gutter="14">
       <el-col :span="11">
@@ -38,7 +39,7 @@
           <div class="yaml-label">SQL</div>
           <SqlEditor v-model="sql" />
           <div class="run-row">
-            <el-button type="primary" :loading="running" @click="run">改写</el-button>
+            <el-button type="success" class="run-btn" :loading="running" @click="run">改写</el-button>
             <span class="muted">工具只解析与改写,从不执行业务 SQL</span>
           </div>
         </el-card>
@@ -65,6 +66,7 @@
         </el-card>
       </el-col>
     </el-row>
+    </div>
   </div>
 </template>
 
@@ -108,9 +110,9 @@ async function run() {
 </script>
 
 <style scoped lang="scss">
-.page-head {
-  display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;
-  h2 { margin: 0; font-size: 18px; }
+.run-btn {
+  background: var(--sm-success); border-color: var(--sm-success); color: #fff; font-weight: 600;
+  &:hover, &:focus { background: var(--sm-success-dark); border-color: var(--sm-success-dark); color: #fff; }
 }
 .head-row { display: flex; align-items: center; }
 .form-row { display: flex; gap: 8px; margin-bottom: 10px; }

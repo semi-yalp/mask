@@ -1,17 +1,55 @@
-/* sql-mask 控制台主题:专业数据控制台 —— 深色侧边栏 + 浅色内容区 */
+/* sql-mask 控制台主题:参考 Apache Ranger Admin(react-webapp)——
+   深海军蓝侧边栏 + 青蓝主色 + 浅灰蓝内容区 + 绿色主操作按钮。 */
 :root {
-  --sm-primary: #2563eb;
-  --sm-primary-dark: #1d4ed8;
-  --sm-sidebar: #0f172a;
-  --sm-sidebar-text: #94a3b8;
-  --sm-sidebar-active: #e2e8f0;
-  --sm-bg: #f4f6fb;
+  /* Ranger 色板 */
+  --sm-navy: #133653;          /* 侧边栏 */
+  --sm-navy-dark: #0e2942;     /* 侧边栏头部/更深 */
+  --sm-navy-hover: #194468;    /* 侧边栏悬停 */
+  --sm-primary: #0b7fad;       /* Ranger 青蓝主色 */
+  --sm-primary-dark: #0a5c7d;  /* 主色 hover */
+  --sm-success: #28a745;       /* Add New Policy 绿 */
+  --sm-success-dark: #218838;
+  --sm-danger: #dc3545;
+  --sm-bg: #f3f8f9;            /* 内容区底色 */
   --sm-panel: #ffffff;
-  --sm-border: #d8dee9;
-  --sm-text: #1f2937;
-  --sm-muted: #6b7280;
-  --sm-code-bg: #0f172a;
+  --sm-border: #dee2e6;
+  --sm-border-strong: #d6d6d6;
+  --sm-text: #212529;
+  --sm-muted: #6c757d;
+  --sm-sidebar-text: #a7c0d4;
+  --sm-sidebar-active: #ffffff;
+  --sm-topnav-bg: #ffffff;     /* 页面浅色顶栏 */
+  --sm-topnav-border: #d6e0e6;
+  --sm-code-bg: #133653;
   --sm-code-text: #e2e8f0;
+
+  /* Element Plus 主色覆盖为 Ranger 青蓝 */
+  --el-color-primary: #0b7fad;
+  --el-color-primary-light-3: #3d99ba;
+  --el-color-primary-light-5: #6db3cb;
+  --el-color-primary-light-7: #9ccddf;
+  --el-color-primary-light-8: #b6dbe9;
+  --el-color-primary-light-9: #d7ecf3;
+  --el-color-primary-dark-2: #0a5c7d;
+  --el-color-success: #28a745;
+  --el-color-success-light-3: #599c6e;
+  --el-color-success-light-5: #86b996;
+  --el-color-success-light-7: #b3d7bd;
+  --el-color-success-light-8: #c9e4d0;
+  --el-color-success-light-9: #e0f1e4;
+  --el-color-success-dark-2: #218838;
+  --el-color-danger: #dc3545;
+  --el-color-danger-light-3: #e66772;
+  --el-color-danger-light-5: #ed9aa1;
+  --el-color-danger-light-7: #f4cdd1;
+  --el-color-danger-light-8: #f7dfe1;
+  --el-color-danger-light-9: #fbeff0;
+  --el-color-danger-dark-2: #b02a37;
+  --el-border-color: #dee2e6;
+  --el-border-color-light: #e6ecf0;
+  --el-border-color-lighter: #edf2f5;
+  --el-fill-color-light: #f3f8f9;
+  --el-fill-color-lighter: #f8fbfc;
 }
 
 * { box-sizing: border-box; }
@@ -31,7 +69,7 @@ body {
 
 /* 页面通用留白容器 */
 .page {
-  padding: 16px 22px 28px;
+  padding: 14px 20px 30px;
   max-width: 1700px;
   margin: 0 auto;
 }
@@ -39,3 +77,40 @@ body {
 .card-block { margin-bottom: 14px; }
 
 .muted { color: var(--sm-muted); }
+
+/* Ranger 风格页面浅色顶栏:标题 + 动作区 */
+.page-topnav {
+  background: var(--sm-topnav-bg);
+  border-bottom: 1px solid var(--sm-topnav-border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.page-topnav .topnav-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sm-primary-dark);
+  letter-spacing: 0.3px;
+}
+.page-topnav .spacer { flex: 1; }
+
+/* Ranger 风格面包屑 */
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--sm-muted);
+  margin-bottom: 12px;
+  a { color: var(--sm-primary); text-decoration: none; &:hover { text-decoration: underline; } }
+}
+
+/* 绿色主操作按钮(Add New Policy) */
+.el-button--success-solid {
+  background: var(--sm-success);
+  border-color: var(--sm-success);
+  color: #fff;
+  &:hover, &:focus { background: var(--sm-success-dark); border-color: var(--sm-success-dark); color: #fff; }
+}

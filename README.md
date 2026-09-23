@@ -172,21 +172,29 @@ java -jar target/sql-mask.jar
 ## 前端部署（nginx）
 
 `frontend/` 是统一策略控制台：**Vue 3 + Element Plus + Vite + TypeScript** 工程
-（`src/` 源码，构建产物 `dist/`）。构建需要 Node.js ≥ 18（版本钉在 Node 18 兼容
-档：Vite 5 / TS 5.5）；也可以不装 Node——用 `frontend/deploy.sh` 把源码同步到
-远程构建主机构建，本机零工具链。nginx 承载 `dist/` 并反向代理 `/api/**` 到各
-微服务，浏览器与 API 同源、无需 CORS 配置。
+（`src/` 源码，构建产物 `dist/`），参考 Apache Ranger Admin 的信息架构重构：
+深蓝侧边栏 + 飞出抽屉导航 + 访问管理服务网格 + 策略管理器 + 分类审计页签。
+构建需要 Node.js ≥ 18（版本钉在 Node 18 兼容档：Vite 5 / TS 5.5）；也可以不装
+Node——用 `frontend/deploy.sh` 把源码同步到远程构建主机构建，本机零工具链。
+nginx 承载 `dist/` 并反向代理 `/api/**` 到各微服务，浏览器与 API 同源、无需
+CORS 配置。
 
-控制台页面（SPA，`/` 直达）：
+页面结构（SPA，history 路由，nginx 已配 `try_files … /index.html` 深链回退）：
 
-- **总览**：实例/表/方言分布统计、服务拓扑与门禁状态；
-- **实例管理**：实例 CRUD、载入示例实例（crm + mask_phone）、表结构编辑、
-  策略（datamask/row_filter）CRUD、UDF 多签名注册、按主体（user/groups）拉取
-  生效配置预览、跨服务元数据导入；
-- **改写试验台**：instance 模式或内联 YAML 模式提交 SQL，逐语句查看脱敏改写
-  结果（CodeMirror SQL 编辑器、合并脚本一键复制）；
-- **审计日志**：按 eventType/outcome/实例/主体/时间范围（≤7 天）检索审计事件，
-  审计未启用（无 ES 或 `audit.enabled=false`）时显示引导卡片。
+- **总览 `/`**：实例/表结构统计、快速开始、近期实例与门禁状态；
+- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql）分组的
+  Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
+  侧边栏「访问管理」抽屉同样按方言分组直达实例；
+- **策略管理器 `/policy-manager/:name`**：Ranger 式顶栏（方言标题、服务切换
+  下拉、管理实例菜单、绿色 Add New Policy），四个页签——策略（表格 + 分区式
+  编辑抽屉）、资源/表结构（表格 + 抽屉编辑 + 跨服务元数据导入）、脱敏 UDF、
+  按主体拉取的生效配置预览；
+- **改写试验台 `/playground`**：instance 模式或内联 YAML 提交 SQL，
+  CodeMirror 编辑器，逐语句展示改写结果；
+- **审计 `/audit?eventType=…`**：Ranger 式审计页签（全部/访问审计 REWRITE/
+  查询执行 QUERY/管理审计 ADMIN_CHANGE/生效拉取 EFFECTIVE_PULL）+ 时间预设
+  与字段筛选，行可展开查看原始/改写 SQL，无 ES 时显示引导卡片；
+- **设置 `/settings`**：双 API Key 与服务拓扑。
 
 鉴权：页面侧边栏「API Key 设置」填写管理 Key（`/api/instances`）与数据 Key
 （`/api/effective`），以 `X-Api-Key` 头发送，保存在浏览器 localStorage。
@@ -198,13 +206,13 @@ java -jar target/sql-mask.jar
 - **`frontend/nginx.conf.docker`**：容器部署专用，同构路由，upstream 改为
   `host.docker.internal`。
 
-部署方式二选一：
+构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行）：
 
 ```bash
 cd frontend && npm install && npm run build   # 先产出 dist/
 
-# 方式一：Docker（镜像内使用 nginx.conf.docker，upstream 指向
-#         host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
+# 方式一：Docker（镜像只打包 frontend/dist/，镜像内使用 nginx.conf.docker，
+#         upstream 指向 host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
 docker compose -f docker-compose.frontend.yml up --build
 
 # 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend/dist 绝对路径后 include）
@@ -212,6 +220,14 @@ nginx -c $(pwd)/frontend/nginx.conf
 
 # 方式三：远程构建主机（本机无 Node 时;sync/build/test/up 子命令见脚本头注释）
 bash frontend/deploy.sh build && bash frontend/deploy.sh up
+```
+
+Docker 镜像只打包 `frontend/dist/`（`docker/nginx.Dockerfile`），因此远程
+执行 `up` 前须先 `build`；镜像内使用 nginx.conf.docker，upstream 指向
+`host.docker.internal`，Linux 由 compose 的 host-gateway 映射提供：
+
+```bash
+docker compose -f docker-compose.frontend.yml up --build
 ```
 
 两份配置只监听 80 明文并带基础安全响应头；生产部署应在前面加 TLS 终止层，

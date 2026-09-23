@@ -9,12 +9,17 @@ const router = createRouter({
       component: ConsoleLayout,
       children: [
         { path: "", name: "dashboard", component: () => import("@/views/Dashboard.vue") },
-        { path: "instances", name: "instances", component: () => import("@/views/instances/InstanceList.vue") },
-        { path: "instances/:name", name: "instance-detail", component: () => import("@/views/instances/InstanceDetail.vue"), props: true },
+        { path: "access-manager", name: "access-manager", component: () => import("@/views/access/AccessManager.vue") },
+        { path: "policy-manager/:name", name: "policy-manager", component: () => import("@/views/policymanager/PolicyManager.vue"), props: true },
         { path: "playground", name: "playground", component: () => import("@/views/playground/Playground.vue") },
-        { path: "audit", name: "audit", component: () => import("@/views/audit/AuditView.vue") }
+        { path: "audit", name: "audit", component: () => import("@/views/audit/AuditView.vue") },
+        { path: "settings", name: "settings", component: () => import("@/views/settings/Settings.vue") },
+        // 旧路径兼容重定向
+        { path: "instances", redirect: { name: "access-manager" } },
+        { path: "instances/:name", redirect: (to) => ({ name: "policy-manager", params: { name: to.params.name } }) }
       ]
-    }
+    },
+    { path: "/:pathMatch(.*)*", redirect: { name: "dashboard" } }
   ]
 });
 
