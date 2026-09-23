@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# risk-server local persistence (demo snapshots)
+data/

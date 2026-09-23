@@ -6,11 +6,17 @@ import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.elasticsearch.client.RestClient;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
  * Wires the audit pipeline (spec §2/§4): enabled (default) builds a shared ES
@@ -18,9 +24,14 @@ import org.springframework.context.annotation.Bean;
  * background writer and exposes the search client; disabled falls back to a
  * Noop recorder. Nothing here connects eagerly and nothing here can fail
  * application startup.
+ *
+ * <p>Additionally, a non-blank {@code risk.forward.url} wraps whichever recorder
+ * is active into a {@link ForwardingAuditRecorder} ({@code @Primary}) that also
+ * ships every event to the risk monitoring service - best-effort and fully
+ * inert when the property is unset.
  */
 @AutoConfiguration
-@EnableConfigurationProperties(AuditProperties.class)
+@EnableConfigurationProperties({AuditProperties.class, RiskForwardProperties.class})
 public class AuditAutoConfiguration {
 
   @Bean(destroyMethod = "close")
@@ -82,6 +93,42 @@ public class AuditAutoConfiguration {
   AuditSearchClient auditSearchClient(ElasticsearchClient auditElasticsearchClient,
       AuditProperties properties) {
     return new AuditSearchClient(auditElasticsearchClient, properties.getIndexPrefix());
+  }
+
+  /**
+   * Async risk forwarder, registered only for a non-blank ingest URL.
+   * Declared before the Noop fallback so the Noop bean's missing-bean
+   * condition can see the forwarding decorator and back off.
+   */
+  @Bean(destroyMethod = "close")
+  @Conditional(AuditAutoConfiguration.RiskForwardEnabled.class)
+  RiskForwarder riskForwarder(RiskForwardProperties properties,
+      ObjectProvider<MeterRegistry> registries) {
+    return new RiskForwarder(properties, registries.getIfAvailable());
+  }
+
+  /**
+   * @Primary decorator over the active recorder when forwarding is on. Binds
+   * the delegate by its concrete type (never {@code AuditRecorder}) so the
+   * decoration cannot resolve back into itself while it is being created.
+   */
+  @Bean
+  @Primary
+  @Conditional(AuditAutoConfiguration.RiskForwardEnabled.class)
+  ForwardingAuditRecorder forwardingAuditRecorder(
+      @org.springframework.lang.Nullable EsAuditRecorder esAuditRecorder,
+      RiskForwarder forwarder) {
+    AuditRecorder delegate = esAuditRecorder != null ? esAuditRecorder : new NoopAuditRecorder();
+    return new ForwardingAuditRecorder(delegate, forwarder);
+  }
+
+  /** Non-blank {@code risk.forward.url} enables the forwarding path. */
+  static class RiskForwardEnabled implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+      String url = context.getEnvironment().getProperty("risk.forward.url");
+      return url != null && !url.isBlank();
+    }
   }
 
   @Bean
