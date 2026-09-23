@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   backend:
-    name: backend (mvn package, 9 modules incl. mask-lite)
+    name: backend (mvn verify, 10 modules incl. mask-engine/mask-common)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,23 +15,25 @@ jobs:
           # 读取其测试类路径;产物仍经 maven.compiler.release=17 保持 17 兼容。
           java-version: '21'
           cache: maven
-      # `package` (not `test`) so the shade fat-jars are assembled too —
-      # META-INF/manifest breakage (cf. 944d4a2) must fail here, not at deploy
-      - name: Build and test
-        run: mvn -B package
+      # `verify` (not just `test`/`package`):
+      #  - 全部单测/集成/端到端(含嵌入式 PG 的 QueryEndToEndTest)必须通过;
+      #  - shade fat-jar 组装与 META-INF manifest 破损(cf. 944d4a2)必须在这里失败;
+      #  - mask-engine 的 enforcer 内核纯度规则(禁 Spring/picocli)必须在这里强制。
+      - name: Verify (tests + packages + enforcer)
+        run: mvn -B verify
 
   frontend:
-    name: frontend (vitest)
+    name: frontend (vitest + vue-tsc + vite build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # package-lock.json is committed (cb3cd43); fall back to npm install if
-      # it ever goes missing (deploy.sh's documented flow)
-      - name: Install and unit-test
+      # package-lock.json 未入库;deploy.sh 的文档化流程即 npm install
+      - name: Install, unit-test and build
         working-directory: frontend
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
           npm test
+          npm run build

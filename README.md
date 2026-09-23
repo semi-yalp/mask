@@ -21,19 +21,25 @@ mask-query 是仓库中唯一的受控执行面，且只执行改写产物、只
 资源通配与 `priority`），后者通过 `--policies` / 请求字段 `policyYaml` 提供并携带
 查询主体（`--user`/`--groups` 或请求字段 `user`/`groups`）。
 
-注意：单 jar（mask-core）不再内嵌策略管理面；实例/策略/UDF 的 REST 由
-mask-policy-server 在 8081 提供。
+注意：单 jar（mask-core）不含策略管理面；实例/策略/UDF 的 REST 由
+mask-policy-server 在 8081 提供。mask-engine 自 mask-core 抽离后为 Spring-free
+内核库，mask-lite（PG-only 最小化 fork）已随之退役（其使命由 mask-engine 承接，
+TPC-DS 基准资产保留在旧仓库 `semi-yalp/mask` 封存可查）。
 
 ## 服务形态
 
-同一仓库产出四个微服务、一个管理台前端（CLI 内置于改写服务 jar）：
+同一仓库产出四个微服务、一个管理台前端（CLI 内置于改写服务 jar），底层由两个
+共享库模块支撑（详见 `docs/refactor-plan.md` 的模块拓扑）：
 
-| 服务 | 模块 | 端口 | 职责 |
-|---|---|---|---|
-| 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、`/api/audit` 审计查询、内置页面、CLI |
-| 策略服务 | mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
-| 元数据服务 | mask-metadata | 8082 | 库表结构采集与存储 |
-| 查询服务 | mask-query | 8083 | 统一查询数据面：改写不可绕过地执行并只返回脱敏结果 |
+| 模块 | 端口 | 职责 |
+|---|---|---|
+| mask-engine | —（纯库） | 改写内核：方言/血缘/行过滤/YAML 配置/元数据采集；**零 Spring、零 picocli**（enforcer 强制），可独立嵌入 |
+| mask-common | —（库） | 服务面共享件：统一 `ApiKeyFilter`、统一错误体 `ApiError(code,message,details)`、跨服务契约与指标 |
+| mask-core | 8080 | 改写服务：`/api/rewrite`（内联 YAML 或 instance 模式）、`/api/audit` 审计查询、内置页面、CLI |
+| mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
+| mask-metadata | 8082 | 库表结构采集与存储 |
+| mask-query | 8083 | 统一查询数据面：改写不可绕过地执行并只返回脱敏结果 |
+| frontend/ | 80（nginx） | 管理台 SPA：总览/访问管理/元数据服务/策略管理器/数据面查询/试验台/审计/设置 |
 
 管理台前端（`frontend/`，nginx 部署）按路径前缀反代上述服务，详见
 「前端部署（nginx）」章节。
@@ -116,11 +122,16 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
 ## 构建
 
 ```bash
-mvn test
+mvn test       # 全模块测试（含嵌入式 PG 全链路 QueryEndToEndTest）
+mvn verify     # 测试 + 打包 + enforcer（内核纯度：mask-engine 禁 Spring/picocli）
 mvn package
 ```
 
 `mvn package` 产出可执行 fat jar：`target/sql-mask.jar`（已内置全部依赖）。
+模块拓扑：`mask-build-tools / mask-sqlparser / mask-policy / mask-engine /
+mask-audit / mask-common / mask-core / mask-query / mask-metadata /
+mask-policy-server`（内核 mask-engine 与共享件 mask-common 自 mask-core 抽离，
+服务模块之间零互相依赖，enforcer 强制）。
 
 依赖版本约定：`io.trino:trino-jdbc:446` 需与 test-scope 的
 `io.trino:trino-parser:446` 保持同一版本对齐（升级 JDBC 驱动时同步升级测试用
@@ -173,34 +184,50 @@ vite 构建产出 `dist/`，生产由 nginx 承载并反向代理 `/api/**` 到�
 
 页面结构（`/` 即控制台入口，history 路由，nginx 已配 SPA 回退）：
 
-- **总览 `/`**：实例/表结构统计、快速开始、近期实例与门禁状态；
-- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql）分组的
-  Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
+- **总览 `/`**：实例/表结构统计、方言分布、快速开始（创建实例 → 登记数据源 →
+  验证改写 → 受控查询）、门禁状态；
+- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql/hive/sparksql）
+  分组的 Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
   侧边栏「访问管理」悬停菜单同样按方言分组直达实例；
+- **元数据服务 `/metadata-manager`**：mask-metadata（8082）实例登记（引擎/连接
+  信息/密码环境变量名）、在线采集（collect，仅 postgresql/mysql/trino）、
+  YAML 导入、连接信息编辑与表结构/版本查看；
 - **策略管理器 `/policy-manager/:name`**：Ranger 式顶栏（方言标题、服务切换
   下拉、管理实例菜单、绿色 Add New Policy），四个页签——策略（表格 + 分区式
-  编辑抽屉）、资源/表结构（表格 + 抽屉编辑 + 跨服务元数据导入）、脱敏
-  UDF、按主体拉取的生效配置预览；
-- **改写试验台 `/playground`**：instance 模式或内联 YAML 提交 SQL，
-  CodeMirror 编辑器，逐语句展示改写结果；
+  编辑抽屉 + 校验）、资源/表结构（表格 + 抽屉编辑 + 分页 + 跨服务元数据导入）、
+  脱敏 UDF、按主体拉取的生效配置预览；
+- **数据面查询 `/query-console`**：mask-query（8083）`POST /api/v1/query` 的
+  受控查询台——选实例 + 查询主体 + maxRows，返回脱敏结果集（动态列表格、
+  masked/rowFiltered/truncated 徽标、耗时），可回显实际执行的改写产物，
+  本地保留最近执行历史；
+- **改写试验台 `/playground`**：instance 模式或内联 YAML 模式（含 policies.yaml
+  主体策略 + 方言选择）提交 SQL，CodeMirror 编辑器，逐语句展示改写结果；
 - **审计 `/audit?eventType=…`**：Ranger 式审计页签（全部/访问审计 REWRITE/
   查询执行 QUERY/管理审计 ADMIN_CHANGE/生效拉取 EFFECTIVE_PULL）+ 时间预设
   与字段筛选，行可展开查看原始/改写 SQL；
-- **设置 `/settings`**：双 API Key（管理/数据，`X-Api-Key` 头，存
-  localStorage）与服务拓扑。
+- **设置 `/settings`**：三把 API Key（管理/数据/查询，`X-Api-Key` 头，存
+  localStorage）与服务拓扑；401 会在全局提示对应 Key 未配置。
 
-旧版单文件 `frontend/policy-console.html` 保留作应急入口，不再作为 nginx
-默认首页（`index` 已改为 `index.html`）。
+鉴权失败统一返回 401 `{"code":"UNAUTHORIZED",...}`；业务错误统一为
+`{code, message, details[]}`（mask-common 的 `ApiError`，四个服务同构）。
 
-- **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective` → 8081，
-  `/api/audit` → 8080（审计查询端点在 mask-core）；另附注释示例：
-  `/api/rewrite`、`/api/config`、`/api/policies` → 8080，`/api/metadata` → 8082
-  （`/api/metadata/pull` 须用 `location =` 精确匹配优先到 8080），`/api/v1/` → 8083；
+旧版单文件 `policy-console.html` 已随功能完整的新控制台移除（localStorage 的
+Key 存储名沿用，老用户无感）。
+
+- **`frontend/nginx.conf`**：路由模板（`nginx.conf.docker` 与其同构，仅 upstream
+  主机不同）。最长前缀匹配：`/api/instances`、`/api/effective` → 8081，
+  `/api/meta/**` → 重写为 8082 的 `/api/**`（策略服务与元数据服务都有
+  `/api/instances`，控制台约定元数据服务走 `/api/meta/` 网关前缀），
+  `/api/v1/` → 8083，其余 `/api/` → 8080（rewrite/config/policies/audit/
+  metadata pull）；vite dev 代理（`vite.config.ts`）与生产完全同构；
   深链路由经 `try_files … /index.html` 回退到 SPA。
 
-构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行）：
+构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行；
+`DEPLOY_HOST` **必填**——不再内置默认主机）：
 
 ```bash
+export DEPLOY_HOST=root@your-build-host   # 必填
+export DEPLOY_ROOT=~/code/mask            # 可选
 cd frontend
 bash deploy.sh sync   # 仅同步源码
 bash deploy.sh test   # 同步 + vitest 单测
