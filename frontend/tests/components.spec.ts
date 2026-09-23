@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import ElementPlus from "element-plus";
-import PoliciesTab from "@/views/instances/PoliciesTab.vue";
-import UdfsTab from "@/views/instances/UdfsTab.vue";
-import TablesTab from "@/views/instances/TablesTab.vue";
+import PoliciesTab from "@/views/policymanager/PoliciesTab.vue";
+import UdfsTab from "@/views/policymanager/UdfsTab.vue";
+import TablesTab from "@/views/policymanager/TablesTab.vue";
 import * as policiesApi from "@/api/policies";
 import * as udfsApi from "@/api/udfs";
 import * as instancesApi from "@/api/instances";
@@ -37,38 +37,43 @@ const inst: InstanceInfo = {
   tables: [{ catalog: "crm", schema: "public", name: "customer", columns: [{ name: "id", type: "bigint" }] }]
 };
 
+const inputByPlaceholder = (wrapper: ReturnType<typeof mount>, text: string) =>
+  wrapper.findAll(".el-drawer__body input").find((i) => (i.attributes("placeholder") || "").includes(text));
+
+const buttonByText = (wrapper: ReturnType<typeof mount>, scope: string, text: string) =>
+  wrapper.findAll(`${scope} button`).find((b) => b.text().includes(text))!;
+
 beforeEach(() => {
   setActivePinia(createPinia());
   vi.clearAllMocks();
 });
 
 describe("PoliciesTab 新建策略抽屉", () => {
-  it("点击「新建策略」打开抽屉,填写并提交 createPolicy", async () => {
+  it("点击「Add New Policy」打开分区式抽屉,填写并提交 createPolicy", async () => {
     const wrapper = mountWithUi(PoliciesTab, { instance: "crm" });
     await flushPromises();
 
-    const createBtn = wrapper.findAll("button").find((b) => b.text().includes("新建策略"))!;
+    const createBtn = buttonByText(wrapper, "", "Add New Policy");
     expect(createBtn).toBeTruthy();
     await createBtn.trigger("click");
     await flushPromises();
 
-    // 抽屉打开:表单字段出现
-    const drawer = wrapper.find(".el-drawer__body");
-    expect(drawer.exists()).toBe(true);
+    // 抽屉打开:分区标题与表单字段出现
+    expect(wrapper.find(".el-drawer__body").exists()).toBe(true);
+    expect(wrapper.findAll(".el-drawer__body .section").length).toBeGreaterThanOrEqual(3);
 
-    const inputs = wrapper.findAll(".el-drawer__body input");
-    expect(inputs.length).toBeGreaterThan(5);
+    const set = (placeholder: string, value: string) =>
+      inputByPlaceholder(wrapper, placeholder)!.setValue(value);
+    set("mask_phone_policy", "mask_phone_policy");
+    set("可选,小者优先", "1");
+    set("catalog", "crm");
+    set("schema", "public");
+    set("table", "customer");
+    set("columns,逗号分隔", "phone");
+    set("udf 名", "mask_phone");
+    set("arguments", "3, 4");
 
-    // 填写(name/priority/类型select/switch/catalog/schema/table/columns/users/groups/udf/args/filterExpr)
-    await inputs[0]!.setValue("mask_phone_policy");
-    await inputs[4]!.setValue("crm");
-    await inputs[5]!.setValue("public");
-    await inputs[6]!.setValue("customer");
-    await inputs[7]!.setValue("phone");
-    await inputs[10]!.setValue("mask_phone");
-    await inputs[11]!.setValue("3, 4");
-
-    const saveBtn = wrapper.findAll(".el-drawer__body button").find((b) => b.text().includes("保存策略"))!;
+    const saveBtn = buttonByText(wrapper, ".el-drawer__body", "保存策略")!;
     await saveBtn.trigger("click");
     await flushPromises();
 
@@ -76,6 +81,7 @@ describe("PoliciesTab 新建策略抽屉", () => {
     const [, policyBody] = vi.mocked(policiesApi.createPolicy).mock.calls[0]!;
     expect(policyBody.name).toBe("mask_phone_policy");
     expect(policyBody.policyType).toBe("datamask");
+    expect(policyBody.priority).toBe(1);
     expect(policyBody.resource).toEqual({ catalog: "crm", schema: "public", table: "customer", columns: ["phone"] });
     expect(policyBody.subjects).toEqual({ users: [], groups: [] });
     expect(policyBody.udf).toBe("mask_phone");
@@ -88,7 +94,7 @@ describe("UdfsTab 注册 UDF", () => {
     const wrapper = mountWithUi(UdfsTab, { instance: "crm" });
     await flushPromises();
 
-    const createBtn = wrapper.findAll("button").find((b) => b.text().includes("注册 UDF"))!;
+    const createBtn = buttonByText(wrapper, "", "注册 UDF");
     await createBtn.trigger("click");
     await flushPromises();
     expect(wrapper.find(".el-drawer__body").exists()).toBe(true);
@@ -96,7 +102,7 @@ describe("UdfsTab 注册 UDF", () => {
     const nameInput = wrapper.findAll(".el-drawer__body input").find((i) => (i.attributes("placeholder") || "").includes("mask_phone"))!;
     await nameInput.setValue("mask_email");
 
-    const saveBtn = wrapper.findAll(".el-drawer__body button").find((b) => b.text().includes("保存 UDF"))!;
+    const saveBtn = buttonByText(wrapper, ".el-drawer__body", "保存 UDF")!;
     await saveBtn.trigger("click");
     await flushPromises();
 
@@ -108,25 +114,30 @@ describe("UdfsTab 注册 UDF", () => {
 });
 
 describe("TablesTab 表结构编辑", () => {
-  it("添加列/添加表触发脏状态,保存调用 putTables", async () => {
+  it("抽屉添加表(含加列)触发脏状态,保存调用 putTables", async () => {
     const wrapper = mountWithUi(TablesTab, { inst });
     await flushPromises();
 
-    const addColBtn = wrapper.findAll("button").find((b) => b.text().includes("添加列"))!;
-    await addColBtn.trigger("click");
-    const addTableBtn = wrapper.findAll("button").find((b) => b.text().includes("添加表"))!;
+    const addTableBtn = buttonByText(wrapper, "", "添加表")!;
     await addTableBtn.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".el-drawer__body").exists()).toBe(true);
+
+    // 抽屉内加一列(默认已有 id bigint)
+    await buttonByText(wrapper, ".el-drawer__body", "添加列").trigger("click");
+    await inputByPlaceholder(wrapper, "表名")!.setValue("customer2");
+    await buttonByText(wrapper, ".el-drawer__body", "确定").trigger("click");
+    await flushPromises();
     expect(wrapper.text()).toContain("有未保存修改");
 
-    const saveBtn = wrapper.findAll("button").find((b) => b.text().includes("保存全部表结构"))!;
+    const saveBtn = buttonByText(wrapper, "", "保存全部")!;
     await saveBtn.trigger("click");
     await flushPromises();
 
     expect(instancesApi.putTables).toHaveBeenCalledTimes(1);
     const [, tablesArg] = vi.mocked(instancesApi.putTables).mock.calls[0]!;
     expect(tablesArg).toHaveLength(2);
-    expect(tablesArg[0]!.name).toBe("customer");
-    expect(tablesArg[0]!.columns).toHaveLength(2);
-    expect(tablesArg[1]!.name).toBe("");
+    expect(tablesArg[1]!.name).toBe("customer2");
+    expect(tablesArg[1]!.columns).toHaveLength(2);
   });
 });
