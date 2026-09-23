@@ -29,12 +29,16 @@
                 <el-input v-model="dataKeyDraft" type="password" show-password
                   placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
               </el-form-item>
+              <el-form-item label="查询 Key">
+                <el-input v-model="queryKeyDraft" type="password" show-password
+                  placeholder="mask-query 数据面(未配置即全 401)" autocomplete="off" />
+              </el-form-item>
             </el-form>
             <div class="key-actions">
               <el-button @click="clearKeys">清除</el-button>
               <el-button type="primary" @click="saveKeys">保存</el-button>
             </div>
-            <p class="muted key-note">管理 Key 用于实例/策略/UDF 管理面(8081),数据 Key 用于生效配置查询;仅保存在浏览器 localStorage,请求时经 X-Api-Key 头携带。</p>
+            <p class="muted key-note">管理 Key 用于实例/策略/UDF 管理面(8081),数据 Key 用于生效配置查询(8081),查询 Key 用于统一查询数据面(8083,服务端未配置时全 401);仅保存在浏览器 localStorage,请求时经 X-Api-Key 头携带。</p>
           </el-card>
         </el-col>
         <el-col :span="12">
@@ -43,12 +47,12 @@
               <div class="card-title"><el-icon><Connection /></el-icon>服务拓扑</div>
             </template>
             <div class="topo">
-              <div class="topo-row"><el-tag size="small">8080</el-tag><span><b>mask-core</b> 改写服务(/api/rewrite、/api/audit)</span></div>
+              <div class="topo-row"><el-tag size="small">8080</el-tag><span><b>mask-core</b> 改写服务(/api/rewrite、/api/audit、/api/config、/api/policies)</span></div>
               <div class="topo-row"><el-tag size="small">8081</el-tag><span><b>mask-policy-server</b> 策略服务(/api/instances、/api/effective)</span></div>
-              <div class="topo-row"><el-tag size="small">8082</el-tag><span><b>mask-metadata</b> 元数据服务(经策略服务导入)</span></div>
-              <div class="topo-row"><el-tag size="small">8083</el-tag><span><b>mask-query</b> 查询服务(/api/v1/query,预留)</span></div>
+              <div class="topo-row"><el-tag size="small">8082</el-tag><span><b>mask-metadata</b> 元数据服务(控制台经 /api/meta/ 前缀访问)</span></div>
+              <div class="topo-row"><el-tag size="small">8083</el-tag><span><b>mask-query</b> 查询服务(/api/v1/query,数据面查询页)</span></div>
             </div>
-            <p class="muted key-note">前端 nginx 按路径前缀反代上述服务;/api/instances 与 /api/effective 指向 8081,其余 /api 指向 8080。</p>
+            <p class="muted key-note">前端 nginx 按路径前缀反代:/api/instances 与 /api/effective 指向 8081,/api/meta/ 重写到 8082 的 /api/,/api/v1/ 指向 8083,其余 /api 指向 8080。</p>
           </el-card>
         </el-col>
       </el-row>
@@ -65,15 +69,17 @@ import { useSettingsStore } from "@/stores/settings";
 const settings = useSettingsStore();
 const adminKeyDraft = ref(settings.adminKey);
 const dataKeyDraft = ref(settings.dataKey);
+const queryKeyDraft = ref(settings.queryKey);
 
 function saveKeys() {
-  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value);
+  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value, queryKeyDraft.value);
   ElMessage.success("API Key 已保存到本地");
 }
 function clearKeys() {
   adminKeyDraft.value = "";
   dataKeyDraft.value = "";
-  settings.setKeys("", "");
+  queryKeyDraft.value = "";
+  settings.setKeys("", "", "");
   ElMessage.info("API Key 已清除");
 }
 </script>

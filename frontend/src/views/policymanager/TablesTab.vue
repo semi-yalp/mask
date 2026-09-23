@@ -5,11 +5,11 @@
       <span class="muted">资源(表结构)供策略解析与改写使用;可手动维护或从元数据服务导入</span>
       <span class="spacer" />
       <span v-if="dirty" class="dirty">有未保存修改</span>
-      <el-button :disabled="!dirty" @click="save">保存全部</el-button>
+      <el-button :disabled="!dirty" :loading="saving" @click="save">保存全部</el-button>
       <el-button type="primary" @click="addTable">添加表</el-button>
     </div>
 
-    <el-table :data="filtered" size="default" stripe v-loading="false">
+    <el-table :data="paged" size="default" stripe>
       <el-table-column label="资源路径(catalog.schema.table)" min-width="300">
         <template #default="{ row }">
           <span class="mono resource-link">{{ tableKey(row) }}</span>
@@ -36,6 +36,10 @@
         </template>
       </el-table-column>
     </el-table>
+    <div v-if="filtered.length > pageSize" class="pager-row">
+      <el-pagination v-model:current-page="page" :page-size="pageSize" :total="filtered.length"
+        layout="total, prev, pager, next" size="small" />
+    </div>
     <EmptyHint v-if="!filtered.length">{{ keyword ? "无匹配表" : "暂无表结构。可「添加表」,或经顶栏「管理实例 → 从元数据服务导入」。" }}</EmptyHint>
 
     <el-drawer v-model="drawer" :title="editIndex >= 0 ? '编辑表:' + (draft.columns.length ? draft.name : '') : '添加表'"
@@ -66,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
 import { putTables } from "@/api/instances";
 import type { InstanceInfo, TableDef } from "@/types/domain";
@@ -81,12 +85,17 @@ const keyword = ref("");
 const drawer = ref(false);
 const editIndex = ref(-1);
 const draft = ref<TableDef>({ catalog: "", schema: "", name: "", rowFilter: "", columns: [] });
+const page = ref(1);
+const pageSize = 20;
+const saving = ref(false);
 
 const filtered = computed(() => {
   const k = keyword.value.trim().toLowerCase();
   if (!k) return tables.value;
   return tables.value.filter((t) => tableKey(t).toLowerCase().includes(k));
 });
+
+const paged = computed(() => filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize));
 
 watch(() => props.inst, (inst) => {
   tables.value = JSON.parse(JSON.stringify(inst.tables || [])) as TableDef[];
@@ -126,24 +135,31 @@ function confirmDraft() {
   drawer.value = false;
 }
 
-function removeTable(ti: number) {
+async function removeTable(ti: number) {
+  const t = tables.value[ti];
+  try {
+    await ElMessageBox.confirm(`删除表 ${tableKey(t)}?保存全部后生效。`, "删除确认", { type: "warning" });
+  } catch { return; }
   tables.value.splice(ti, 1);
   dirty.value = true;
 }
 
 async function save() {
+  saving.value = true;
   try {
     await putTables(props.inst.name, tables.value);
     dirty.value = false;
     ElMessage.success("表结构已保存");
     emit("refresh");
   } catch (e) { ElMessage.error((e as Error).message); }
+  finally { saving.value = false; }
 }
 </script>
 
 <style scoped lang="scss">
 .toolbar { display: flex; align-items: center; gap: 12px; margin: 10px 0 12px; flex-wrap: wrap; .spacer { flex: 1; } }
 .dirty { color: #b07a12; font-size: 12px; }
+.pager-row { display: flex; justify-content: flex-end; margin-top: 10px; }
 .resource-link { color: var(--sm-text); font-weight: 600; }
 .section {
   font-size: 12px; font-weight: 700; color: var(--sm-primary-dark); letter-spacing: 0.8px;

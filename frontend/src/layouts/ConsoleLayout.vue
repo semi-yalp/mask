@@ -18,9 +18,17 @@
           <el-icon><Coin /></el-icon><span>访问管理</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
         </a>
+        <a class="nav-item" :class="{ active: route.name === 'metadata-manager' }" href="#/metadata-manager"
+          @click.prevent.stop="go('/metadata-manager', 'metadata-manager')">
+          <el-icon><FolderOpened /></el-icon><span>元数据服务</span>
+        </a>
         <a class="nav-item" :class="{ active: isActive('policy') }" href="#/access-manager"
           @click.prevent.stop="go('/access-manager', 'access')">
           <el-icon><Collection /></el-icon><span>策略管理器</span>
+        </a>
+        <a class="nav-item" :class="{ active: route.name === 'query-console' }" href="#/query-console"
+          @click.prevent.stop="go('/query-console', 'query-console')">
+          <el-icon><CaretRight /></el-icon><span>数据面查询</span>
         </a>
         <a class="nav-item" :class="{ active: route.name === 'playground' }" href="#/playground"
           @click.prevent.stop="go('/playground', 'playground')">
@@ -29,6 +37,11 @@
         <a class="nav-item" id="nav-audit" :class="{ active: isActive('audit'), open: drawer === 'audit' }"
           href="#/audit" @click.prevent.stop="toggleDrawer('audit')">
           <el-icon><Document /></el-icon><span>审计</span>
+          <el-icon class="chev"><ArrowRight /></el-icon>
+        </a>
+        <a class="nav-item" id="nav-risk" :class="{ active: isActive('risk'), open: drawer === 'risk' }"
+          href="#/risk/dashboard" @click.prevent.stop="toggleDrawer('risk')">
+          <el-icon><Warning /></el-icon><span>风险监控</span>
           <el-icon class="chev"><ArrowRight /></el-icon>
         </a>
         <a class="nav-item" id="nav-settings" :class="{ active: route.name === 'settings', open: drawer === 'settings' }"
@@ -89,6 +102,40 @@
         </div>
       </template>
 
+      <template v-else-if="drawer === 'risk'">
+        <div class="flyout-title">
+          <span>RISK MONITOR</span>
+          <el-icon class="flyout-close" @click="drawer = null"><Close /></el-icon>
+        </div>
+        <div class="flyout-scroll">
+          <a class="flyout-item" :class="{ current: route.name === 'risk-dashboard' }"
+            @click="go('/risk/dashboard', 'risk-dashboard')">
+            <el-icon><Odometer /></el-icon><span>风险大盘</span>
+            <span class="flyout-meta">趋势 / Top 榜</span>
+          </a>
+          <a class="flyout-item" :class="{ current: route.name === 'risk-alerts' }"
+            @click="go('/risk/alerts', 'risk-alerts')">
+            <el-icon><Bell /></el-icon><span>告警中心</span>
+            <span class="flyout-meta">处置闭环</span>
+          </a>
+          <a class="flyout-item" :class="{ current: route.name === 'risk-events' }"
+            @click="go('/risk/events', 'risk-events')">
+            <el-icon><Document /></el-icon><span>事件流</span>
+            <span class="flyout-meta">证据明细</span>
+          </a>
+          <a class="flyout-item" :class="{ current: route.name === 'risk-rules' }"
+            @click="go('/risk/rules', 'risk-rules')">
+            <el-icon><Filter /></el-icon><span>检测规则</span>
+            <span class="flyout-meta">内置 + 自定义</span>
+          </a>
+          <a class="flyout-item" :class="{ current: route.name === 'risk-assets' }"
+            @click="go('/risk/assets', 'risk-assets')">
+            <el-icon><Coin /></el-icon><span>敏感资产</span>
+            <span class="flyout-meta">列级分级</span>
+          </a>
+        </div>
+      </template>
+
       <template v-else-if="drawer === 'settings'">
         <div class="flyout-title">
           <span>SETTINGS</span>
@@ -115,8 +162,12 @@
           <el-input v-model="dataKeyDraft" type="password" show-password
             placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
         </el-form-item>
+        <el-form-item label="查询 Key">
+          <el-input v-model="queryKeyDraft" type="password" show-password
+            placeholder="mask-query 数据面(未配置即全 401)" autocomplete="off" />
+        </el-form-item>
       </el-form>
-      <p class="muted" style="margin:0 0 4px">管理 Key 用于实例/策略/UDF 管理面,数据 Key 用于生效配置查询;仅保存在浏览器 localStorage。</p>
+      <p class="muted" style="margin:0 0 4px">管理 Key 用于实例/策略/UDF 管理面,数据 Key 用于生效配置查询,查询 Key 用于统一查询数据面;仅保存在浏览器 localStorage。</p>
       <template #footer>
         <el-button @click="clearKeys">清除</el-button>
         <el-button type="primary" @click="saveKeys">保存</el-button>
@@ -128,23 +179,32 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Odometer, Coin, EditPen, Document, Setting, ArrowRight, Close, Grid, Key, Connection, Lock } from "@element-plus/icons-vue";
+import { Odometer, Coin, EditPen, Document, Setting, ArrowRight, Close, Grid, Key, Connection, Lock, FolderOpened, CaretRight, Warning, Bell, Filter } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { useSettingsStore } from "@/stores/settings";
 import { useInstancesStore } from "@/stores/instances";
+import { POLICY_DIALECTS } from "@/constants";
+import { UNAUTHORIZED_EVENT } from "@/api/http";
 
 const route = useRoute();
 const router = useRouter();
 const settings = useSettingsStore();
 const instances = useInstancesStore();
 
-const drawer = ref<"access" | "audit" | "settings" | null>(null);
+const drawer = ref<"access" | "audit" | "risk" | "settings" | null>(null);
 const dialectFilter = ref<string[]>([]);
 const keyDialog = ref(false);
 const adminKeyDraft = ref(settings.adminKey);
 const dataKeyDraft = ref(settings.dataKey);
+const queryKeyDraft = ref(settings.queryKey);
 
-const dialects = ["postgresql", "trino", "mysql"];
+const dialects = [...POLICY_DIALECTS];
+
+function onUnauthorized(e: Event) {
+  const role = (e as CustomEvent<{ role?: string }>).detail?.role || "admin";
+  const label = role === "query" ? "查询 Key" : role === "data" ? "数据 Key" : "管理 Key";
+  ElMessage.warning(`请求被 401 拒绝:请检查设置中的「${label}」是否已配置/正确`);
+}
 
 const groupedInstances = computed(() => {
   const selected = dialectFilter.value;
@@ -157,13 +217,14 @@ const currentInstance = computed(() =>
   route.name === "policy-manager" ? String(route.params.name || "") : ""
 );
 
-function isActive(group: "access" | "policy" | "audit"): boolean {
+function isActive(group: "access" | "policy" | "audit" | "risk"): boolean {
   if (group === "access") return route.name === "access-manager";
   if (group === "policy") return route.name === "policy-manager";
+  if (group === "risk") return String(route.name || "").startsWith("risk-");
   return route.name === "audit";
 }
 
-function toggleDrawer(name: "access" | "audit" | "settings") {
+function toggleDrawer(name: "access" | "audit" | "risk" | "settings") {
   drawer.value = drawer.value === name ? null : name;
 }
 
@@ -188,18 +249,20 @@ function openKeyDialog() {
   drawer.value = null;
   adminKeyDraft.value = settings.adminKey;
   dataKeyDraft.value = settings.dataKey;
+  queryKeyDraft.value = settings.queryKey;
   keyDialog.value = true;
 }
 
 function saveKeys() {
-  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value);
+  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value, queryKeyDraft.value);
   keyDialog.value = false;
   ElMessage.success("API Key 已保存到本地");
 }
 function clearKeys() {
   adminKeyDraft.value = "";
   dataKeyDraft.value = "";
-  settings.setKeys("", "");
+  queryKeyDraft.value = "";
+  settings.setKeys("", "", "");
   ElMessage.info("API Key 已清除");
 }
 
@@ -210,8 +273,12 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => {
   instances.load();
   document.addEventListener("keydown", onKey);
+  window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
 });
-onBeforeUnmount(() => document.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onKey);
+  window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
+});
 
 watch(() => route.fullPath, () => { drawer.value = null; });
 </script>

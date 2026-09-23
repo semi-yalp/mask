@@ -51,19 +51,27 @@
             <div class="quick">
               <router-link :to="{ name: 'access-manager' }" class="quick-item">
                 <div class="quick-head"><el-icon><Coin /></el-icon><b>创建第一个实例</b></div>
-                <span class="muted">按方言(postgresql / trino / mysql)创建实例,可一键载入示例 crm</span>
+                <span class="muted">按方言(postgresql / trino / mysql / hive / sparksql)创建实例,可一键载入示例 crm</span>
               </router-link>
-              <router-link :to="{ name: 'playground' }" class="quick-item">
-                <div class="quick-head"><el-icon><EditPen /></el-icon><b>编写脱敏策略</b></div>
-                <span class="muted">策略管理器中添加 DATAMASK(列脱敏)或 ROW_FILTER(行过滤)策略</span>
+              <router-link :to="{ name: 'metadata-manager' }" class="quick-item">
+                <div class="quick-head"><el-icon><FolderOpened /></el-icon><b>登记数据源</b></div>
+                <span class="muted">元数据服务登记引擎连接,在线采集表结构或 YAML 导入</span>
               </router-link>
               <router-link :to="{ name: 'playground' }" class="quick-item">
                 <div class="quick-head"><el-icon><EditPen /></el-icon><b>验证改写结果</b></div>
                 <span class="muted">试验台提交 SQL,查看「原始查询内层 + 外层脱敏 UDF」的改写产物</span>
               </router-link>
+              <router-link :to="{ name: 'query-console' }" class="quick-item">
+                <div class="quick-head"><el-icon><CaretRight /></el-icon><b>受控查询数据</b></div>
+                <span class="muted">数据面查询:改写不可绕过,只返回脱敏后的结果集</span>
+              </router-link>
               <router-link :to="{ name: 'audit' }" class="quick-item">
                 <div class="quick-head"><el-icon><Document /></el-icon><b>检索审计事件</b></div>
                 <span class="muted">按事件类型 / 主体 / 时间范围检索改写与管理面审计</span>
+              </router-link>
+              <router-link :to="{ name: 'settings' }" class="quick-item">
+                <div class="quick-head"><el-icon><Key /></el-icon><b>配置 API Key</b></div>
+                <span class="muted">管理 / 数据 / 查询三把 Key,对应各服务的 X-Api-Key 门禁</span>
               </router-link>
             </div>
           </el-card>
@@ -95,7 +103,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
-import { Coin, EditPen, Document } from "@element-plus/icons-vue";
+import { Coin, EditPen, Document, FolderOpened, CaretRight, Key } from "@element-plus/icons-vue";
 import { useInstancesStore } from "@/stores/instances";
 import { useSettingsStore } from "@/stores/settings";
 import ErrorAlert from "@/components/ErrorAlert.vue";

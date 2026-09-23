@@ -46,7 +46,8 @@
     <el-dialog v-model="createDialog" :title="`新建 ${createDialect.toUpperCase()} 实例`" width="420px">
       <el-form label-width="80px" @submit.prevent>
         <el-form-item label="实例名">
-          <el-input v-model="createName" placeholder="如 crm" @keyup.enter="doCreate" />
+          <el-input v-model="createName" placeholder="如 crm(小写字母/数字/连字符)" @keyup.enter="doCreate" />
+          <span v-if="createNameError" class="form-error">{{ createNameError }}</span>
         </el-form-item>
         <el-form-item label="方言">
           <el-select v-model="createDialect" style="width: 100%">
@@ -68,19 +69,24 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Coin, Setting, Delete } from "@element-plus/icons-vue";
 import { createInstance, deleteInstance } from "@/api/instances";
-import { createPolicy } from "@/api/policies";
-import { createUdf } from "@/api/udfs";
 import { useInstancesStore } from "@/stores/instances";
+import { NAME_PATTERN, POLICY_DIALECTS } from "@/constants";
+import { ensureSampleInstance } from "@/utils/sample";
 import ErrorAlert from "@/components/ErrorAlert.vue";
 
 const router = useRouter();
 const store = useInstancesStore();
-const allDialects = ["postgresql", "trino", "mysql"];
+const allDialects: string[] = [...POLICY_DIALECTS];
 const error = ref("");
+const createNameError = computed(() => {
+  const n = createName.value.trim();
+  if (!n) return "";
+  return NAME_PATTERN.test(n) ? "" : "小写字母开头,仅小写字母/数字/连字符";
+});
 
 const createDialog = ref(false);
 const createName = ref("");
-const createDialect = ref(allDialects[0]);
+const createDialect = ref<string>(allDialects[0]);
 const creating = ref(false);
 
 const groups = computed(() => {
@@ -106,6 +112,7 @@ function openCreate(dialect: string) {
 async function doCreate() {
   const name = createName.value.trim();
   if (!name) { ElMessage.warning("实例名不能为空"); return; }
+  if (!NAME_PATTERN.test(name)) { ElMessage.warning("实例名须小写字母开头,仅小写字母/数字/连字符"); return; }
   creating.value = true;
   try {
     await createInstance(name, createDialect.value);
@@ -131,32 +138,11 @@ async function remove(name: string) {
 async function createSample() {
   error.value = "";
   try {
-    const name = "crm";
-    if (!store.list.some((i) => i.name === name)) {
-      await createInstance(name, "postgresql", [{
-        catalog: "crm", schema: "public", name: "customer",
-        columns: [
-          { name: "id", type: "bigint" },
-          { name: "phone", type: "varchar" },
-          { name: "email", type: "varchar" },
-          { name: "status", type: "varchar" }
-        ]
-      }]);
-      await createUdf(name, {
-        name: "mask_phone",
-        signatures: [{ params: ["varchar", "integer", "integer"], returns: "varchar" }]
-      });
-      await createPolicy(name, {
-        name: "mask_phone_policy", policyType: "datamask", isEnabled: true, priority: 1,
-        resource: { catalog: "crm", schema: "public", table: "customer", columns: ["phone"] },
-        subjects: { users: ["*"], groups: [] }, udf: "mask_phone", arguments: [3, 4], filterExpr: null
-      });
-      ElMessage.success("示例实例 crm 已创建");
-    } else {
-      ElMessage.info("crm 已存在,无需重建");
-    }
+    const outcome = await ensureSampleInstance("crm");
+    ElMessage[outcome === "created" ? "success" : "info"](
+      outcome === "created" ? "示例实例 crm 已创建" : "crm 已存在,无需重建");
     await store.load();
-    open(name);
+    open("crm");
   } catch (e) { error.value = (e as Error).message; }
 }
 </script>
@@ -186,4 +172,5 @@ async function createSample() {
   .el-icon { color: var(--sm-muted); cursor: pointer; &:hover { color: var(--sm-primary); } &.danger:hover { color: var(--sm-danger); } }
 }
 .svc-empty { padding: 14px 12px; font-size: 12.5px; }
+.form-error { display: block; font-size: 12px; color: var(--el-color-danger, #dc3545); margin-top: 4px; }
 </style>
