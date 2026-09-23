@@ -362,6 +362,8 @@ mask-lite 已从"边缘化"转为活跃主线（TPC-DS 99/99），但仍是构�
 
 ## 附录 A：与既有文档的关系
 
+- `docs/test-plan-noauth.md`：**匿名模式（无认证/无主体维度）裁剪版计划**——对齐 v1「纯改写工具」定位，验收范围收窄（剔除 API key/subject 特异性验收）、执行集合不变（全量套件照跑防回归），并新增 NOAUTH-001~005 匿名专属钉。
+
 - `docs/test-coverage-gap-analysis-main-20260918.md`：99 条缺口的**明细清单**（本文的用例来源库），本文负责排期与新增面（行过滤、mask-lite 复活、前端重构、query 引擎），两者用例号互不重叠、可对照。
 - `docs/integration-test-report.md`：22 例 E2E 的**首次执行报告**，§11.1 将其脚本化为准永久资产。
 - `docs/query-acceptance/golden-queries.md`：L3 验收 **runbook**，本文只定义门槛与归档要求。
