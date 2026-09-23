@@ -29,6 +29,11 @@ public class ApiKeyFilter implements Filter {
       throws IOException, ServletException {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
+    // a verified bearer token (console user) satisfies this gate as well
+    if (io.sqlmask.auth.AuthTokens.bearerAuthenticated(request)) {
+      chain.doFilter(req, res);
+      return;
+    }
     String provided = request.getHeader("X-Api-Key");
     if (expectedKey == null || expectedKey.isBlank() || !keyMatches(expectedKey, provided)) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

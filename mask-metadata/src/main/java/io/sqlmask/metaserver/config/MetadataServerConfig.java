@@ -18,6 +18,48 @@ public class MetadataServerConfig {
     return registration;
   }
 
+  // ---- console-user (LDAP) authentication & authorization ----
+
+  @Bean
+  public io.sqlmask.auth.AuthConfig authConfig() {
+    return io.sqlmask.auth.AuthConfig.fromEnv();
+  }
+
+  /** Present only when MASK_AUTH_SECRET is strong enough; null ⇒ feature off. */
+  @Bean
+  public io.sqlmask.auth.AuthTokenService authTokenService(io.sqlmask.auth.AuthConfig config) {
+    return config.tokenEnabled()
+        ? new io.sqlmask.auth.AuthTokenService(config.secret(), config.tokenTtl())
+        : null;
+  }
+
+  /**
+   * Bearer gate ahead of the API-key filter: logged-in console users may read
+   * the metadata surfaces, admins may write (instance CRUD, collection).
+   */
+  @Bean
+  public FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> bearerAuthFilter(
+      io.sqlmask.auth.AuthConfig config,
+      org.springframework.beans.factory.ObjectProvider<io.sqlmask.auth.AuthTokenService> tokens) {
+    if (!config.tokenEnabled()) {
+      // disabled registration (not a null @Bean): a NullBean here breaks the
+      // MockMvc builder's FilterRegistrationBean collection in default contexts
+      FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off = new FilterRegistrationBean<>();
+      off.setEnabled(false);
+      return off; // no MASK_AUTH_SECRET → behaviour identical to the pre-LDAP build
+    }
+    java.util.List<io.sqlmask.auth.AuthRule> rules = new io.sqlmask.auth.AuthRule.Builder()
+        .readOnly("/api/instances", io.sqlmask.auth.Role.USER, io.sqlmask.auth.Role.ADMIN)
+        .prefix("/api/metadata", io.sqlmask.auth.Role.USER)
+        .build();
+    FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> registration =
+        new FilterRegistrationBean<>(new io.sqlmask.auth.BearerAuthFilter(
+            tokens.getObject(), rules));
+    registration.addUrlPatterns("/api/*");
+    registration.setOrder(0);
+    return registration;
+  }
+
   @Bean
   public io.sqlmask.metaserver.service.IntrospectorFactory introspectorFactory() {
     return io.sqlmask.introspect.MetadataIntrospectors::byEngine;

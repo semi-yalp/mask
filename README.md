@@ -831,6 +831,70 @@ java -jar mask-query/target/mask-query-0.1.0-SNAPSHOT.jar
 mvn -pl mask-query test -Dtest=QueryEndToEndTest
 ```
 
+## LDAP 用户认证（控制台登录）
+
+四个服务在 API Key 之外支持**控制台用户级认证**：用户用企业 LDAP / AD
+账号登录 mask-policy-server 的 `POST /api/auth/login`，换回一个签名
+HS256 Bearer 令牌（JWT 兼容格式，默认 8 小时有效），后续请求带
+`Authorization: Bearer <token>` 访问任何控制台面。角色由 LDAP 组映射：
+`ADMIN`（策略/实例/UDF 管理）> `AUDITOR`（审计查询 + 只读面）>
+`USER`（试验台、以本人身份拉生效配置/查询）。**数据面主体绑定**：
+带令牌调用 `/api/effective`、`/api/rewrite/instances`、`/api/v1/query`
+时，策略主体 user/groups 一律取自令牌（调用方自报的 `?user=` / 请求体
+字段被忽略），审计事件同步记录真实身份（`authKind=LDAP`）。
+
+与既有 API Key 体系**共存**：服务间调用继续走 `X-Api-Key`；不配置
+`MASK_AUTH_SECRET` 时令牌校验不启用，各服务行为与未引入 LDAP 前完全
+一致（匿名/API Key 模式不受影响）。
+
+### 配置（环境变量，全部可选）
+
+| 变量 | 缺省 | 说明 |
+|---|---|---|
+| `MASK_AUTH_SECRET` | 空 | 令牌签名密钥（UTF-8 ≥32 字节）；**设置后**各服务启用令牌校验 |
+| `MASK_AUTH_TOKEN_TTL` | `PT8H` | 令牌有效期（ISO-8601 duration） |
+| `MASK_AUTH_LDAP_URL` | 空 | `ldap://host:389` 或 `ldaps://host:636`；与 base DN 同时设置才启用登录 |
+| `MASK_AUTH_LDAP_BASE_DN` | 空 | 如 `dc=example,dc=org` |
+| `MASK_AUTH_LDAP_BIND_DN` / `_PASSWORD` | 空 | 检索用服务账号（可选，缺省匿名检索） |
+| `MASK_AUTH_LDAP_USER_SEARCH_BASE` | base DN | 用户搜索基，如 `ou=people,...` |
+| `MASK_AUTH_LDAP_USER_FILTER` | `(uid={0})` | AD 通常改 `(sAMAccountName={0})` |
+| `MASK_AUTH_LDAP_GROUP_SEARCH_BASE` | 空 | 设置→组检索模式（`(member={dn})` 搜组）；空→读用户条目 `memberOf`（AD 风格） |
+| `MASK_AUTH_LDAP_GROUP_FILTER` | `(member={dn})` | 仅组检索模式 |
+| `MASK_AUTH_ADMIN_GROUPS` / `MASK_AUTH_AUDITOR_GROUPS` | 空 | 逗号分隔组名 → 角色映射 |
+| `MASK_AUTH_LDAP_CONNECT_TIMEOUT` / `_RESPONSE_TIMEOUT` | `PT3S` / `PT5S` | LDAP 超时 |
+
+登录流程：服务账号（或匿名）按 user filter 检索用户 DN → 用该 DN + 用户
+密码 bind 验证 → 取组（组检索或 memberOf，组名取组 DN 首个 RDN 值）→
+映射角色 → 签发令牌。LDAP 不可达时登录失败（fail-closed，无旁路）；
+错密码与无此用户返回同一 401（不泄露用户存在性）。前端（nginx/vite）已
+代理 `/api/auth` → 8081，控制台自动探测 `GET /api/auth/mode`：LDAP 启用
+即强制登录页，未启用维持 API Key 模式。
+
+### 本地试跑（OpenLDAP 演示目录）
+
+```bash
+# 1) 起演示目录（含 amy/bob/carol 三用户与三角色组，端口 3890）
+docker compose -f docker/auth/docker-compose.auth.yml up -d
+
+# 2) 四个服务与前端同注入（示例给 policy-server；8080/8082/8083 同样注入
+#    SECRET 使令牌跨服务可验）
+export MASK_AUTH_SECRET='0123456789abcdef0123456789abcdef'
+export MASK_AUTH_LDAP_URL=ldap://127.0.0.1:3890
+export MASK_AUTH_LDAP_BASE_DN='dc=example,dc=org'
+export MASK_AUTH_LDAP_USER_SEARCH_BASE='ou=people,dc=example,dc=org'
+export MASK_AUTH_LDAP_GROUP_SEARCH_BASE='ou=groups,dc=example,dc=org'
+export MASK_AUTH_ADMIN_GROUPS=mask-admins
+export MASK_AUTH_AUDITOR_GROUPS=mask-auditors
+
+# 3) 浏览器打开控制台 → 跳转登录页
+#    amy / amy-secret（ADMIN）、bob / bob-secret（AUDITOR）、carol / carol-secret（USER）
+```
+
+对接真实 AD 的差异要点：用户过滤器用 `(sAMAccountName={0})` 或
+`(userPrincipalName={0})`；AD 自动维护 `memberOf`，保持组检索基为空即可；
+`ldaps://` 走 TLS（信任 JVM 缺省信任库，企业根证书需先导入）。
+设计细节见 `docs/superpowers/specs/2026-09-24-ldap-auth-design.md`。
+
 ## UDF 注册表（策略服务）
 
 策略微服务的实例可登记脱敏 UDF 签名（名称 + 有序参数类型 + 返回类型，

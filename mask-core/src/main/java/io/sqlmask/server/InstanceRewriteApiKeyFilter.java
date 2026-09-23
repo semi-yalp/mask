@@ -37,6 +37,11 @@ public final class InstanceRewriteApiKeyFilter implements Filter {
     }
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
+    // a verified bearer token (console user) satisfies this gate as well
+    if (io.sqlmask.auth.AuthTokens.bearerAuthenticated(request)) {
+      chain.doFilter(req, res);
+      return;
+    }
     if (!keyMatches(expectedKey, request.getHeader("X-Api-Key"))) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       response.setContentType("application/json");

@@ -29,6 +29,11 @@
     </dependency>
     <dependency>
       <groupId>io.sqlmask</groupId>
+      <artifactId>mask-auth</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.sqlmask</groupId>
       <artifactId>mask-sqlparser</artifactId>
       <version>${project.version}</version>
     </dependency>

@@ -20,6 +20,7 @@
     <module>mask-policy</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>
+    <module>mask-auth</module>
     <!-- standalone pom (no parent), aggregated so `mvn test` covers it -->
     <module>mask-lite</module>
   </modules>
@@ -29,6 +30,7 @@
     <maven.compiler.release>17</maven.compiler.release>
 
     <calcite.version>1.42.0</calcite.version>
+    <unboundid.ldapsdk.version>7.0.2</unboundid.ldapsdk.version>
     <snakeyaml.version>2.2</snakeyaml.version>
     <picocli.version>4.7.7</picocli.version>
     <junit.version>5.10.2</junit.version>

@@ -42,6 +42,11 @@ public final class PolicyApiKeyFilter implements Filter {
       throws IOException, ServletException {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
+    // a verified bearer token (console user) satisfies this gate as well
+    if (io.sqlmask.auth.AuthTokens.bearerAuthenticated(request)) {
+      chain.doFilter(req, res);
+      return;
+    }
     String required = requiredKey(request.getServletPath());
     if (required == null) {
       chain.doFilter(req, res);

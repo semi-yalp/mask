@@ -13,6 +13,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // 登录端点在 policy-server；必须置于泛 /api 规则之前
+      "/api/auth": { target: policy, changeOrigin: true },
       "/api/instances": { target: policy, changeOrigin: true },
       "/api/effective": { target: policy, changeOrigin: true },
       "/api": { target: core, changeOrigin: true }

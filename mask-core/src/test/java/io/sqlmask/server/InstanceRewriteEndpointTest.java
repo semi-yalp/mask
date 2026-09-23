@@ -169,7 +169,7 @@ class InstanceRewriteEndpointTest {
         InstanceRewriteEndpointTest.<InstanceRewriteConfig.PolicySourceProvider>absent(),
         new InstanceQueryAssembler());
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> controller.rewrite("pg_prod",
-        new InstanceRewriteController.InstanceRewriteRequest("SELECT 1", null, null)));
+        new InstanceRewriteController.InstanceRewriteRequest("SELECT 1", null, null), null));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
     assertThat(e.getMessage())
         .contains("sqlmask.metadata-service.base-url")
