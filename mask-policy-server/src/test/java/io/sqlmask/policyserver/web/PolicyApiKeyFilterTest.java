@@ -134,4 +134,20 @@ class PolicyApiKeyFilterTest {
     assertEquals(401, run(filter, "/app/api/effective/pg_prod", "/api/effective/pg_prod", null)
         .getStatus());
   }
+
+  @Test
+  void blankHeaderIsRejectedWhenConfigured() throws Exception {
+    // header present but empty must behave like a missing header
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("admin-secret", "data-secret");
+    assertEquals(401, run(filter, "/api/instances", "").getStatus());
+    assertEquals(401, run(filter, "/api/effective/pg_prod", "").getStatus());
+  }
+
+  @Test
+  void nonAsciiKeysCompareByUtf8Bytes() throws Exception {
+    PolicyApiKeyFilter filter = new PolicyApiKeyFilter("管理密钥-κλé🔑", "数据密钥");
+    assertEquals(200, run(filter, "/api/instances", "管理密钥-κλé🔑").getStatus());
+    assertEquals(200, run(filter, "/api/effective/pg_prod", "数据密钥").getStatus());
+    assertEquals(401, run(filter, "/api/instances", "管理密钥").getStatus());
+  }
 }

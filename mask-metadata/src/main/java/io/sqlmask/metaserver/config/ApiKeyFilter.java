@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Static API key gate over /api/*. Fail-closed: an unconfigured server key
@@ -28,7 +30,7 @@ public class ApiKeyFilter implements Filter {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
     String provided = request.getHeader("X-Api-Key");
-    if (expectedKey == null || expectedKey.isBlank() || !expectedKey.equals(provided)) {
+    if (expectedKey == null || expectedKey.isBlank() || !keyMatches(expectedKey, provided)) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       response.setContentType("application/json");
       response.getWriter().write(
@@ -38,5 +40,14 @@ public class ApiKeyFilter implements Filter {
     request.setAttribute(io.sqlmask.audit.AuditEvents.AUTH_KIND_ATTRIBUTE,
         io.sqlmask.audit.AuditEvents.AUTH_KIND_API_KEY);
     chain.doFilter(req, res);
+  }
+
+  /** Constant-time comparison so the check does not leak the key byte by byte. */
+  private static boolean keyMatches(String expected, String provided) {
+    if (provided == null) {
+      return false;
+    }
+    return MessageDigest.isEqual(
+        expected.getBytes(StandardCharsets.UTF_8), provided.getBytes(StandardCharsets.UTF_8));
   }
 }

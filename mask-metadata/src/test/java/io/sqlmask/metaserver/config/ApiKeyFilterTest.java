@@ -51,6 +51,19 @@ class ApiKeyFilterTest {
   }
 
   @Test
+  void rejectsBlankHeaderEvenWhenConfigured() throws Exception {
+    // header present but empty must behave like a missing header
+    assertEquals(401, run(new ApiKeyFilter("secret"), "").getStatus());
+  }
+
+  @Test
+  void nonAsciiKeysCompareByUtf8Bytes() throws Exception {
+    ApiKeyFilter filter = new ApiKeyFilter("键-κλé🔑");
+    assertEquals(200, run(filter, "键-κλé🔑").getStatus());
+    assertEquals(401, run(filter, "键-κλé").getStatus());
+  }
+
+  @Test
   void validKeyMarksAuthKindAttribute() throws Exception {
     ApiKeyFilter filter = new ApiKeyFilter("secret");
     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/instances");
