@@ -199,10 +199,14 @@ class RewriteEdgeCasesTest {
   }
 
   @Test
-  void scalarSubqueryInProjectionIsRejectedAsUntraceable() {
-    SqlMaskException e = assertThrows(SqlMaskException.class, () -> mask.rewrite(
-        "SELECT id, (SELECT max(id) FROM crm.public.customer) AS m FROM crm.public.customer"));
-    assertEquals(SqlMaskException.Code.LINEAGE_UNKNOWN, e.getCode());
-    assertTrue(e.getMessage().contains("no safely traceable origin"), () -> e.getMessage());
+  void scalarSubqueryInProjectionTracesToItsColumns() {
+    // scalar sub-queries used to be rejected as untraceable; the lineage
+    // analyzer now resolves them recursively (see PostgresDialectExtrasTest
+    // for the masked-column and fail-closed variants)
+    String result = mask.rewrite(
+        "SELECT id, (SELECT max(id) FROM crm.public.customer) AS m FROM crm.public.customer");
+    String flat = flat(result);
+    assertTrue(flat.contains("(SELECT MAX(id) FROM crm.public.customer)"), () -> result);
+    assertTrue(flat.endsWith("AS m FROM crm.public.customer;"), () -> result);
   }
 }

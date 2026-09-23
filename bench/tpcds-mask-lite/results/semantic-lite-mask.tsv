@@ -3,11 +3,11 @@ q01	masked	100	100
 q02	same	1974	1974	
 q03	same	0	0	
 q04	same	0	0	
-q05	skipped	0	0	rewrite failed
+q05	same	100	100	
 q06	same	2	2	
 q07	same	54	54	
 q08	same	0	0	
-q09	skipped	0	0	rewrite failed
+q09	same	1	1	
 q10	same	0	0	
 q11	same	0	0	
 q12	same	14	14	
@@ -70,7 +70,7 @@ q68	masked	16	16
 q69	same	8	8	
 q70	same	3	3	
 q71	same	8	8	
-q72	skipped	0	0	rewrite failed
+q72	same	10	10	
 q73	same	0	0	
 q74	same	0	0	
 q75	same	8	8	
@@ -78,7 +78,7 @@ q76	same	100	100
 q77	same	8	8	
 q78	same	100	100	
 q79	masked	84	84	
-q80	skipped	0	0	rewrite failed
+q80	same	30	30	
 q81	masked	9	9	
 q82	same	0	0	
 q83	same	0	0	

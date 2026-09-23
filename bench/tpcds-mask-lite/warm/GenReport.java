@@ -21,33 +21,41 @@ public final class GenReport {
 
   static {
     PROBLEMS.put("q05", new String[]{
-        "P1 · VALIDATION_ERROR：`concat('store', s_store_id)` 无法校验",
-        "Calcite 标准函数表里 CONCAT 只是 `||` 的中缀形式；mask-lite 的 PostgreSQL 函数表"
-            + "没有注册 PG 语义的 variadic `concat(VARIADIC text)`，类型推导找不到"
-            + " `CONCAT(<CHAR>,<CHAR>)` 签名即报错（fail-closed，不静默放行）。",
-        "在 PostgresqlFunctions 注册 PG 语义的 variadic CONCAT（或把 concat(a,b) 归一为 a || b）；"
-            + "短期规避：用户 SQL 改写为 `||` 拼接。"});
+        "P1 · 已修复：`concat('store', s_store_id)` 此前 VALIDATION_ERROR",
+        "根因不是函数表缺 concat——Calcite 的 PG library 自带 PG 语义的 variadic"
+            + " `CONCAT_FUNCTION_WITH_NULL`（NULL 按空串）。真正的病灶是 mask-lite 在"
+            + " PostgresqlFunctions 里又手工注册了一个同名 CONCAT：名字解析返回两个重载，"
+            + " `SqlUtil.lookupRoutine` 的类型优先级过滤把所有非固定参数候选全部筛掉，"
+            + "转换期重推导时 `coerce=false` 找不到函数，兜底的 coercion 路径又只对 UDF 生效，"
+            + "于是抛出 No match found for function signature CONCAT(<CHARACTER>, <CHARACTER>)。",
+        "已修复：删除手工重复注册，仅保留 PG library 的 CONCAT（大小写不敏感解析、血缘穿透）。"
+            + "产物保留用户原文 `concat(...)`。回归：q05/q80 三模式改写成功、round-trip 通过、"
+            + "DuckDB 语义对拍通过。"});
     PROBLEMS.put("q09", new String[]{
-        "P2 · LINEAGE_UNKNOWN：投影含标量子查询（bucket1..bucket5）",
-        "输出列直接由 `(SELECT avg(...) ...)` 标量子查询构成，无法证明其输出列与被脱敏列的"
-            + "血缘关系——按 v1 安全立场显式拒绝改写，绝不静默放行（这是设计行为，不是缺陷）。",
-        "短期：把标量子查询移入 CTE 再 JOIN（重写 SQL 即可通过）；"
-            + "长期：血缘分析器支持标量子查询内层列追溯后再放开。"});
+        "P2 · 已修复：投影含标量子查询（bucket1..bucket5）此前 LINEAGE_UNKNOWN",
+        "输出列直接由 `(SELECT avg(...) ...)` 标量子查询构成，而 Calcite 的列来源元数据"
+            + "看不到 RexSubQuery 内部的关系树，一个空来源判定可能掩盖脱敏泄漏，"
+            + "v1 因此显式拒绝（fail-closed）。",
+        "已修复：LineageAnalyzer 对含子查询的表达式改用手写遍历——SCALAR 子查询递归取其"
+            + "投影列的来源（聚合/过滤链由列来源元数据分析），EXISTS/IN/ANY 等其余形态仍"
+            + "fail-closed；子查询内引用脱敏列时输出列会被包装脱敏（单测钉住）。"
+            + "q09 本身未命中任何策略，三模式均按解析后快照原样通过。"});
     PROBLEMS.put("q72", new String[]{
-        "P3 · VALIDATION_ERROR：`d1.d_date + 5`（DATE + INTEGER）",
-        "PostgreSQL 允许 date + integer（加天数），Calcite 标准类型规则只认"
-            + " DATETIME + INTERVAL，类型检查直接拒绝；语料中该行还留有"
+        "P3 · 已修复：`d1.d_date + 5`（DATE + INTEGER）此前 VALIDATION_ERROR",
+        "PostgreSQL 允许 date ± integer（加/减天数），Calcite 标准类型规则只认"
+            + " DATETIME ± INTERVAL，类型检查直接拒绝；语料中该行还留有"
             + " “SQL Server: DATEADD” 注释，属多引擎方言差异长尾。",
-        "在 PG adapter 注册 `DATETIME + INTEGER` 的隐式转换（PG 语义 = 加 N 天）；"
-            + "短期规避：用户 SQL 改写为 `d1.d_date + INTERVAL '5' DAY`。"});
+        "已修复：新增 PostgresqlTypeCoercion（经 SqlValidator.Config.typeCoercionFactory 注入），"
+            + "在算术操作数类型检查前把 DATE ± 整数字面量改写为等价的 `± INTERVAL 'n' DAY`。"
+            + "该归一只发生在分析树上：产物是验证前快照，保留用户原文 `d1.d_date + 5`。"
+            + "非字面量整数表达式与 timestamp ± integer（PG 自身也拒绝）仍然 fail-closed。"});
     PROBLEMS.put("q80", new String[]{
-        "P1 · VALIDATION_ERROR：`concat('store', store_id)` 无法校验（与 q05 同根因）",
-        "TPC-DS q80 的 channel 统计同样使用 `concat()`，撞上同一个函数表缺口——"
-            + "失败集合收敛为:concat×2（q05/q80）、DATE+INTEGER×1（q72）、"
-            + "标量子查询血缘×1（q09，设计行为）。早期曾出现"
-            + " NoClassDefFoundError: SetopOperandTypeChecker$1，是上次会话中断留下的坏 fat jar，"
-            + "重建后消失，与内核无关。",
-        "同 P1:注册 variadic CONCAT 或归一为 `||`；发布前做干净构建 + 产物完整性冒烟。"});
+        "P1 · 已修复：`concat('store', store_id)` 此前 VALIDATION_ERROR（与 q05 同根因）",
+        "与 q05 完全相同的重复 CONCAT 注册问题，见 q05 案例页。"
+            + "历史注记：早期曾出现 NoClassDefFoundError: SetopOperandTypeChecker$1，"
+            + "是上次会话中断留下的坏 fat jar，重建后消失，与内核无关。",
+        "已修复：同 q05（删除重复注册，改用 PG library CONCAT）。"
+            + "本轮回归三模式改写成功、round-trip 通过、DuckDB 语义对拍通过。"});
     PROBLEMS.put("q66", new String[]{
         "P4 · 语料缺陷（已修复）：归一化脚本残留孤儿 WITH",
         "normalize.awk 判断主查询体的正则 `/^SELECT/` 大小写敏感，q66 主查询用小写"

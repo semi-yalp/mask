@@ -4,6 +4,7 @@ import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlOperatorTable;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.validate.SqlConformance;
+import org.apache.calcite.sql.validate.implicit.TypeCoercionFactory;
 
 /**
  * Declarative description of one query engine's SQL dialect. All engine
@@ -18,7 +19,8 @@ public record DialectProfile(
     TypeResolver typeResolver,
     SqlDialect sqlDialect,
     IdentifierPolicy identifierPolicy,
-    SchemaPathStyle schemaPathStyle) {
+    SchemaPathStyle schemaPathStyle,
+    TypeCoercionFactory typeCoercionFactory) {
 
   /**
    * Search paths for unqualified table references: {@code CATALOG_SCHEMA}
