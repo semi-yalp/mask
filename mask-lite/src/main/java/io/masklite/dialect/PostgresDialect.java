@@ -33,6 +33,7 @@ public final class PostgresDialect extends AbstractCalciteDialect {
         new PostgresqlTypeResolver(),
         PostgresqlSqlDialect.DEFAULT,
         new PostgresqlIdentifierPolicy(),
-        DialectProfile.SchemaPathStyle.CATALOG_SCHEMA));
+        DialectProfile.SchemaPathStyle.CATALOG_SCHEMA,
+        PostgresqlTypeCoercion::new));
   }
 }

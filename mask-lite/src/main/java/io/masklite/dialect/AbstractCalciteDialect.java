@@ -98,7 +98,8 @@ public abstract class AbstractCalciteDialect implements Dialect {
     SqlNode analysisTree = new CteExpander().expand(parsed);
     SqlValidatorFactory factory = new SqlValidatorFactory(rootSchema,
         schemaPaths(rootSchema), profile.validatorConformance(),
-        profile.caseSensitiveNameMatching(), profile.functionTable());
+        profile.caseSensitiveNameMatching(), profile.functionTable(),
+        profile.typeCoercionFactory());
     org.apache.calcite.sql.validate.SqlValidator validator = factory.createValidator();
     SqlNode validated;
     try {
