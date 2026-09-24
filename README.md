@@ -367,6 +367,11 @@ docker compose -f docker-compose.frontend.yml up --build
   目标表通常是新表，无需在 YAML 中声明；
   `INSERT INTO ... VALUES`（纯字面量）无法追踪来源，原样直通；VALUES 中藏子查询
   的写法按安全策略直接失败；
+- **复制表策略继承(可选)**:列级策略声明 `inheritOnCopy: true` 后,该列的 CTAS /
+  INSERT .. SELECT / INSERT OVERWRITE 复制不再脱敏写入——目标表得到干净数据,
+  改写服务自动在策略服务与元数据服务注册目标表列策略(带审计),后续对目标表的
+  查询在读取侧脱敏。未声明继承的列维持"直接改写";目标表已有自身策略或源头
+  为表达式时该语句被拒绝。
 - **引擎自定义函数可以直接使用**：Calcite 不认识的函数（如 `mask_idcard(c.phone, 'abc')`）
   按不透明标量函数解析——任意参数个数与类型均可，返回类型近似取第一个参数的类型
   （零参函数按 `varchar`）；血缘会穿透其参数，输出列照样按来源列策略脱敏；
