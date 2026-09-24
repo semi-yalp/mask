@@ -58,7 +58,12 @@ public final class RewriteEngine {
    * statement got an outer masking wrapper; {@code rowFiltered} is true when
    * at least one row-filter condition was injected. {@code kind} is the
    * coarse statement class (SELECT / INSERT_SELECT / CTAS) — the query data
-   * plane rejects everything but SELECT.
+   * plane rejects everything but SELECT. {@code inheritedColumns} carries
+   * the copy-inheritance records produced by write statements whose source
+   * columns declared {@code inheritOnCopy}: the target column is written
+   * clean (never wrapped) and each entry lets the caller register the
+   * inherited policy on the target table; always empty for read statements
+   * and for writes with no inherited column.
    */
   public record StatementRewrite(int ordinal, String originalSql, String rewrittenSql,
       boolean masked, boolean rowFiltered, StatementKind kind,
@@ -271,10 +276,17 @@ public final class RewriteEngine {
         }
         return new StatementRewrite(ordinal, statementText, statementText, false, false, writeKind);
       }
-      String rewritten = plan.requiresWrapper()
-          ? dialect.composeWriteStatement(parsed,
-              rewriteService.rewrite(validated, plan, dialect))
-          : statementText;
+      String rewritten;
+      if (plan.requiresWrapper()) {
+        rewritten = dialect.composeWriteStatement(parsed,
+            rewriteService.rewrite(validated, plan, dialect));
+      } else if (filtered.injections() > 0) {
+        // 无包装但存在继承列:数据干净写入,但行过滤必须保留——过滤条件只存在于
+        // 过滤后的源查询文本里,不组合就静默丢失(提交前掩码与过滤一并消失)
+        rewritten = dialect.composeWriteStatement(parsed, filteredSourceSql);
+      } else {
+        rewritten = statementText;
+      }
       return new StatementRewrite(ordinal, statementText, rewritten, plan.requiresWrapper(),
           filtered.injections() > 0, writeKind, inherited);
     }

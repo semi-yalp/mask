@@ -69,6 +69,51 @@ class RewriteInheritTest {
   }
 
   @Test
+  void inheritedColumnWithRowFilterKeepsFilterInjected() {
+    // 纯继承 + 行过滤:继承列数据干净写入,但源表行过滤条件必须保留在改写里
+    String meta = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns: [ {name: id, type: bigint}, {name: phone, type: varchar} ]
+        policies: {}
+        """;
+    String policy = """
+        policies:
+          - name: crm.phone
+            type: dataMask
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+                inheritOnCopy: true
+            dataMaskItems:
+              - groups: ["*"]
+                udf: mask_phone
+          - name: filter-customer
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+            rowFilterItems:
+              - groups: ["*"]
+                filterExpr: "id > 0"
+        """;
+    RewriteEngine.StatementRewrite st = new RewriteEngine()
+        .rewrite(meta, policy,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone FROM crm.public.customer",
+            "postgresql", Subject.anonymous()).get(0);
+    assertFalse(st.masked(), "纯继承列不包装");
+    assertTrue(st.rowFiltered(), "继承 + 行过滤:rowFiltered 必须为 true");
+    assertTrue(st.rewrittenSql().contains("id > 0"),
+        () -> "改写里应保留行过滤条件,实际: " + st.rewrittenSql());
+    assertFalse(st.inheritedColumns().isEmpty(), "继承条目应输出");
+  }
+
+  @Test
   void mixedInheritAndMaskedColumnsWrapOnlyTheMaskedColumn() {
     List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
         .rewrite(METADATA, POLICY,
@@ -80,6 +125,7 @@ class RewriteInheritTest {
     assertTrue(st.masked(), "name 列无继承标志,应被脱敏包装");
     assertEquals(1, st.inheritedColumns().size());
     assertTrue(st.rewrittenSql().contains("mask_name"), "改写里应保留非继承列的脱敏调用");
+    assertFalse(st.rewrittenSql().contains("mask_phone"), "继承列不应被包装");
   }
 
   @Test
