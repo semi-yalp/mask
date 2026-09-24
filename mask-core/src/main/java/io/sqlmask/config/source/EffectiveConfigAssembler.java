@@ -111,7 +111,8 @@ public final class EffectiveConfigAssembler {
       if (!seenBindings.add(key.toString())) {
         throw error(bindingPath + ": duplicate policy binding for column '" + key + "'");
       }
-      bindings.add(new MaskingConfig.ColumnPolicyBinding(key, policyName));
+      bindings.add(new MaskingConfig.ColumnPolicyBinding(key, policyName,
+          Boolean.TRUE.equals(b.inheritOnCopy())));
     }
 
     MaskingConfig config = new MaskingConfig(tables, bindings, policies);
