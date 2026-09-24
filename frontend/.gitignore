@@ -2,10 +2,7 @@ node_modules/
 dist/
 *.local
 .DS_Store
-<<<<<<< HEAD
-=======
 .e2e/
->>>>>>> origin/main
 
 # risk-server local persistence (demo snapshots)
 data/
