@@ -51,7 +51,8 @@ public class PolicyAdminController {
   public record SubjectDto(Set<String> users, Set<String> groups) {
   }
 
-  public record ResourceDto(String catalog, String schema, String table, List<String> columns) {
+  public record ResourceDto(String catalog, String schema, String table, List<String> columns,
+      List<String> inheritColumns) {
   }
 
   public record PolicyDto(String name, String policyType, boolean isEnabled, Integer priority,
@@ -210,7 +211,9 @@ public class PolicyAdminController {
         dto.priority(),
         new ResourceSelector(dto.resource().catalog(), dto.resource().schema(),
             dto.resource().table(), dto.resource().columns() == null
-                ? List.of() : dto.resource().columns()),
+                ? List.of() : dto.resource().columns(),
+            dto.resource().inheritColumns() == null
+                ? List.of() : dto.resource().inheritColumns()),
         toSelector(dto.subjects(), dto.name()), dto.udf(), dto.arguments(), dto.filterExpr());
   }
 
@@ -271,7 +274,7 @@ public class PolicyAdminController {
     return new PolicyDto(p.name(), p.policyType().name().toLowerCase(Locale.ROOT),
         p.enabled(), p.priority(),
         new ResourceDto(p.resource().catalog(), p.resource().schema(),
-            p.resource().table(), p.resource().columns()),
+            p.resource().table(), p.resource().columns(), p.resource().inheritColumns()),
         new SubjectDto(p.subjects().users(), p.subjects().groups()),
         p.udf(), p.arguments(), p.filterExpr());
   }

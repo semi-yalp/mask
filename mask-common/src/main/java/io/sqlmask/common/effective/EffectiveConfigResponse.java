@@ -30,7 +30,12 @@ public record EffectiveConfigResponse(String instance, String dialect, long conf
   }
 
   public record ColumnBinding(String catalog, String schema, String table, String column,
-      String policy) {
+      String policy, boolean inheritOnCopy) {
+
+    /** 兼容既有调用:未声明继承即 false。 */
+    public ColumnBinding(String catalog, String schema, String table, String column, String policy) {
+      this(catalog, schema, table, column, policy, false);
+    }
   }
 
   public record UdfDefinition(String udf, List<Object> arguments) {
