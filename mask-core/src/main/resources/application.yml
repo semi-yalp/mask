@@ -38,6 +38,10 @@ sqlmask:
   metadata-service:
     base-url: ${SQLMASK_METADATA_BASE_URL:}
     api-key: ${SQLMASK_METADATA_API_KEY:}
+    # admin 面(继承注册的 /structure 写入等)密钥;缺省回落 api-key(单 key 部署)
+    admin-api-key: ${SQLMASK_METADATA_ADMIN_API_KEY:}
   policy-service:
     base-url: ${SQLMASK_POLICY_BASE_URL:}
     api-key: ${SQLMASK_POLICY_API_KEY:}
+    # admin 面(/api/instances/** 的继承注册读写)密钥;缺省回落 api-key(单 key 部署)
+    admin-api-key: ${SQLMASK_POLICY_ADMIN_API_KEY:}
