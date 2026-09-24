@@ -67,13 +67,13 @@ describe("auth store", () => {
   it("loadMode 探测 LDAP 开关，探测失败按 API Key 模式放行", async () => {
     const auth = useAuthStore();
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { ldap: true })));
-    expect(await auth.loadMode(true)).toBe(true);
+    expect(await auth.loadMode(true)).toBe("ldap");
     expect(auth.ldapMode).toBe(true);
 
     const auth2 = useAuthStore();
-    auth2.ldapMode = null;
+    auth2.mode = null;
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("backend down"); }));
-    expect(await auth2.loadMode(true)).toBe(false);
+    expect(await auth2.loadMode(true)).toBe("none");
     expect(auth2.ldapMode).toBe(false);
   });
 });

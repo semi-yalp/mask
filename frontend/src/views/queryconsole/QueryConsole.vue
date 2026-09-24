@@ -14,9 +14,9 @@
               <el-form-item label="目标实例">
                 <el-select v-model="instance" filterable placeholder="选择实例" style="width: 100%" :loading="loadingInstances">
                   <el-option v-for="i in instances" :key="i.name" :value="i.name"
-                    :label="`${i.name}(${i.engine || i.dialect})`" :disabled="!i.connection">
+                    :label="`${i.name}(${i.engine || i.dialect})`" :disabled="!i.hasConnection">
                     <span>{{ i.name }}({{ i.engine || i.dialect }})</span>
-                    <el-tag v-if="!i.connection" size="small" type="info" class="opt-tag">无连接,不可执行</el-tag>
+                    <el-tag v-if="!i.hasConnection" size="small" type="info" class="opt-tag">无连接,不可执行</el-tag>
                   </el-option>
                 </el-select>
               </el-form-item>
@@ -136,7 +136,7 @@ onMounted(async () => {
   loadingInstances.value = true;
   try {
     const list = await listMetaInstances();
-    instances.value = list as (MetaInstanceSummary & { connection?: unknown })[];
+    instances.value = list;
   } catch (e) {
     error.value = "实例列表加载失败(元数据服务):" + (e as Error).message;
   } finally { loadingInstances.value = false; }

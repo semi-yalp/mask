@@ -30,7 +30,7 @@ public final class MetadataDtos {
   }
 
   public record InstanceSummaryResponse(String name, String dialect, String engine,
-      long metadataVersion) {
+      long metadataVersion, boolean hasConnection) {
   }
 
   public record InstanceDetailResponse(String name, String dialect, String engine,

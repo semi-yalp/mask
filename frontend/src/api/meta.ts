@@ -23,6 +23,8 @@ export interface MetaInstanceSummary {
   dialect: string;
   engine: string;
   metadataVersion: number;
+  /** 单体列表接口直接带出：有连接才可在查询台执行（修复旧版逐实例探测的 N+1） */
+  hasConnection?: boolean;
 }
 
 export interface MetaTableStructure {

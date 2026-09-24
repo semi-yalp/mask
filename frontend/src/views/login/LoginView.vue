@@ -61,7 +61,8 @@ const modeReady = ref(false);
 const ldapEnabled = ref(true);
 
 onMounted(async () => {
-  ldapEnabled.value = await auth.loadMode(true);
+  const mode = await auth.loadMode(true);
+  ldapEnabled.value = mode !== "none";
   modeReady.value = true;
 });
 

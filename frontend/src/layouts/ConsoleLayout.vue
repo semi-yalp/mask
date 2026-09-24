@@ -22,9 +22,17 @@
           @click.prevent.stop="go('/metadata-manager', 'metadata-manager')">
           <el-icon><FolderOpened /></el-icon><span>元数据服务</span>
         </a>
+        <a class="nav-item" :class="{ active: route.name === 'classification' }" href="#/classification"
+          @click.prevent.stop="go('/classification', 'classification')">
+          <el-icon><PriceTag /></el-icon><span>分类分级</span>
+        </a>
         <a v-if="showAdmin" class="nav-item" :class="{ active: isActive('policy') }" href="#/access-manager"
           @click.prevent.stop="go('/access-manager', 'access')">
           <el-icon><Collection /></el-icon><span>策略管理器</span>
+        </a>
+        <a v-if="showAdmin" class="nav-item" :class="{ active: route.name === 'grants' }" href="#/grants"
+          @click.prevent.stop="go('/grants', 'grants')">
+          <el-icon><Key /></el-icon><span>统一授权</span>
         </a>
         <a class="nav-item" :class="{ active: route.name === 'query-console' }" href="#/query-console"
           @click.prevent.stop="go('/query-console', 'query-console')">
@@ -187,7 +195,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Odometer, Coin, EditPen, Document, Setting, ArrowRight, Close, Grid, Key, Connection, Lock, FolderOpened, CaretRight, Warning, Bell, Filter } from "@element-plus/icons-vue";
+import { Odometer, Coin, EditPen, Document, Setting, ArrowRight, Close, Grid, Key, Connection, Lock, FolderOpened, CaretRight, Warning, Bell, Filter, PriceTag, Collection } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { useSettingsStore } from "@/stores/settings";
 import { useInstancesStore } from "@/stores/instances";

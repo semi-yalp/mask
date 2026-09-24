@@ -7,7 +7,7 @@ beforeEach(() => {
   localStorage.clear();
   setActivePinia(createPinia());
   const auth = useAuthStore();
-  auth.ldapMode = null;
+  auth.mode = null;
   auth.token = "";
   auth.user = null;
   auth.expiresAt = 0;
@@ -18,13 +18,13 @@ function login() {
   auth.token = "jwt-value";
   auth.user = { username: "carol", displayName: "Carol", role: "USER", groups: [] };
   auth.expiresAt = Date.now() + 60_000;
-  auth.ldapMode = true;
+  auth.mode = "ldap";
 }
 
 describe("登录路由守卫", () => {
   it("LDAP 模式且未登录 → 重定向 /login 并携带 redirect", async () => {
     const auth = useAuthStore();
-    auth.ldapMode = true;
+    auth.mode = "ldap";
     await router.push("/audit");
     expect(router.currentRoute.value.name).toBe("login");
     expect(router.currentRoute.value.query.redirect).toBe("/audit");
@@ -50,7 +50,7 @@ describe("登录路由守卫", () => {
 
   it("API Key 模式（mode=false）→ 无需登录", async () => {
     const auth = useAuthStore();
-    auth.ldapMode = false;
+    auth.mode = "none";
     await router.push("/audit");
     expect(router.currentRoute.value.name).toBe("audit");
   });

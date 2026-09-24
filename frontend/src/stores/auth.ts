@@ -7,6 +7,9 @@ const STORAGE_KEY = "mask-console-auth";
 /** 令牌被后端拒绝时由 http 层广播，ConsoleLayout 监听后引导回登录页。 */
 export const SESSION_EXPIRED_EVENT = "mask:session-expired";
 
+/** 后端认证姿态:none(无认证,全开放)/simple(本地用户)/ldap(目录服务)。 */
+export type AuthMode = "none" | "simple" | "ldap";
+
 interface PersistedSession {
   token?: string;
   user?: AuthUser;
@@ -23,19 +26,22 @@ function readStored(): PersistedSession {
 }
 
 /**
- * 控制台登录态：LDAP 登录换来的 Bearer 令牌 + 用户身份，持久化到
- * localStorage（key 独立于旧版 API Key 存储，两套模式可共存）。
- * `ldapMode` 三态：null=未知（尚未探测）、true=强制登录、false=API Key 模式。
+ * 控制台登录态:Bearer 令牌 + 用户身份,持久化到 localStorage。
+ * `mode` 三态:null=未知(尚未探测)。none 模式不显示登录页;simple/ldap
+ * 模式未登录跳登录页(由路由守卫消费)。
  */
 export const useAuthStore = defineStore("auth", () => {
   const stored = readStored();
   const token = ref(stored.token || "");
   const user = ref<AuthUser | null>(stored.user || null);
   const expiresAt = ref(stored.expiresAt || 0);
-  const ldapMode = ref<boolean | null>(null);
+  const mode = ref<AuthMode | null>(null);
 
   const isLoggedIn = computed(() =>
     Boolean(token.value) && Date.now() < (expiresAt.value || 0));
+
+  /** 旧字段兼容:路由守卫与组件以此判断"是否强制登录"。 */
+  const ldapMode = computed(() => (mode.value === null ? null : mode.value !== "none"));
 
   const role = computed(() => user.value?.role || null);
   const isAdmin = computed(() => user.value?.role === "ADMIN");
@@ -57,7 +63,7 @@ export const useAuthStore = defineStore("auth", () => {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  /** 登录成功后落地会话；失败时抛出带 code 的 Error 交给登录页展示。 */
+  /** 登录成功后落地会话;失败时抛出带 code 的 Error 交给登录页展示。 */
   async function login(username: string, password: string) {
     const { ok, status, body } = await loginRequest(username, password);
     if (!ok) {
@@ -69,26 +75,29 @@ export const useAuthStore = defineStore("auth", () => {
     token.value = data.token;
     user.value = data.user;
     expiresAt.value = Date.now() + data.expiresInSeconds * 1000;
-    ldapMode.value = true;
+    if (mode.value === null) mode.value = "simple";
     persist();
     return data.user;
   }
 
-  /** 探测后端是否启用 LDAP 登录；探测失败按 API Key 模式放行（不能把人锁死在登录页）。 */
-  async function loadMode(force = false): Promise<boolean> {
-    if (ldapMode.value !== null && !force) {
-      return ldapMode.value;
+  /** 探测后端认证姿态;探测失败按无认证放行(不能把人锁死在登录页)。 */
+  async function loadMode(force = false): Promise<AuthMode> {
+    if (mode.value !== null && !force) {
+      return mode.value;
     }
     try {
       const { ok, body } = await modeRequest();
-      ldapMode.value = ok ? Boolean(body?.ldap) : false;
+      const raw = ok && body?.mode ? String(body.mode).toLowerCase() : (body?.ldap ? "ldap" : "none");
+      mode.value = (["none", "simple", "ldap"] as const).includes(raw as AuthMode)
+        ? (raw as AuthMode)
+        : (body?.ldap ? "ldap" : "none");
     } catch {
-      ldapMode.value = false;
+      mode.value = "none";
     }
-    return ldapMode.value;
+    return mode.value;
   }
 
-  /** 令牌被后端拒绝（过期/失效）时的统一处理：清会话，由守卫/调用方引导回登录页。 */
+  /** 令牌被后端拒绝(过期/失效)时的统一处理:清会话,由守卫/调用方引导回登录页。 */
   function sessionExpired() {
     clear();
   }
@@ -98,7 +107,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   return {
-    token, user, expiresAt, ldapMode,
+    token, user, expiresAt, mode, ldapMode,
     isLoggedIn, role, isAdmin, isAuditorPlus,
     login, logout, sessionExpired, loadMode
   };

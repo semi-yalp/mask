@@ -74,7 +74,7 @@ public class MetadataAdminController {
   public List<MetadataDtos.InstanceSummaryResponse> list() {
     return instances.list().stream()
         .map(row -> new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-            row.effectiveEngine(), row.metadataVersion()))
+            row.effectiveEngine(), row.metadataVersion(), row.connection() != null))
         .toList();
   }
 
@@ -127,7 +127,7 @@ public class MetadataAdminController {
           InstanceRow row = instances.get(name);
           instances.delete(name);
           return new MetadataDtos.InstanceSummaryResponse(row.name(), row.dialect(),
-              row.effectiveEngine(), row.metadataVersion());
+              row.effectiveEngine(), row.metadataVersion(), row.connection() != null);
         });
   }
 
