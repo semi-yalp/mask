@@ -168,7 +168,7 @@ class InstanceRewriteEndpointTest {
     var controller = new InstanceRewriteController(new RewriteEngine(),
         InstanceRewriteEndpointTest.<MetadataClient>absent(),
         InstanceRewriteEndpointTest.<InstanceRewriteConfig.PolicySourceProvider>absent(),
-        new InstanceQueryAssembler());
+        new InstanceQueryAssembler(), null);
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> controller.rewrite("pg_prod",
         new InstanceRewriteController.InstanceRewriteRequest("SELECT 1", null, null), null));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());

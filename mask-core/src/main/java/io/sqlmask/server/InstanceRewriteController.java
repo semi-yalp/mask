@@ -34,15 +34,17 @@ public class InstanceRewriteController {
   private final ObjectProvider<MetadataClient> metadataClients;
   private final ObjectProvider<InstanceRewriteConfig.PolicySourceProvider> policySources;
   private final InstanceQueryAssembler assembler;
+  private final InheritedPolicyRegistrar registrar;
 
   public InstanceRewriteController(RewriteEngine engine,
       ObjectProvider<MetadataClient> metadataClients,
       ObjectProvider<InstanceRewriteConfig.PolicySourceProvider> policySources,
-      InstanceQueryAssembler assembler) {
+      InstanceQueryAssembler assembler, InheritedPolicyRegistrar registrar) {
     this.engine = engine;
     this.metadataClients = metadataClients;
     this.policySources = policySources;
     this.assembler = assembler;
+    this.registrar = registrar;
   }
 
   @PostMapping("/{name}")
@@ -69,6 +71,12 @@ public class InstanceRewriteController {
     ConfigSource.ResolvedConfig effective = source.load(Subject.of(subjectUser, subjectGroups));
     LoadedConfig loaded = assembler.assemble(snapshot, effective);
     List<StatementRewrite> statements = engine.rewrite(loaded, request.sql(), snapshot.dialect());
+    // 复制表语句改写发现继承列后,在返回前自动把目标表结构与列策略注册到
+    // 策略服务与元数据服务;任一注册调用失败都会抛 SqlMaskException 使改写整体失败
+    if (statements.stream().anyMatch(s -> !s.inheritedColumns().isEmpty())) {
+      registrar.register(name,
+          principal != null ? principal.username() : request.user(), statements);
+    }
     return new RewriteController.RewriteResponse(statements, RewriteEngine.join(statements));
   }
 
