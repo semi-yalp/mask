@@ -5,7 +5,6 @@ import io.sqlmask.query.config.UpstreamProperties;
 import io.sqlmask.query.metadata.MetadataServiceClient;
 import io.sqlmask.query.rewrite.RewriteServiceClient;
 import io.sqlmask.query.service.QueryService;
-import io.sqlmask.query.web.QueryApiKeyFilter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
@@ -58,11 +57,57 @@ public class QueryServerApplication {
   }
 
   @Bean
-  org.springframework.boot.web.servlet.FilterRegistrationBean<QueryApiKeyFilter> queryApiKeyFilter() {
+  org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter>
+      queryApiKeyFilter() {
+    // fail-closed: an unconfigured key rejects everything (SQLMASK_QUERY_API_KEY)
     var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
-        new QueryApiKeyFilter(System.getenv("SQLMASK_QUERY_API_KEY")));
+        io.sqlmask.common.web.ApiKeyFilter.failClosed(System.getenv("SQLMASK_QUERY_API_KEY")));
     registration.addUrlPatterns("/api/*");
     registration.setOrder(1);
+    return registration;
+  }
+
+  // ---- console-user (LDAP) authentication & authorization ----
+
+  @Bean
+  io.sqlmask.auth.AuthConfig authConfig() {
+    return io.sqlmask.auth.AuthConfig.fromEnv();
+  }
+
+  /** Present only when MASK_AUTH_SECRET is strong enough; null ⇒ feature off. */
+  @Bean
+  io.sqlmask.auth.AuthTokenService authTokenService(io.sqlmask.auth.AuthConfig config) {
+    return config.tokenEnabled()
+        ? new io.sqlmask.auth.AuthTokenService(config.secret(), config.tokenTtl())
+        : null;
+  }
+
+  /**
+   * Bearer gate ahead of the API-key filter: a logged-in console user may run
+   * controlled queries, and the policy subject comes from the token instead
+   * of the request body's user/groups.
+   */
+  @Bean
+  org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter>
+  bearerAuthFilter(io.sqlmask.auth.AuthConfig config,
+      org.springframework.beans.factory.ObjectProvider<io.sqlmask.auth.AuthTokenService> tokens) {
+    if (!config.tokenEnabled()) {
+      // disabled registration (not a null @Bean): a NullBean here breaks the
+      // MockMvc builder's FilterRegistrationBean collection in default contexts
+      org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
+          new org.springframework.boot.web.servlet.FilterRegistrationBean<>();
+      off.setEnabled(false);
+      return off; // no MASK_AUTH_SECRET → behaviour identical to the pre-LDAP build
+    }
+    java.util.List<io.sqlmask.auth.AuthRule> rules = new io.sqlmask.auth.AuthRule.Builder()
+        .prefix("/api/v1", io.sqlmask.auth.Role.USER)
+        .build();
+    org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter>
+        registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+            new io.sqlmask.auth.BearerAuthFilter(
+                tokens.getObject(), rules));
+    registration.addUrlPatterns("/api/*");
+    registration.setOrder(0);
     return registration;
   }
 }

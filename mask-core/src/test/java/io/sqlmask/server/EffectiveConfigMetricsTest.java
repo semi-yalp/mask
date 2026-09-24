@@ -1,4 +1,5 @@
 package io.sqlmask.server;
+import io.sqlmask.common.metrics.EffectiveMetrics;
 
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.MeterRegistry;

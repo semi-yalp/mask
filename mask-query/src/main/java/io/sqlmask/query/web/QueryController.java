@@ -42,19 +42,25 @@ public class QueryController {
     if (request.maxRows() != null && request.maxRows() <= 0) {
       throw new QueryException(QueryException.CONFIG_ERROR, "maxRows must be positive");
     }
+    // 已验证的控制台身份优先于调用方自报主体：审计与策略按真实登录者计
+    io.sqlmask.auth.AuthPrincipal principal = io.sqlmask.auth.AuthTokens.principal(httpRequest);
+    final String subjectUser = principal != null ? principal.username() : request.user();
+    final java.util.List<String> subjectGroups =
+        principal != null ? principal.groups() : request.groups();
     // WebAsyncTask 的超时兜底比语句超时略长；断连/容器超时先 cancel 再回 503
     CancelRegistry.Registration registration = cancels.begin();
+    final String authKind = io.sqlmask.audit.AuditEvents.authKind(httpRequest);
     WebAsyncTask<ResponseEntity<QueryResult>> task =
         new WebAsyncTask<>(props.timeoutSeconds() * 1000L + 10_000L, () -> {
           try {
             QueryResult result = service.execute(request, registration);
-            auditor.success(result, request.sql(), request.user(), request.groups(),
-                httpRequest.getRemoteAddr());
+            auditor.success(result, request.sql(), subjectUser, subjectGroups,
+                httpRequest.getRemoteAddr(), authKind);
             return ResponseEntity.ok(result);
           } catch (QueryException e) {
             if (!e.rewritePhase()) {
-              auditor.failure(e, request.sql(), request.user(), request.groups(),
-                  httpRequest.getRemoteAddr(), request.instance());
+              auditor.failure(e, request.sql(), subjectUser, subjectGroups,
+                  httpRequest.getRemoteAddr(), request.instance(), authKind);
             }
             throw e;
           }

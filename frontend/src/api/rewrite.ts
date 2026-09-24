@@ -6,6 +6,7 @@ export interface RewriteBody {
   policyYaml?: string;
   instance?: string;
   user?: string;
+  dialect?: string;
   groups?: string[];
   sql: string;
 }

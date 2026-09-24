@@ -21,19 +21,25 @@ mask-query 是仓库中唯一的受控执行面，且只执行改写产物、只
 资源通配与 `priority`），后者通过 `--policies` / 请求字段 `policyYaml` 提供并携带
 查询主体（`--user`/`--groups` 或请求字段 `user`/`groups`）。
 
-注意：单 jar（mask-core）不再内嵌策略管理面；实例/策略/UDF 的 REST 由
-mask-policy-server 在 8081 提供。
+注意：单 jar（mask-core）不含策略管理面；实例/策略/UDF 的 REST 由
+mask-policy-server 在 8081 提供。mask-engine 自 mask-core 抽离后为 Spring-free
+内核库，mask-lite（PG-only 最小化 fork）已随之退役（其使命由 mask-engine 承接，
+TPC-DS 基准资产保留在旧仓库 `semi-yalp/mask` 封存可查）。
 
 ## 服务形态
 
-同一仓库产出四个微服务、一个管理台前端（CLI 内置于改写服务 jar）：
+同一仓库产出四个微服务、一个管理台前端（CLI 内置于改写服务 jar），底层由两个
+共享库模块支撑（详见 `docs/refactor-plan.md` 的模块拓扑）：
 
-| 服务 | 模块 | 端口 | 职责 |
-|---|---|---|---|
-| 改写服务 | mask-core | 8080 | `/api/rewrite`（内联 YAML 或 instance 模式）、`/api/audit` 审计查询、内置页面、CLI |
-| 策略服务 | mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
-| 元数据服务 | mask-metadata | 8082 | 库表结构采集与存储 |
-| 查询服务 | mask-query | 8083 | 统一查询数据面：改写不可绕过地执行并只返回脱敏结果 |
+| 模块 | 端口 | 职责 |
+|---|---|---|
+| mask-engine | —（纯库） | 改写内核：方言/血缘/行过滤/YAML 配置/元数据采集；**零 Spring、零 picocli**（enforcer 强制），可独立嵌入 |
+| mask-common | —（库） | 服务面共享件：统一 `ApiKeyFilter`、统一错误体 `ApiError(code,message,details)`、跨服务契约与指标 |
+| mask-core | 8080 | 改写服务：`/api/rewrite`（内联 YAML 或 instance 模式）、`/api/audit` 审计查询、内置页面、CLI |
+| mask-policy-server | 8081 | 实例/策略/UDF 管理面、按主体编译的 `/api/effective` 数据面 |
+| mask-metadata | 8082 | 库表结构采集与存储 |
+| mask-query | 8083 | 统一查询数据面：改写不可绕过地执行并只返回脱敏结果 |
+| frontend/ | 80（nginx） | 管理台 SPA：总览/访问管理/元数据服务/策略管理器/数据面查询/试验台/审计/设置 |
 
 管理台前端（`frontend/`，nginx 部署）按路径前缀反代上述服务，详见
 「前端部署（nginx）」章节。
@@ -71,20 +77,17 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
 - `--database` / `--user` / `--output` 必填；`--host` 缺省 127.0.0.1，
   `--port` 缺省 5432；
 - `--database` 语义按引擎：PostgreSQL / MySQL 是库名，Trino 是 catalog 名；
-- Trino 无密码认证：`sslmode=disable`（缺省）时 CLI 跳过密码要求，不必再编造
-  占位值；Trino 真实启用密码认证时须加 `--sslmode require`（经 TLS 发送）。
-  Web `/api/metadata/pull` 已支持 `sslmode` 请求字段（缺省 disable）；
+- Trino 无密码认证：`--password` 传任意非空占位值（如 `x`）即可，CLI 要求
+  密码非空；明文（`sslmode=disable`，缺省）连接不发送密码——占位密码不会进
+  JDBC Properties，被静默丢弃；Trino 真实启用密码认证时须加
+  `--sslmode require`（经 TLS 发送）。Web 请求体暂无 sslmode 字段，密码认证的
+  Trino 暂只能走 CLI；
 - `--schema`：schema 过滤，可重复给出多个；缺省导出全部非系统 schema
   （PostgreSQL）、当前库（MySQL）或该 catalog 下全部 schema（Trino）；
 - `--include-views`：连同视图与物化视图一起导出；
 - `--strict`：只要有列类型降级为 varchar 就拒绝导出（退出码 1，
   错误码 `STRICT_DEGRADED`）；
-- 密码来源：`--password` 优先于环境变量 `SQLMASK_PASSWORD`，再退
-  `PGPASSWORD`（仅 PostgreSQL），都没有则退出码 2。注意 `--password` 对同机
-  所有用户可见（进程列表/Shell history），推荐用环境变量；
-- 出网守卫：采集目标 host 解析到链路本地地址（169.254/16、fe80/10，云元数据
-  端点）时拒绝连接（`CONFIG_ERROR`）；`sqlmask.network-guard=off`
-  （env `SQLMASK_NETWORK_GUARD`）可关闭。
+- 密码来源：`--password` 优先于环境变量 `PGPASSWORD`，两者都没有则退出码 2。
 
 行为要点：
 
@@ -119,11 +122,16 @@ java -jar target/sql-mask.jar --pull-metadata --engine trino --port 8080 \
 ## 构建
 
 ```bash
-mvn test
+mvn test       # 全模块测试（含嵌入式 PG 全链路 QueryEndToEndTest）
+mvn verify     # 测试 + 打包 + enforcer（内核纯度：mask-engine 禁 Spring/picocli）
 mvn package
 ```
 
 `mvn package` 产出可执行 fat jar：`target/sql-mask.jar`（已内置全部依赖）。
+模块拓扑：`mask-build-tools / mask-sqlparser / mask-policy / mask-engine /
+mask-audit / mask-common / mask-core / mask-query / mask-metadata /
+mask-policy-server`（内核 mask-engine 与共享件 mask-common 自 mask-core 抽离，
+服务模块之间零互相依赖，enforcer 强制）。
 
 依赖版本约定：`io.trino:trino-jdbc:446` 需与 test-scope 的
 `io.trino:trino-parser:446` 保持同一版本对齐（升级 JDBC 驱动时同步升级测试用
@@ -139,15 +147,13 @@ hive-jdbc 依赖注记（mask-query，client-only 用法）：`org.apache.hive:h
 本地起策略服务 + PG：
 
 ```bash
-export POLICY_PG_PASSWORD=your-pg-password   # PG 口令不再有弱默认
 mvn -pl mask-policy-server -am package
 docker compose -f docker-compose.policy.yml up -d
 ```
 
-环境变量：`POLICY_PG_URL/USER/PASSWORD`（PG 连接，口令无默认值，缺环境变量
-启动失败）、`SQLMASK_ADMIN_API_KEY`（管理面 `/api/instances/**`）、
-`SQLMASK_DATA_API_KEY`（数据面 `/api/effective/**`）。key 未配置时该面不拦截，
-但启动日志会输出显式 WARN 提醒。
+环境变量：`POLICY_PG_URL/USER/PASSWORD`（PG 连接）、`SQLMASK_ADMIN_API_KEY`
+（管理面 `/api/instances/**`）、`SQLMASK_DATA_API_KEY`（数据面 `/api/effective/**`），
+未配置 Key 则不拦截。
 
 ## Web 服务与页面
 
@@ -171,55 +177,65 @@ java -jar target/sql-mask.jar
 
 ## 前端部署（nginx）
 
-`frontend/` 是统一策略控制台：**Vue 3 + Element Plus + Vite + TypeScript** 工程
-（`src/` 源码，构建产物 `dist/`），参考 Apache Ranger Admin 的信息架构重构：
-深蓝侧边栏 + 飞出抽屉导航 + 访问管理服务网格 + 策略管理器 + 分类审计页签。
-构建需要 Node.js ≥ 18（版本钉在 Node 18 兼容档：Vite 5 / TS 5.5）；也可以不装
-Node——用 `frontend/deploy.sh` 把源码同步到远程构建主机构建，本机零工具链。
-nginx 承载 `dist/` 并反向代理 `/api/**` 到各微服务，浏览器与 API 同源、无需
-CORS 配置。
+`frontend/` 是 Vue 3 + Element Plus 的管理台 SPA（参考 Apache Ranger Admin 的
+信息架构：深蓝侧边栏 + 访问管理服务网格 + 策略管理器 + 分类审计页签），
+vite 构建产出 `dist/`，生产由 nginx 承载并反向代理 `/api/**` 到各微服务，
+浏览器与 API 同源、无需 CORS 配置。
 
-页面结构（SPA，history 路由，nginx 已配 `try_files … /index.html` 深链回退）：
+页面结构（`/` 即控制台入口，history 路由，nginx 已配 SPA 回退）：
 
-- **总览 `/`**：实例/表结构统计、快速开始、近期实例与门禁状态；
-- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql）分组的
-  Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
-  侧边栏「访问管理」抽屉同样按方言分组直达实例；
+- **总览 `/`**：实例/表结构统计、方言分布、快速开始（创建实例 → 登记数据源 →
+  验证改写 → 受控查询）、门禁状态；
+- **访问管理 `/access-manager`**：按方言（postgresql/trino/mysql/hive/sparksql）
+  分组的 Service Manager 网格，每张卡片可新建/删除实例，点实例进入策略管理器；
+  侧边栏「访问管理」悬停菜单同样按方言分组直达实例；
+- **元数据服务 `/metadata-manager`**：mask-metadata（8082）实例登记（引擎/连接
+  信息/密码环境变量名）、在线采集（collect，仅 postgresql/mysql/trino）、
+  YAML 导入、连接信息编辑与表结构/版本查看；
 - **策略管理器 `/policy-manager/:name`**：Ranger 式顶栏（方言标题、服务切换
   下拉、管理实例菜单、绿色 Add New Policy），四个页签——策略（表格 + 分区式
-  编辑抽屉）、资源/表结构（表格 + 抽屉编辑 + 跨服务元数据导入）、脱敏 UDF、
-  按主体拉取的生效配置预览；
-- **改写试验台 `/playground`**：instance 模式或内联 YAML 提交 SQL，
-  CodeMirror 编辑器，逐语句展示改写结果；
+  编辑抽屉 + 校验）、资源/表结构（表格 + 抽屉编辑 + 分页 + 跨服务元数据导入）、
+  脱敏 UDF、按主体拉取的生效配置预览；
+- **数据面查询 `/query-console`**：mask-query（8083）`POST /api/v1/query` 的
+  受控查询台——选实例 + 查询主体 + maxRows，返回脱敏结果集（动态列表格、
+  masked/rowFiltered/truncated 徽标、耗时），可回显实际执行的改写产物，
+  本地保留最近执行历史；
+- **改写试验台 `/playground`**：instance 模式或内联 YAML 模式（含 policies.yaml
+  主体策略 + 方言选择）提交 SQL，CodeMirror 编辑器，逐语句展示改写结果；
 - **审计 `/audit?eventType=…`**：Ranger 式审计页签（全部/访问审计 REWRITE/
   查询执行 QUERY/管理审计 ADMIN_CHANGE/生效拉取 EFFECTIVE_PULL）+ 时间预设
-  与字段筛选，行可展开查看原始/改写 SQL，无 ES 时显示引导卡片；
-- **设置 `/settings`**：双 API Key 与服务拓扑。
+  与字段筛选，行可展开查看原始/改写 SQL；
+- **设置 `/settings`**：三把 API Key（管理/数据/查询，`X-Api-Key` 头，存
+  localStorage）与服务拓扑；401 会在全局提示对应 Key 未配置。
 
-鉴权：页面侧边栏「API Key 设置」填写管理 Key（`/api/instances`）与数据 Key
-（`/api/effective`），以 `X-Api-Key` 头发送，保存在浏览器 localStorage。
+鉴权失败统一返回 401 `{"code":"UNAUTHORIZED",...}`；业务错误统一为
+`{code, message, details[]}`（mask-common 的 `ApiError`，四个服务同构）。
 
-- **`frontend/nginx.conf`**：路由模板。`/api/instances`、`/api/effective` → 8081，
-  `/api/rewrite`、`/api/audit` → 8080（审计查询端点在 mask-core）；注释示例：
-  `/api/metadata` → 8082（`/api/metadata/pull` 须用 `location =` 精确匹配优先到
-  8080），`/api/v1/` → 8083；`location /` 带 SPA history 路由回退。
-- **`frontend/nginx.conf.docker`**：容器部署专用，同构路由，upstream 改为
-  `host.docker.internal`。
+旧版单文件 `policy-console.html` 已随功能完整的新控制台移除（localStorage 的
+Key 存储名沿用，老用户无感）。
 
-构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行）：
+- **`frontend/nginx.conf`**：路由模板（`nginx.conf.docker` 与其同构，仅 upstream
+  主机不同）。最长前缀匹配：`/api/instances`、`/api/effective` → 8081，
+  `/api/meta/**` → 重写为 8082 的 `/api/**`（策略服务与元数据服务都有
+  `/api/instances`，控制台约定元数据服务走 `/api/meta/` 网关前缀），
+  `/api/v1/` → 8083，其余 `/api/` → 8080（rewrite/config/policies/audit/
+  metadata pull）；vite dev 代理（`vite.config.ts`）与生产完全同构；
+  深链路由经 `try_files … /index.html` 回退到 SPA。
+
+构建与部署（本机无需 Node，`frontend/deploy.sh` 在远程构建主机执行；
+`DEPLOY_HOST` **必填**——不再内置默认主机）：
 
 ```bash
-cd frontend && npm install && npm run build   # 先产出 dist/
+export DEPLOY_HOST=root@your-build-host   # 必填
+export DEPLOY_ROOT=~/code/mask            # 可选
+cd frontend
+bash deploy.sh sync   # 仅同步源码
+bash deploy.sh test   # 同步 + vitest 单测
+bash deploy.sh build  # 同步 + vue-tsc 类型检查 + vite 构建(产出 dist/)
+bash deploy.sh up     # 同步 + 构建镜像并启动 nginx(端口 80)
 
-# 方式一：Docker（镜像只打包 frontend/dist/，镜像内使用 nginx.conf.docker，
-#         upstream 指向 host.docker.internal，Linux 由 compose 的 host-gateway 映射提供）
-docker compose -f docker-compose.frontend.yml up --build
-
-# 方式二：本机 nginx（把 nginx.conf 的 root 改为 frontend/dist 绝对路径后 include）
+# 方式二：本机 nginx（把 nginx.conf 的 root 改为 dist 目录绝对路径后 include）
 nginx -c $(pwd)/frontend/nginx.conf
-
-# 方式三：远程构建主机（本机无 Node 时;sync/build/test/up 子命令见脚本头注释）
-bash frontend/deploy.sh build && bash frontend/deploy.sh up
 ```
 
 Docker 镜像只打包 `frontend/dist/`（`docker/nginx.Dockerfile`），因此远程
@@ -579,12 +595,6 @@ Trino、MySQL、Hive 与 Spark SQL 输出中保留原义（Calcite 默认渲染�
 无需处理）；`BETWEEN SYMMETRIC` 不做特殊处理，按 Calcite 原渲染输出——
 PostgreSQL 可执行；其余四方言会在引擎侧报错。
 
-未命名计算列（如 `SELECT phone, 1+1 FROM t` 中的 `1+1`）在包装层曾引用 Calcite
-派生名 `EXPR$N`（目标引擎列名不同，必然"列不存在"）。现在：PostgreSQL / MySQL
-（≥8.0.19）/ Trino 通过派生表列别名表定位改名的 `mask_col_N`
-（`FROM (...) AS r (phone, mask_col_1)`）；Hive / Spark SQL 不支持该语法，
-遇到未命名计算列直接 `REWRITE_ERROR` 拒绝并提示显式命名。
-
 ### 各引擎类型集（metadata.yaml 的 `type:`）
 
 - **PostgreSQL**：`boolean`、`smallint`、`integer`、`bigint`、`real`、
@@ -703,22 +713,15 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 本地起套：`mvn -pl mask-metadata -am package && docker compose -f docker-compose.metadata.yml up`
 （需先 `mvn -pl mask-metadata -am package` 生成 fat jar）。
 
-- 鉴权：`X-Api-Key` 按**面分 key**——管理面 `/api/instances/**`（含采集）用
-  `METADATA_ADMIN_API_KEY`，数据面 `/api/metadata/**` 用 `METADATA_DATA_API_KEY`；
-  两者都未设置时回退单 key `METADATA_API_KEY`（兼容存量部署）。任一面 key
-  未配置 = 该面全 401（fail-closed）
-- 密码：实例只登记环境变量名（`passwordRef`，**必须 `SQLMASK_` 前缀**，
-  如 `SQLMASK_DS_<INSTANCE>_PASSWORD`；带其他前缀的存量引用会被拒绝并提示迁移），
+- 鉴权：`X-Api-Key`（服务端 Key 来自 `METADATA_API_KEY`；未配置 = 全 401）
+- 密码：实例只登记环境变量名（`passwordRef`，推荐 `SQLMASK_DS_<INSTANCE>_PASSWORD`），
   采集时服务端解析；密码不落库、不进日志、不进 URL
-- 出网守卫：采集目标 host 解析到链路本地地址（云元数据端点）时拒绝
-  （`CONFIG_ERROR`），`METADATA_NETWORK_GUARD=off` 可关闭
 - 采集边界：`hive` / `sparksql` 方言实例**不支持 pull-metadata**——采集端点对
   这两方言明确拒绝（`CONFIG_ERROR`，「执行优先不采集」的硬边界），表结构一律用
   YAML 导入（`POST /api/instances/import`）；被拒方言的采集请求不计入 FAILURE
   指标（拒绝门在 metrics 记录之外）
 - 导入：`POST /api/instances/import` 只吃 `metadata.tables`；表声明含 `rowFilter`
-  字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略；结构步骤失败时
-  会补偿删除刚创建的实例，不留"有实例无结构"的空壳
+  字段会被 400 拒绝——行过滤请在策略服务配置为 row_filter 策略
 
 ## 查询服务（mask-query，8083）
 
@@ -729,10 +732,10 @@ YAML 导入、数据面 `GET /api/metadata/instances/{name}`（tables 段等价 
 
 | engine | 改写方言 | 缺省端口 | JDBC URL 形态 |
 |---|---|---|---|
-| `postgresql` | `postgresql` | 5432 | `jdbc:postgresql://H:P/DB?sslmode=…&connectTimeout=…&socketTimeout=…&readOnly=true` |
-| `mysql` | `mysql` | 3306 | `jdbc:mysql://H:P/DB?…connectTimeout/socketTimeout…&useCursorFetch=true` |
+| `postgresql` | `postgresql` | 5432 | `jdbc:postgresql://H:P/DB?sslmode=…&connectTimeout=…&readOnly=true` |
+| `mysql` | `mysql` | 3306 | `jdbc:mysql://H:P/DB?…&useCursorFetch=true` |
 | `starrocks` | `mysql`（复用 MySQL 方言改写产物） | 9030 | 同 `mysql` |
-| `trino` | `trino` | 8080 | `jdbc:trino://H:P/CATALOG?SSL=…`（连接超时由 `DriverManager.setLoginTimeout` 兜底） |
+| `trino` | `trino` | 8080 | `jdbc:trino://H:P/CATALOG?SSL=…` |
 | `hive` | `hive` | 10000 | `jdbc:hive2://H:P/DB`（binary transport）；`sslmode=require` 追加 `;ssl=true` |
 | `sparksql` | `sparksql` | 10000 | 同 `hive`（Spark ThriftServer 同一 HS2 协议；DB 可为空 → `jdbc:hive2://H:P/`） |
 
@@ -785,12 +788,8 @@ Spark ThriftServer。
 
 ### 错误码
 
-状态码按失败类别分派（与标准重试/网关语义对齐）：请求级问题 400；
-`QUERY_BUSY` → 429；`QUERY_TIMEOUT` → 504；`REWRITE_SERVICE_UNAVAILABLE` /
-`METADATA_SERVICE_UNAVAILABLE` → 502；鉴权失败 401；容器兜底超时
-（`onTimeout` → 取消语句）返回 503。错误体为 `{code, message, details[]}`。
-`QUERY_ERROR` / `QUERY_TIMEOUT` 的 message 只含 code+SQLState 粗化描述——
-驱动原文（可能含内网主机与 schema 细节）留在服务端日志与审计中。
+业务错误统一 HTTP 400，错误体为 `{code, message, details[]}`（与 mask-metadata
+同构）；鉴权失败 401；容器兜底超时（`onTimeout` → 取消语句）返回 503。
 
 - mask-query 自有：`MULTI_STATEMENT`、`WRITE_STATEMENT`（只读数据面，非
   `SELECT` 拒绝）、`INSTANCE_NOT_FOUND`、`INSTANCE_NOT_EXECUTABLE`（YAML 导入
@@ -858,6 +857,77 @@ java -jar mask-query/target/mask-query-0.1.0-SNAPSHOT.jar
 ```bash
 mvn -pl mask-query test -Dtest=QueryEndToEndTest
 ```
+
+## LDAP 用户认证（控制台登录）
+
+四个服务在 API Key 之外支持**控制台用户级认证**：用户用企业 LDAP / AD
+账号登录 mask-policy-server 的 `POST /api/auth/login`，换回一个签名
+HS256 Bearer 令牌（JWT 兼容格式，默认 8 小时有效），后续请求带
+`Authorization: Bearer <token>` 访问任何控制台面。角色由 LDAP 组映射：
+`ADMIN`（策略/实例/UDF 管理）> `AUDITOR`（审计查询 + 只读面）>
+`USER`（试验台、以本人身份拉生效配置/查询）。**数据面主体绑定**：
+带令牌调用 `/api/effective`、`/api/rewrite/instances`、`/api/v1/query`
+时，策略主体 user/groups 一律取自令牌（调用方自报的 `?user=` / 请求体
+字段被忽略），审计事件同步记录真实身份（`authKind=LDAP`）。
+
+与既有 API Key 体系**共存**：服务间调用继续走 `X-Api-Key`；不配置
+`MASK_AUTH_SECRET` 时令牌校验不启用，各服务行为与未引入 LDAP 前完全
+一致（匿名/API Key 模式不受影响）。
+
+### 配置（环境变量，全部可选）
+
+| 变量 | 缺省 | 说明 |
+|---|---|---|
+| `MASK_AUTH_SECRET` | 空 | 令牌签名密钥（UTF-8 ≥32 字节）；**设置后**各服务启用令牌校验 |
+| `MASK_AUTH_TOKEN_TTL` | `PT8H` | 令牌有效期（ISO-8601 duration） |
+| `MASK_AUTH_LDAP_URL` | 空 | `ldap://host:389` 或 `ldaps://host:636`；与 base DN 同时设置才启用登录 |
+| `MASK_AUTH_LDAP_BASE_DN` | 空 | 如 `dc=example,dc=org` |
+| `MASK_AUTH_LDAP_BIND_DN` / `_PASSWORD` | 空 | 检索用服务账号（可选，缺省匿名检索） |
+| `MASK_AUTH_LDAP_USER_SEARCH_BASE` | base DN | 用户搜索基，如 `ou=people,...` |
+| `MASK_AUTH_LDAP_USER_FILTER` | `(uid={0})` | AD 通常改 `(sAMAccountName={0})` |
+| `MASK_AUTH_LDAP_GROUP_SEARCH_BASE` | 空 | 设置→组检索模式（`(member={dn})` 搜组）；空→读用户条目 `memberOf`（AD 风格） |
+| `MASK_AUTH_LDAP_GROUP_FILTER` | `(member={dn})` | 仅组检索模式 |
+| `MASK_AUTH_ADMIN_GROUPS` / `MASK_AUTH_AUDITOR_GROUPS` | 空 | 逗号分隔组名 → 角色映射 |
+| `MASK_AUTH_LDAP_CONNECT_TIMEOUT` / `_RESPONSE_TIMEOUT` | `PT3S` / `PT5S` | LDAP 超时 |
+
+登录流程：服务账号（或匿名）按 user filter 检索用户 DN → 用该 DN + 用户
+密码 bind 验证 → 取组（组检索或 memberOf，组名取组 DN 首个 RDN 值）→
+映射角色 → 签发令牌。LDAP 不可达时登录失败（fail-closed，无旁路）；
+错密码与无此用户返回同一 401（不泄露用户存在性）。前端（nginx/vite）已
+代理 `/api/auth` → 8081，控制台自动探测 `GET /api/auth/mode`：LDAP 启用
+即强制登录页，未启用维持 API Key 模式。
+
+### 本地试跑（OpenLDAP 演示目录）
+
+```bash
+# 1) 起演示目录（含 amy/bob/carol 三用户与三角色组，端口 3890）
+docker compose -f docker/auth/docker-compose.auth.yml up -d
+
+# 2) 四个服务与前端同注入（示例给 policy-server；8080/8082/8083 同样注入
+#    SECRET 使令牌跨服务可验）
+export MASK_AUTH_SECRET='0123456789abcdef0123456789abcdef'
+export MASK_AUTH_LDAP_URL=ldap://127.0.0.1:3890
+export MASK_AUTH_LDAP_BASE_DN='dc=example,dc=org'
+export MASK_AUTH_LDAP_USER_SEARCH_BASE='ou=people,dc=example,dc=org'
+export MASK_AUTH_LDAP_GROUP_SEARCH_BASE='ou=groups,dc=example,dc=org'
+export MASK_AUTH_ADMIN_GROUPS=mask-admins
+export MASK_AUTH_AUDITOR_GROUPS=mask-auditors
+
+# 3) 浏览器打开控制台 → 跳转登录页
+#    amy / amy-secret（ADMIN）、bob / bob-secret（AUDITOR）、carol / carol-secret（USER）
+```
+
+跑通后可对运行中的 policy-server 执行认证授权断言套件（登录/角色门禁/
+主体绑定，全部通过退出码 0）：
+
+```bash
+BASE_URL=http://127.0.0.1:8081 ./docker/auth/smoke.sh
+```
+
+对接真实 AD 的差异要点：用户过滤器用 `(sAMAccountName={0})` 或
+`(userPrincipalName={0})`；AD 自动维护 `memberOf`，保持组检索基为空即可；
+`ldaps://` 走 TLS（信任 JVM 缺省信任库，企业根证书需先导入）。
+设计细节见 `docs/superpowers/specs/2026-09-24-ldap-auth-design.md`。
 
 ## UDF 注册表（策略服务）
 

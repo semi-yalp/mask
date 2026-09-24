@@ -3,6 +3,7 @@ package io.sqlmask.metaserver.web;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.sqlmask.common.web.ApiError;
 import io.sqlmask.error.SqlMaskException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -45,7 +46,7 @@ class MetadataApiExceptionHandlerTest {
 
   @Test
   void errorBodyCarriesCodeMessageDetails() {
-    MetadataApiExceptionHandler.ApiError body = handler.handle(new SqlMaskException(
+    ApiError body = handler.handle(new SqlMaskException(
         SqlMaskException.Code.CONFIG_ERROR, "bad input")).getBody();
     assertEquals("CONFIG_ERROR", body.code());
     assertEquals("bad input", body.message());
@@ -54,7 +55,7 @@ class MetadataApiExceptionHandlerTest {
 
   @Test
   void unreadableBodyMapsTo400WithBadRequestCode() {
-    ResponseEntity<MetadataApiExceptionHandler.ApiError> response = handler.handleUnreadable(
+    ResponseEntity<ApiError> response = handler.handleUnreadable(
         new HttpMessageNotReadableException("boom", (org.springframework.http.HttpInputMessage) null));
     assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     assertEquals("BAD_REQUEST", response.getBody().code());
@@ -64,7 +65,7 @@ class MetadataApiExceptionHandlerTest {
   @Test
   void unexpectedExceptionMapsTo500WithGenericMessage() {
     // M6：500 响应收敛为通用文案，原始异常只进服务端日志
-    ResponseEntity<MetadataApiExceptionHandler.ApiError> response =
+    ResponseEntity<ApiError> response =
         handler.handleUnexpected(new IllegalStateException("boom with jdbc://host details"));
     assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
     assertEquals("INTERNAL_ERROR", response.getBody().code());

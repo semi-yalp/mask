@@ -1,6 +1,6 @@
 package io.sqlmask.policyserver.compile;
 
-import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.policyserver.model.ColumnDef;

@@ -4,7 +4,6 @@ import io.sqlmask.policyserver.store.InMemoryPolicyStore;
 import io.sqlmask.policyserver.store.PolicyStore;
 import io.sqlmask.policyserver.web.EffectiveConfigController;
 import io.sqlmask.policyserver.web.PolicyAdminController;
-import io.sqlmask.policyserver.web.PolicyApiKeyFilter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -44,11 +43,11 @@ class PolicyServerApplicationContextTest {
 
   @Test
   void apiKeyFilterBeanIsRegistered() {
-    FilterRegistrationBean<PolicyApiKeyFilter> gate = context.getBeansOfType(
+    FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> gate = context.getBeansOfType(
             FilterRegistrationBean.class).values().stream()
-        .filter(r -> r.getFilter() instanceof PolicyApiKeyFilter)
+        .filter(r -> r.getFilter() instanceof io.sqlmask.common.web.ApiKeyFilter)
         .findFirst()
-        .orElseThrow(() -> new AssertionError("no FilterRegistrationBean for PolicyApiKeyFilter"));
+        .orElseThrow(() -> new AssertionError("no FilterRegistrationBean for ApiKeyFilter"));
     assertTrue(gate.getUrlPatterns().contains("/api/instances/*"));
   }
 }

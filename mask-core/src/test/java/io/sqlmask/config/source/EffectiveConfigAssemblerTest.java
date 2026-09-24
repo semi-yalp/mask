@@ -1,4 +1,5 @@
 package io.sqlmask.config.source;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 
 import io.sqlmask.config.LoadedConfig;
 import io.sqlmask.error.SqlMaskException;

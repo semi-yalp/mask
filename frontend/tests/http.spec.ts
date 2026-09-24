@@ -12,7 +12,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 beforeEach(() => {
   setActivePinia(createPinia());
-  useSettingsStore().setKeys("", "");
+  useSettingsStore().setKeys("", "", "");
 });
 
 type CapturedInit = { headers?: Record<string, string>; body?: string };
@@ -38,7 +38,7 @@ describe("call()", () => {
   it("admin 角色注入管理 Key,data 角色注入数据 Key", async () => {
     const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
-    useSettingsStore().setKeys("adm-key", "dat-key");
+    useSettingsStore().setKeys("adm-key", "dat-key", "");
     await call("GET", "/api/a", undefined, "admin");
     await call("GET", "/api/b", undefined, "data");
     const adminInit: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];

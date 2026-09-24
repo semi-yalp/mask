@@ -54,7 +54,10 @@
     <el-drawer v-model="drawer" :title="editing ? '编辑策略:' + editing.name : '新建策略'" size="560px" destroy-on-close>
       <el-form label-width="92px" label-position="left">
         <div class="section">策略详情</div>
-        <el-form-item label="策略名"><el-input v-model="form.name" placeholder="如 mask_phone_policy" /></el-form-item>
+        <el-form-item label="策略名">
+          <el-input v-model="form.name" placeholder="如 mask_phone_policy" />
+          <span v-if="nameError" class="field-error">{{ nameError }}</span>
+        </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="form.policyType" style="width: 100%">
             <el-option value="datamask" label="datamask(列脱敏)" />
@@ -62,7 +65,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="form.isEnabled" /></el-form-item>
-        <el-form-item label="priority"><el-input v-model="form.priorityText" placeholder="可选,小者优先" /></el-form-item>
+        <el-form-item label="priority">
+          <el-input v-model="form.priorityText" :class="{ 'is-error': priorityError }" placeholder="可选,小者优先(整数)" />
+          <span v-if="priorityError" class="field-error">{{ priorityError }}</span>
+        </el-form-item>
 
         <div class="section">策略资源</div>
         <el-form-item label="资源路径">
@@ -72,6 +78,7 @@
             <el-input v-model="form.table" placeholder="table" />
             <el-input v-model="form.columnsText" placeholder="columns,逗号分隔(脱敏)" />
           </div>
+          <span v-if="resourceError" class="field-error">{{ resourceError }}</span>
         </el-form-item>
 
         <div class="section">主体(* = 任意主体)</div>
@@ -89,10 +96,12 @@
           </el-form-item>
           <el-form-item label="参数">
             <el-input v-model="form.argsText" placeholder="arguments,如 3, 4" />
+            <span v-if="udfError" class="field-error">{{ udfError }}</span>
           </el-form-item>
         </template>
         <el-form-item v-else label="过滤表达式">
           <el-input v-model="form.filterExpr" placeholder="如 status = 'active'" />
+          <span v-if="filterError" class="field-error">{{ filterError }}</span>
         </el-form-item>
       </el-form>
       <div class="drawer-foot">
@@ -123,6 +132,29 @@ const saving = ref(false);
 const formError = ref("");
 
 const form = ref(emptyForm());
+
+const nameError = computed(() => {
+  const n = form.value.name.trim();
+  if (!n) return "策略名必填";
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(n) ? "" : "字母开头,仅字母/数字/下划线";
+});
+const priorityError = computed(() => {
+  const t = form.value.priorityText.trim();
+  if (!t) return "";
+  return /^-?\d+$/.test(t) ? "" : "priority 必须是整数(留空表示缺省)";
+});
+const resourceError = computed(() => {
+  const f = form.value;
+  if (!f.catalog.trim() || !f.schema.trim() || !f.table.trim()) return "catalog / schema / table 必填";
+  if (f.policyType !== "row_filter" && !csv(f.columnsText).length) return "datamask 策略至少选择一个列";
+  return "";
+});
+const udfError = computed(() =>
+  form.value.policyType !== "row_filter" && !form.value.udf.trim() ? "datamask 策略必须指定 UDF" : "");
+const filterError = computed(() =>
+  form.value.policyType === "row_filter" && !form.value.filterExpr.trim() ? "行过滤表达式必填" : "");
+const formValid = computed(() =>
+  !(nameError.value || priorityError.value || resourceError.value || udfError.value || filterError.value));
 
 const filtered = computed(() => {
   const k = keyword.value.trim().toLowerCase();
@@ -183,6 +215,7 @@ defineExpose({ openCreate });
 
 async function submit() {
   formError.value = "";
+  if (!formValid.value) { formError.value = "表单存在校验错误,请按提示修正"; return; }
   saving.value = true;
   const f = form.value;
   const body: Policy = {
@@ -246,4 +279,6 @@ function subjectText(p: Policy): string {
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
 .drawer-foot { display: flex; align-items: center; gap: 10px; }
 .form-error { color: var(--el-color-danger, #dc3545); font-size: 12.5px; word-break: break-all; }
+.field-error { display: block; width: 100%; font-size: 12px; color: var(--el-color-danger, #dc3545); margin-top: 4px; }
+.is-error :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px var(--el-color-danger, #dc3545) inset; }
 </style>

@@ -7,7 +7,7 @@
       <el-button type="primary" @click="openForm(null)">注册 UDF</el-button>
     </div>
 
-    <el-table :data="filtered" size="default" stripe>
+    <el-table :data="filtered" size="default" stripe v-loading="loading">
       <el-table-column label="UDF 名" min-width="200">
         <template #default="{ row }">
           <a class="udf-link mono" @click="openForm(row)">{{ row.name }}</a>
@@ -65,6 +65,7 @@ const props = defineProps<{ instance: string }>();
 
 const udfs = ref<Udf[]>([]);
 const loadError = ref("");
+const loading = ref(false);
 const keyword = ref("");
 const drawer = ref(false);
 const editing = ref<Udf | null>(null);
@@ -84,8 +85,10 @@ function emptyForm() {
 
 async function load() {
   loadError.value = "";
+  loading.value = true;
   try { udfs.value = await listUdfs(props.instance); }
   catch (e) { loadError.value = (e as Error).message; }
+  finally { loading.value = false; }
 }
 onMounted(load);
 

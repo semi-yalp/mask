@@ -28,10 +28,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * environment variables — so a {@code BeanFactoryPostProcessor} drops that bean
  * definition and this test registers the closed-key filter under the exact
  * production URL patterns ({@code /api/instances/*}, {@code /api/effective/*}).
- * The companion unit test {@link PolicyApiKeyFilterTest} pins {@code requiredKey}
- * directly.
+ * The companion unit test {@code io.sqlmask.common.web.ApiKeyFilterTest} pins
+ * {@code requiredKey} routing directly.
  *
- * <p>{@code PolicyApiKeyFilter#doFilter} keys off {@code getServletPath()}, which
+ * <p>{@code ApiKeyFilter#doFilter} keys off {@code getServletPath()}, which
  * a real container sets to the decoded request path but MockMvc leaves empty —
  * each request therefore carries an explicit servletPath (same shape the unit
  * tests and the container use), keeping the path gates faithful.
@@ -68,9 +68,12 @@ class PolicyServerAuditGateContextTest {
     }
 
     @Bean
-    FilterRegistrationBean<PolicyApiKeyFilter> testPolicyApiKeyFilter() {
-      FilterRegistrationBean<PolicyApiKeyFilter> registration =
-          new FilterRegistrationBean<>(new PolicyApiKeyFilter(ADMIN_KEY, DATA_KEY));
+    FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> testPolicyApiKeyFilter() {
+      io.sqlmask.common.web.ApiKeyFilter filter = io.sqlmask.common.web.ApiKeyFilter.surfaces(
+          new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/instances", ADMIN_KEY),
+          new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/effective", DATA_KEY));
+      FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> registration =
+          new FilterRegistrationBean<>(filter);
       registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
       registration.setOrder(1);
       return registration;

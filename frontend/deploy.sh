@@ -11,10 +11,14 @@
 #   bash deploy.sh test                 # 同步 + npm install + 单测
 #   bash deploy.sh up                   # 远端 docker compose 启动/更新 nginx(端口 80)
 #
-# 环境变量: DEPLOY_HOST(默认 root@47.100.166.158)、DEPLOY_ROOT(默认 ~/code/mask)
+# 环境变量: DEPLOY_HOST(必填,如 root@example.com)、DEPLOY_ROOT(默认 ~/code/mask)
 set -euo pipefail
 
-HOST="${DEPLOY_HOST:-root@47.100.166.158}"
+if [ -z "${DEPLOY_HOST:-}" ]; then
+  echo "DEPLOY_HOST 未设置:部署主机不再内置默认值,请显式指定(如 DEPLOY_HOST=root@example.com)" >&2
+  exit 2
+fi
+HOST="$DEPLOY_HOST"
 ROOT="${DEPLOY_ROOT:-~/code/mask}"
 DEST="$ROOT/frontend"
 cd "$(dirname "$0")"

@@ -30,10 +30,17 @@
             </div>
           </template>
           <template v-else>
-            <div class="yaml-label">metadata.yaml</div>
+            <div class="form-row">
+              <el-select v-model="dialect" style="flex: 1">
+                <el-option v-for="d in DIALECTS" :key="d" :value="d" :label="`dialect: ${d}`" />
+              </el-select>
+              <el-input v-model="user" placeholder="user(可选)" style="flex: 1" />
+              <el-input v-model="groupsText" placeholder="groups,逗号分隔" style="flex: 1" />
+            </div>
+            <div class="yaml-label">metadata.yaml<span v-if="policyYaml.trim()" class="muted label-hint">(policies.yaml 模式下须去掉内嵌 policies/columns/rowFilter)</span></div>
             <el-input v-model="metadataYaml" type="textarea" :rows="6" class="mono" placeholder="metadata YAML" />
-            <div class="yaml-label">policies.yaml(可选)</div>
-            <el-input v-model="policyYaml" type="textarea" :rows="6" class="mono" placeholder="Ranger 式策略文件" />
+            <div class="yaml-label">policies.yaml(可选,Ranger 式主体策略)</div>
+            <el-input v-model="policyYaml" type="textarea" :rows="6" class="mono" placeholder="Ranger 式策略文件;填写后 user/groups 参与主体匹配" />
           </template>
 
           <div class="yaml-label">SQL</div>
@@ -74,17 +81,20 @@
 import { onMounted, ref } from "vue";
 import { rewrite } from "@/api/rewrite";
 import { useInstancesStore } from "@/stores/instances";
+import { POLICY_DIALECTS } from "@/constants";
 import type { RewriteResponse } from "@/types/domain";
 import CodeBlock from "@/components/CodeBlock.vue";
 import ErrorAlert from "@/components/ErrorAlert.vue";
 import SqlEditor from "@/components/SqlEditor.vue";
 
 const store = useInstancesStore();
+const DIALECTS = [...POLICY_DIALECTS];
 
 const mode = ref<"instance" | "inline">("instance");
 const instance = ref("");
 const user = ref("");
 const groupsText = ref("");
+const dialect = ref<string>("postgresql");
 const metadataYaml = ref("");
 const policyYaml = ref("");
 const sql = ref("");
@@ -97,13 +107,19 @@ onMounted(() => store.load());
 async function run() {
   error.value = "";
   result.value = null;
+  if (mode.value === "inline" && !metadataYaml.value.trim()) { error.value = "metadata YAML 不能为空"; return; }
   if (!sql.value.trim()) { error.value = "SQL 不能为空"; return; }
+  if (mode.value === "instance" && !instance.value) { error.value = "请选择实例"; return; }
   running.value = true;
   try {
     const groups = groupsText.value.split(",").map((s) => s.trim()).filter(Boolean);
     result.value = await rewrite(mode.value === "instance"
-      ? { instance: instance.value || undefined, user: user.value.trim() || undefined, groups, sql: sql.value }
-      : { metadataYaml: metadataYaml.value, policyYaml: policyYaml.value || undefined, sql: sql.value });
+      ? { instance: instance.value, user: user.value.trim() || undefined, groups, sql: sql.value }
+      : {
+          metadataYaml: metadataYaml.value, policyYaml: policyYaml.value.trim() || undefined,
+          dialect: dialect.value, user: user.value.trim() || undefined,
+          groups: policyYaml.value.trim() ? groups : undefined, sql: sql.value
+        });
   } catch (e) { error.value = (e as Error).message; }
   finally { running.value = false; }
 }
@@ -116,7 +132,7 @@ async function run() {
 }
 .head-row { display: flex; align-items: center; }
 .form-row { display: flex; gap: 8px; margin-bottom: 10px; }
-.yaml-label { font-size: 12.5px; font-weight: 600; margin: 10px 0 6px; }
+.yaml-label { font-size: 12.5px; font-weight: 600; margin: 10px 0 6px; .label-hint { font-weight: 400; margin-left: 6px; } }
 .run-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .stmt { margin-bottom: 14px; }
 .stmt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12.5px; }
