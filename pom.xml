@@ -56,6 +56,19 @@
   </dependencyManagement>
 
   <build>
+    <pluginManagement>
+      <plugins>
+        <!--
+          统一 surefire 版本:mask-auth/mask-sqlparser 等不声明 build 插件的模块
+          若回落 Maven super-POM 的旧默认(2.12.4)无法运行 JUnit 5,测试会静默 0 执行。
+        -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

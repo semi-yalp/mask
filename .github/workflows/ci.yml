@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   backend:
-    name: backend (mvn verify, 10 modules incl. mask-engine/mask-common)
+    name: backend (mvn verify, 12 modules)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,10 +30,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # package-lock.json 未入库;deploy.sh 的文档化流程即 npm install
+      # package-lock.json 已入库;npm ci 按锁文件安装,保证远端构建可复现
       - name: Install, unit-test and build
         working-directory: frontend
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm ci
           npm test
           npm run build

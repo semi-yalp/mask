@@ -19,18 +19,23 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Alert notification sink: every qualifying new alert produces one
  * {@link Notification} in a bounded local log (the console's 通知记录), and,
  * when a webhook URL is configured, one async best-effort POST carrying the
- * alert payload. Delivery never blocks or fails the ingest path.
+ * alert payload. Delivery happens on a single daemon worker fed by a bounded
+ * queue, so {@link #notify} never blocks or fails the ingest path — a slow or
+ * unreachable webhook costs at most one queue slot, never request latency.
  */
-public class NotificationSink {
+public class NotificationSink implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(NotificationSink.class);
   private static final int LOG_CAP = 300;
+  private static final int QUEUE_CAP = 64;
 
   private final RiskProperties.Notify config;
   private final RiskSeverity minSeverity;
@@ -40,10 +45,16 @@ public class NotificationSink {
   private final ObjectMapper mapper = new ObjectMapper();
   private final Deque<Notification> logEntries = new ArrayDeque<>();
   private final AtomicLong seq = new AtomicLong();
+  private final ArrayBlockingQueue<Alert> pending = new ArrayBlockingQueue<>(QUEUE_CAP);
+  private final Thread worker;
+  private volatile boolean closing;
 
   public NotificationSink(RiskProperties.Notify config) {
     this.config = config;
     this.minSeverity = RiskSeverity.parse(config.getMinSeverity());
+    this.worker = new Thread(this::run, "risk-notify");
+    this.worker.setDaemon(true);
+    this.worker.start();
   }
 
   /** True when this alert's severity qualifies for notification. */
@@ -51,11 +62,38 @@ public class NotificationSink {
     return alert.severity().atLeast(minSeverity);
   }
 
-  /** Records (and optionally delivers) one notification for a new alert. */
+  /**
+   * Records (and schedules delivery of) one notification for a new alert.
+   * Returns immediately: the webhook POST, when configured, happens on the
+   * worker thread; a full queue drops the notification with a warning.
+   */
   public void notify(Alert alert) {
     if (!qualifies(alert)) {
       return;
     }
+    if (!pending.offer(alert)) {
+      log.warn("risk: notification queue full, notification for alert {} dropped", alert.id());
+    }
+  }
+
+  /** Worker loop: one alert per iteration, survives any single delivery failure. */
+  private void run() {
+    while (!closing) {
+      Alert alert;
+      try {
+        alert = pending.poll(1, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      if (alert == null) {
+        continue;
+      }
+      deliver(alert);
+    }
+  }
+
+  private void deliver(Alert alert) {
     Map<String, Object> payload = payload(alert);
     String delivery;
     String detail;
@@ -129,5 +167,21 @@ public class NotificationSink {
 
   public boolean webhookConfigured() {
     return config.getWebhookUrl() != null && !config.getWebhookUrl().isBlank();
+  }
+
+  /** Stops the worker; queued alerts are dropped (best-effort delivery). */
+  @Override
+  public void close() {
+    closing = true;
+    worker.interrupt();
+    try {
+      worker.join(3_000);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    int left = pending.size();
+    if (left > 0) {
+      log.info("risk: notification sink closed with {} undelivered alerts (best-effort)", left);
+    }
   }
 }

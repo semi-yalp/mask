@@ -60,7 +60,10 @@ class RiskForwarderTest {
     properties.setUrl(url);
     properties.setApiKey("risk-key");
     properties.setBatchSize(2);
-    properties.setFlushIntervalMs(10_000); /* 拉长间隔:避免 CI 慢载下定时器抢在批满前刷出半批(flaky) */
+    // The worker holds the first event up to the flush interval waiting for
+    // the batch to fill, so recording both events right away must produce one
+    // batch of two — no timer can race a half batch out from under us.
+    properties.setFlushIntervalMs(10_000);
 
     java.util.List<String> batches = new java.util.ArrayList<>();
     try (RiskForwarder forwarder = new RiskForwarder(properties, new SimpleMeterRegistry())) {
@@ -96,6 +99,26 @@ class RiskForwarderTest {
   }
 
   @Test
+  void sparseStreamIsFlushedAfterTheHoldInterval() throws Exception {
+    String url = startServer();
+    RiskForwardProperties properties = new RiskForwardProperties();
+    properties.setUrl(url);
+    properties.setBatchSize(10);
+    properties.setFlushIntervalMs(300);
+
+    String body;
+    try (RiskForwarder forwarder = new RiskForwarder(properties, new SimpleMeterRegistry())) {
+      forwarder.record(sample("SELECT phone FROM crm.public.customer"));
+      // batch never fills: the worker ships the single event after ~300ms
+      body = bodies.poll(5, TimeUnit.SECONDS);
+      assertThat(body).isNotNull();
+    }
+    JsonNode batch = new ObjectMapper().readTree(body);
+    assertThat(batch.isArray()).isTrue();
+    assertThat(batch.size()).isEqualTo(1);
+  }
+
+  @Test
   void nullEventIsIgnoredAndCloseIsIdempotentEnough() {
     RiskForwardProperties properties = new RiskForwardProperties();
     properties.setUrl("http://127.0.0.1:1/nowhere");
@@ -119,7 +142,8 @@ class RiskForwarderTest {
     });
 
     // audit on + forwarding on: ES recorder stays, decorator is @Primary
-    runner.withPropertyValues("risk.forward.url=http://127.0.0.1:9099/x").run(ctx -> {
+    runner.withPropertyValues(
+        "audit.enabled=true", "risk.forward.url=http://127.0.0.1:9099/x").run(ctx -> {
       assertThat(ctx).hasBean("esAuditRecorder");
       assertThat(ctx).hasBean("forwardingAuditRecorder");
       assertThat(ctx.getBean(AuditRecorder.class)).isInstanceOf(ForwardingAuditRecorder.class);

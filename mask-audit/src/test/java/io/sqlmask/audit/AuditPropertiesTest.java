@@ -10,7 +10,8 @@ class AuditPropertiesTest {
   @Test
   void defaultsMatchSpec() {
     AuditProperties p = new AuditProperties();
-    assertTrue(p.isEnabled());
+    // 默认关闭:未显式 audit.enabled=true 时走 Noop 记录器,不指向 localhost ES
+    assertEquals(false, p.isEnabled());
     assertTrue(p.isEffectivePullEnabled());
     assertEquals("mask-audit", p.getIndexPrefix());
     assertEquals(10000, p.getQueueCapacity());

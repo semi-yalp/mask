@@ -4,7 +4,10 @@
       <el-input v-model="keyword" placeholder="按策略名 / 资源过滤" clearable style="width: 260px" :prefix-icon="Search" />
       <span class="muted">DATAMASK = 列脱敏;ROW_FILTER = 行过滤;priority 小者优先</span>
       <span class="spacer" />
+      <el-button :loading="exporting" @click="doExport">导出 YAML</el-button>
+      <el-button :loading="importing" @click="pickImportFile">导入 YAML</el-button>
       <el-button type="success" class="add-btn" @click="openForm(null)">Add New Policy</el-button>
+      <input ref="importInput" type="file" accept=".yaml,.yml" style="display: none" @change="onImportFile" />
     </div>
 
     <el-table :data="filtered" size="default" stripe class="policy-table" v-loading="loading">
@@ -55,7 +58,9 @@
       <el-form label-width="92px" label-position="left">
         <div class="section">策略详情</div>
         <el-form-item label="策略名">
-          <el-input v-model="form.name" placeholder="如 mask_phone_policy" />
+          <el-autocomplete v-model="form.name" :fetch-suggestions="nameSuggest" placeholder="如 mask_phone_policy">
+            <template #default="{ item }"><div class="suggest-item">{{ item.label || item.value }}</div></template>
+          </el-autocomplete>
           <span v-if="nameError" class="field-error">{{ nameError }}</span>
         </el-form-item>
         <el-form-item label="类型">
@@ -75,8 +80,14 @@
           <div class="grid2">
             <el-input v-model="form.catalog" placeholder="catalog" />
             <el-input v-model="form.schema" placeholder="schema" />
-            <el-input v-model="form.table" placeholder="table" />
-            <el-input v-model="form.columnsText" placeholder="columns,逗号分隔(脱敏)" />
+            <el-autocomplete v-model="form.table" :fetch-suggestions="tableSuggest" :trigger-on-focus="false"
+              placeholder="table" @select="onPickTable">
+              <template #default="{ item }"><div class="suggest-item">{{ item.label || item.value }}</div></template>
+            </el-autocomplete>
+            <el-autocomplete v-model="form.columnsText" :fetch-suggestions="columnSuggest" :trigger-on-focus="false"
+              placeholder="columns,逗号分隔(脱敏)" @select="onPickColumn">
+              <template #default="{ item }"><div class="suggest-item">{{ item.label || item.value }}</div></template>
+            </el-autocomplete>
           </div>
           <span v-if="resourceError" class="field-error">{{ resourceError }}</span>
         </el-form-item>
@@ -92,7 +103,9 @@
         <div class="section">脱敏配置</div>
         <template v-if="form.policyType !== 'row_filter'">
           <el-form-item label="UDF">
-            <el-input v-model="form.udf" placeholder="udf 名,如 mask_phone" />
+            <el-autocomplete v-model="form.udf" :fetch-suggestions="udfSuggest" placeholder="udf 名,如 mask_phone">
+              <template #default="{ item }"><div class="suggest-item">{{ item.label || item.value }}</div></template>
+            </el-autocomplete>
           </el-form-item>
           <el-form-item label="参数">
             <el-input v-model="form.argsText" placeholder="arguments,如 3, 4" />
@@ -116,8 +129,10 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
-import { createPolicy, deletePolicy, listPolicies, updatePolicy } from "@/api/policies";
-import type { Policy } from "@/types/domain";
+import { createPolicy, deletePolicy, exportPoliciesYaml, importPoliciesYaml, listPolicies, updatePolicy } from "@/api/policies";
+import { getInstance } from "@/api/instances";
+import { listUdfs } from "@/api/udfs";
+import type { Policy, TableDef, Udf } from "@/types/domain";
 import EmptyHint from "@/components/EmptyHint.vue";
 
 const props = defineProps<{ instance: string }>();
@@ -130,8 +145,122 @@ const drawer = ref(false);
 const editing = ref<Policy | null>(null);
 const saving = ref(false);
 const formError = ref("");
+const exporting = ref(false);
+const importing = ref(false);
+const importInput = ref<HTMLInputElement | null>(null);
 
 const form = ref(emptyForm());
+
+/** 联想建议项:value 为选中后填入输入框的文本,label 为下拉展示文案。 */
+interface SuggestItem {
+  value: string;
+  label?: string;
+  /** 列/表所属表(用于按当前资源的排序加权)。 */
+  _table?: string;
+}
+
+const udfs = ref<Udf[]>([]);
+const tables = ref<TableDef[]>([]);
+
+/** 联想数据源(已注册 UDF、实例表结构):失败时静默降级为手工输入。 */
+async function loadSuggestBase() {
+  try {
+    const [u, inst] = await Promise.all([listUdfs(props.instance), getInstance(props.instance)]);
+    udfs.value = u;
+    tables.value = inst.tables || [];
+  } catch { /* 联想不可用不影响表单使用 */ }
+}
+
+const namePool = computed<SuggestItem[]>(() => policies.value.map((p) => ({ value: p.name })));
+const udfPool = computed<SuggestItem[]>(() =>
+  udfs.value.map((u) => {
+    const sig = u.signatures && u.signatures.length ? u.signatures[0] : null;
+    return {
+      value: u.name,
+      label: sig ? `${u.name}(${sig.params.join(", ")}) → ${sig.returns}` : u.name
+    };
+  }));
+const tablePool = computed<SuggestItem[]>(() =>
+  tables.value.map((t) => ({
+    value: [t.catalog, t.schema, t.name].filter((x) => String(x || "").trim() !== "").join("."),
+    _table: t.name
+  })));
+const columnPool = computed<SuggestItem[]>(() => {
+  const counts = new Map<string, number>();
+  const rows: Array<{ item: SuggestItem; key: string }> = [];
+  for (const t of tables.value) {
+    const tk = [t.catalog, t.schema, t.name].filter((x) => String(x || "").trim() !== "").join(".");
+    for (const c of t.columns || []) {
+      const key = c.name.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+      rows.push({ item: { value: c.name, _table: tk }, key });
+    }
+  }
+  return rows.map(({ item, key }) => {
+    item.label = (counts.get(key) || 0) > 1 ? `${item.value} · ${item._table}` : item.value;
+    return item;
+  }).sort((a, b) => a.value.localeCompare(b.value));
+});
+
+/** 前缀命中优先,其次子串命中;空查询取前 8 条。 */
+function matchList(items: SuggestItem[], query: string): SuggestItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items.slice(0, 8);
+  const exact: SuggestItem[] = [];
+  const rest: SuggestItem[] = [];
+  for (const it of items) {
+    const v = it.value.toLowerCase();
+    if (v.startsWith(q)) exact.push(it);
+    else if (v.includes(q)) rest.push(it);
+  }
+  return [...exact, ...rest].slice(0, 8);
+}
+
+function nameSuggest(query: string, cb: (items: SuggestItem[]) => void) {
+  cb(matchList(namePool.value, query));
+}
+
+function udfSuggest(query: string, cb: (items: SuggestItem[]) => void) {
+  cb(matchList(udfPool.value, query));
+}
+
+function tableSuggest(query: string, cb: (items: SuggestItem[]) => void) {
+  const q = query.trim().toLowerCase();
+  cb(tablePool.value
+    .filter((it) => !q || it.value.toLowerCase().includes(q) || (it._table || "").toLowerCase().startsWith(q))
+    .slice(0, 8));
+}
+
+function columnSuggest(query: string, cb: (items: SuggestItem[]) => void) {
+  // columns 为逗号分隔输入,仅对最后一个 token 联想
+  const i = query.lastIndexOf(",");
+  const token = (i >= 0 ? query.slice(i + 1) : query).trim();
+  const f = form.value;
+  const cur = [f.catalog, f.schema, f.table].filter((x) => x.trim()).join(".").toLowerCase();
+  const pool = cur
+    ? [...columnPool.value].sort((a, b) => {
+        const ra = (a._table || "").toLowerCase().startsWith(cur) ? 0 : 1;
+        const rb = (b._table || "").toLowerCase().startsWith(cur) ? 0 : 1;
+        return ra - rb;
+      })
+    : columnPool.value;
+  cb(matchList(pool, token));
+}
+
+/** 选中表建议时回填 catalog/schema/table 三段。 */
+function onPickTable(item: SuggestItem) {
+  const parts = item.value.split(".");
+  form.value.table = parts.pop() || "";
+  form.value.schema = parts.pop() || "";
+  form.value.catalog = parts.join(".");
+}
+
+/** columns 为逗号分隔输入,选中仅替换最后一个 token。 */
+function onPickColumn(item: SuggestItem) {
+  const text = form.value.columnsText;
+  const i = text.lastIndexOf(",");
+  form.value.columnsText = (i >= 0 ? text.slice(0, i + 1).replace(/\s*$/, "") + ", " : "") + item.value;
+}
 
 const nameError = computed(() => {
   const n = form.value.name.trim();
@@ -179,7 +308,7 @@ async function load() {
   } catch (e) { loadError.value = (e as Error).message; }
   finally { loading.value = false; }
 }
-onMounted(load);
+onMounted(() => { load(); loadSuggestBase(); });
 
 function csv(s: string): string[] {
   return s.split(",").map((x) => x.trim()).filter(Boolean);
@@ -207,6 +336,7 @@ function openForm(p: Policy | null) {
     filterExpr: p?.filterExpr || ""
   };
   drawer.value = true;
+  loadSuggestBase(); // 每次打开抽屉刷新联想数据(UDF/表结构可能在其他 Tab 变更)
 }
 
 /** 供策略管理器顶栏「Add New Policy」调用。 */
@@ -248,6 +378,46 @@ async function removePolicy(p: Policy) {
   } catch (e) { ElMessage.error((e as Error).message); }
 }
 
+async function doExport() {
+  exporting.value = true;
+  try {
+    const blob = await exportPoliciesYaml(props.instance);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `policies-${props.instance}.yaml`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    ElMessage.success("策略已导出为 policies.yaml");
+  } catch (e) { ElMessage.error((e as Error).message); }
+  finally { exporting.value = false; }
+}
+
+function pickImportFile() {
+  importInput.value?.click();
+}
+
+async function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ""; // 允许再次选择同一文件
+  if (!file) return;
+  const text = await file.text();
+  try {
+    await ElMessageBox.confirm(
+      `将按名合并导入 ${file.name}：同名策略更新为新内容，新名策略创建。继续?`,
+      "导入策略确认", { type: "warning", confirmButtonText: "导入" });
+  } catch { return; }
+  importing.value = true;
+  try {
+    const r = await importPoliciesYaml(props.instance, text);
+    ElMessage.success(`导入完成:创建 ${r.created} 条,更新 ${r.updated} 条`);
+    await load();
+  } catch (e) {
+    ElMessage.error({ message: (e as Error).message, duration: 6000 });
+  } finally { importing.value = false; }
+}
+
 function resourceText(p: Policy): string {
   const r = p.resource || {};
   const base = [r.catalog, r.schema, r.table].filter((x) => String(x || "").trim() !== "").join(".") || "—";
@@ -277,6 +447,8 @@ function subjectText(p: Policy): string {
   text-transform: uppercase; margin: 6px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--sm-border);
 }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.el-autocomplete { width: 100%; }
+.suggest-item { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12.5px; }
 .drawer-foot { display: flex; align-items: center; gap: 10px; }
 .form-error { color: var(--el-color-danger, #dc3545); font-size: 12.5px; word-break: break-all; }
 .field-error { display: block; width: 100%; font-size: 12px; color: var(--el-color-danger, #dc3545); margin-top: 4px; }

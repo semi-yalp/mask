@@ -19,6 +19,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 
 import static org.springframework.core.Ordered.HIGHEST_PRECEDENCE;
@@ -105,6 +106,54 @@ public class RiskServerApplication {
     registration.setFilter(new RiskApiFilter(properties.getApiKey()));
     registration.addUrlPatterns("/api/*");
     registration.setOrder(HIGHEST_PRECEDENCE + 10);
+    return registration;
+  }
+
+  // ---- console-user (LDAP) authentication & authorization ----
+
+  @Bean
+  io.sqlmask.auth.AuthConfig authConfig() {
+    return io.sqlmask.auth.AuthConfig.fromEnv();
+  }
+
+  /** Present only when MASK_AUTH_SECRET is strong enough; null ⇒ feature off. */
+  @Bean
+  io.sqlmask.auth.AuthTokenService authTokenService(io.sqlmask.auth.AuthConfig config) {
+    return config.tokenEnabled()
+        ? new io.sqlmask.auth.AuthTokenService(config.secret(), config.tokenTtl())
+        : null;
+  }
+
+  /**
+   * Bearer gate ahead of the API-key filter, at the same order bracket as the
+   * other services: the console sends only {@code Authorization: Bearer}
+   * once signed in (the frontend's http.ts), so the risk API must accept the
+   * verified token or every console user would be rejected and logged out.
+   * The transparent-instance disabled registration below avoids the real
+   * Tomcat startup crash of an empty FilterRegistrationBean (mask-core
+   * e68a40f).
+   */
+  @Bean
+  FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> bearerAuthFilter(
+      io.sqlmask.auth.AuthConfig config,
+      ObjectProvider<io.sqlmask.auth.AuthTokenService> tokens) {
+    if (!config.tokenEnabled()) {
+      FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
+          new FilterRegistrationBean<>(
+              new io.sqlmask.auth.BearerAuthFilter(null, java.util.List.of()));
+      off.setEnabled(false);
+      return off; // no MASK_AUTH_SECRET → behaviour identical to the pre-LDAP build
+    }
+    java.util.List<io.sqlmask.auth.AuthRule> rules = new io.sqlmask.auth.AuthRule.Builder()
+        .prefix("/api/risk", io.sqlmask.auth.Role.USER)
+        .build();
+    FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> registration =
+        new FilterRegistrationBean<>(new io.sqlmask.auth.BearerAuthFilter(
+            tokens.getObject(), rules));
+    registration.addUrlPatterns("/api/*");
+    registration.setOrder(HIGHEST_PRECEDENCE);
+    log.info("MASK_AUTH_SECRET is configured: LDAP bearer-token auth is armed "
+        + "(rule: /api/risk=USER)");
     return registration;
   }
 

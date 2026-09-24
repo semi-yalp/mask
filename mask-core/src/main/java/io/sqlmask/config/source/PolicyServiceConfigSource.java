@@ -84,7 +84,7 @@ public final class PolicyServiceConfigSource implements ConfigSource {
     return load(Subject.anonymous());
   }
 
-  /** Loads (and caches) the effective config compiled for one subject. */
+/** Loads (and caches) the effective config compiled for one subject. */
   public ResolvedConfig load(Subject subject) {
     SubjectKey key = keyOf(subject);
     ResolvedConfig cached;

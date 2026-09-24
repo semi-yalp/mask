@@ -74,7 +74,7 @@ public class RuleController {
     RiskRule rule = new RiskRule(id, request.name().trim(),
         orDefault(request.description(), "自定义规则"), RiskRule.KIND_CUSTOM,
         orDefault(request.category(), "CUSTOM"),
-        RiskSeverity.parse(request.severity()), request.enabled() || true,
+        RiskSeverity.parse(request.severity()), request.enabled(),
         request.params(), spec, now, now);
     store.putRule(rule);
     return wired(rule, 0L);

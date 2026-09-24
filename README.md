@@ -48,7 +48,8 @@ TPC-DS 基准资产保留在旧仓库 `semi-yalp/mask` 封存可查）。
 `POLICY_SERVICE_API_KEY` 两个环境变量接入；进程内按主体缓存（LRU 256），每
 `POLICY_SERVICE_POLL_INTERVAL_MS`（默认 30000）轮询刷新，策略服务短暂不可用时
 继续用缓存改写（stale-but-available），无缓存时绝不降级（fail closed）。紧急
-止血可 `POST /admin/cache/refresh`（可带 `{"instance": "..."}`）立即清缓存。
+止血可 `POST /admin/cache/refresh`（可带 `{"instance": "..."}`）立即清缓存——管理端点，
+需带 `X-Api-Key: $SQLMASK_ADMIN_API_KEY`（未配置该 Key 时默认拒绝）。
 
 ## 元数据采集（--pull-metadata）
 
@@ -953,6 +954,9 @@ boolean→boolean，无跨族转换）、每个选中列的类型与某重载首
 users/groups 主体，`*` 为全体）→ `GET /api/effective/{i}?user=&groups=`
 按主体拉取编译后的生效配置（无参数=匿名主体，仅命中 `*` 策略）。表列
 资源可从元数据服务一键导入：`POST /api/instances/{i}/import-metadata`。
+策略可整实例导入导出为 policies.yaml（`GET /api/instances/{i}/policies/export`
+下载、`POST /api/instances/{i}/policies/import` 上传；整个文件先校验通过才
+写入，按名合并：同名更新、新名创建）。
 同表同类型策略的重叠校验按主体相交放宽——不同人群可各配各的脱敏列与
 行过滤。instance 模式（改写请求的 `instance` 字段、CLI `--instance`）忽略请求
 传入的 `dialect`：目标方言以生效配置返回的实例 dialect 为准。

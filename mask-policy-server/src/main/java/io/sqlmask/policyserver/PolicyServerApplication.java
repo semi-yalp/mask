@@ -68,9 +68,10 @@ public class PolicyServerApplication {
   }
 
   @Bean
-  FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> policyApiKeyFilter() {
-    String adminKey = System.getenv("SQLMASK_ADMIN_API_KEY");
-    String dataKey = System.getenv("SQLMASK_DATA_API_KEY");
+  FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> policyApiKeyFilter(
+      org.springframework.core.env.Environment env) {
+    String adminKey = env.getProperty("SQLMASK_ADMIN_API_KEY", "");
+    String dataKey = env.getProperty("SQLMASK_DATA_API_KEY", "");
     if (adminKey == null || adminKey.isBlank()) {
       log.warn("SQLMASK_ADMIN_API_KEY is not configured: the admin surface "
           + "(/api/instances/**, instance/policy/UDF management) is OPEN to anyone "
@@ -85,7 +86,11 @@ public class PolicyServerApplication {
         new FilterRegistrationBean<>(io.sqlmask.common.web.ApiKeyFilter.surfaces(
             new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/instances", adminKey),
             new io.sqlmask.common.web.ApiKeyFilter.Surface("/api/effective", dataKey)));
-    registration.addUrlPatterns("/api/instances/*", "/api/effective/*");
+    // Exact paths as well as wildcards: "/api/instances/*" does NOT match the
+    // exact path "/api/instances", which would leave instance create/list
+    // ungated (servlet path mapping, not prefix matching).
+    registration.addUrlPatterns(
+        "/api/instances", "/api/instances/*", "/api/effective", "/api/effective/*");
     registration.setOrder(1);
     return registration;
   }
@@ -140,14 +145,17 @@ public class PolicyServerApplication {
   }
 
   /**
-   * A disabled registration rather than a null @Bean return: null would
-   * surface as a NullBean of type FilterRegistrationBean and break the
-   * MockMvc builder's filter collection (observed as BeanNotOfRequiredType
-   * in tests booting the default context).
+   * A disabled registration carrying a transparent filter instance rather
+   * than an empty one: addFilter(getFilter()) runs before setEnabled applies
+   * on real Tomcat, so an empty registration crashes the container at startup
+   * (the same crash the mask-core service hit with null beans, cf. its
+   * SqlMaskServiceApplication). A null @Bean would also surface as a NullBean
+   * and break the MockMvc builder's filter collection in default contexts.
    */
   private static FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> disabledRegistration() {
     FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
-        new FilterRegistrationBean<>();
+        new FilterRegistrationBean<>(
+            new io.sqlmask.auth.BearerAuthFilter(null, List.of()));
     off.setEnabled(false);
     return off;
   }

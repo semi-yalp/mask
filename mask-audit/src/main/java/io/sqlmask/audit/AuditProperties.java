@@ -3,13 +3,14 @@ package io.sqlmask.audit;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * {@code audit.*} settings (spec §4.5). Defaults equal the documented
- * application.yml values so a bare jar with no config audits to localhost.
+ * {@code audit.*} settings (spec §4.5). Disabled by default: a bare jar with
+ * no config runs the Noop recorder; set {@code audit.enabled=true} (and the
+ * elasticsearch block) to point the pipeline at ES.
  */
 @ConfigurationProperties("audit")
 public class AuditProperties {
 
-  private boolean enabled = true;
+  private boolean enabled = false;
   private String indexPrefix = "mask-audit";
   private int indexReplicas = 1;
   private int queueCapacity = 10000;

@@ -14,8 +14,17 @@ class AuditAutoConfigurationTest {
       .withConfiguration(AutoConfigurations.of(AuditAutoConfiguration.class));
 
   @Test
-  void enabledByDefaultCreatesEsRecorder() {
+  void disabledByDefaultFallsBackToNoopWithoutEsClient() {
     runner.run(ctx -> {
+      assertThat(ctx).hasSingleBean(AuditRecorder.class);
+      assertThat(ctx.getBean(AuditRecorder.class)).isInstanceOf(NoopAuditRecorder.class);
+      assertThat(ctx).doesNotHaveBean(EsAuditRecorder.class);
+    });
+  }
+
+  @Test
+  void explicitEnabledBuildsEsRecorder() {
+    runner.withPropertyValues("audit.enabled=true").run(ctx -> {
       assertThat(ctx).hasSingleBean(AuditRecorder.class);
       assertThat(ctx).hasSingleBean(EsAuditRecorder.class);
       assertThat(ctx).hasSingleBean(AuditProperties.class);

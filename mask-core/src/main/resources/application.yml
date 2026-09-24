@@ -5,8 +5,9 @@ spring:
   application:
     name: sql-mask
 
+# 审计默认关闭:未显式配置时走 Noop 记录器,避免裸部署默认指向 localhost ES
 audit:
-  enabled: ${AUDIT_ENABLED:true}
+  enabled: ${AUDIT_ENABLED:false}
   elasticsearch:
     url: ${AUDIT_ES_URL:http://127.0.0.1:9200}
     api-key: ${AUDIT_ES_API_KEY:}

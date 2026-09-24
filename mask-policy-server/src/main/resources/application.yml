@@ -16,6 +16,21 @@ spring:
       mode: always
       schema-locations: classpath:schema.sql
 
+# 审计默认关闭(与 mask-core/mask-metadata/mask-query 一致):避免裸部署
+# 默认把审计管道指向 localhost ES;部署 ES 审计管道时以 AUDIT_ENABLED=true 打开。
+audit:
+  enabled: ${AUDIT_ENABLED:false}
+  elasticsearch:
+    url: ${AUDIT_ES_URL:http://127.0.0.1:9200}
+    api-key: ${AUDIT_ES_API_KEY:}
+    username: ${AUDIT_ES_USER:}
+    password: ${AUDIT_ES_PASSWORD:}
+  index-prefix: ${AUDIT_INDEX_PREFIX:mask-audit}
+  queue-capacity: ${AUDIT_QUEUE_CAPACITY:10000}
+  batch-size: ${AUDIT_BATCH_SIZE:200}
+  flush-interval-ms: ${AUDIT_FLUSH_INTERVAL_MS:2000}
+  sql-max-chars: ${AUDIT_SQL_MAX_CHARS:8192}
+
 management:
   endpoints:
     web:
