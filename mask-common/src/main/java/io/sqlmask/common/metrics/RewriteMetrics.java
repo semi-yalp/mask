@@ -20,7 +20,9 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class RewriteMetrics {
 
-  private static final Set<String> DIALECTS = Set.of("postgresql", "mysql", "trino");
+  // 与 DialectProfiles.names() 同源；星号进 label 会基数爆炸，未知仍归 invalid
+  private static final Set<String> DIALECTS = Set.of("postgresql", "mysql", "trino",
+      "hive", "sparksql");
 
   private final MeterRegistry registry;
 
