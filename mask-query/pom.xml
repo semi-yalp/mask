@@ -59,6 +59,12 @@
       <version>3.1.3</version>
       <exclusions>
         <exclusion>
+          <!-- old Hikari (java7 line) pollutes com.zaxxer.hikari and breaks
+               the modern Hikari's micrometer tracker in the monolith -->
+          <groupId>com.zaxxer</groupId>
+          <artifactId>HikariCP-java7</artifactId>
+        </exclusion>
+        <exclusion>
           <groupId>org.slf4j</groupId>
           <artifactId>slf4j-log4j12</artifactId>
         </exclusion>
@@ -127,16 +133,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${surefire.version}</version>
-      </plugin>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-        <version>${spring-boot.version}</version>
-        <executions>
-          <execution>
-            <goals><goal>repackage</goal></goals>
-          </execution>
-        </executions>
       </plugin>
     </plugins>
   </build>

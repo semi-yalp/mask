@@ -5,8 +5,8 @@ import io.sqlmask.query.error.QueryException;
 import io.sqlmask.query.executors.QueryEngine;
 import io.sqlmask.query.metadata.MetadataServiceClient.ConnectionView;
 import io.sqlmask.query.metadata.MetadataServiceClient.InstanceView;
-import io.sqlmask.query.rewrite.RewriteServiceClient;
-import io.sqlmask.query.rewrite.RewriteServiceClient.StatementView;
+import io.sqlmask.query.rewrite.QueryRewriter;
+import io.sqlmask.query.rewrite.StatementView;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -33,13 +33,13 @@ public class QueryService {
       org.slf4j.LoggerFactory.getLogger(QueryService.class);
 
   private final InstanceDirectory directory;
-  private final RewriteServiceClient rewrites;
+  private final QueryRewriter rewrites;
   private final QueryProperties props;
   private final ConnectionFactory connections;
   private final CredentialSource credentials;
   private final ConcurrentHashMap<String, Semaphore> permits = new ConcurrentHashMap<>();
 
-  public QueryService(InstanceDirectory directory, RewriteServiceClient rewrites,
+  public QueryService(InstanceDirectory directory, QueryRewriter rewrites,
       QueryProperties props, ConnectionFactory connections, CredentialSource credentials) {
     this.directory = directory;
     this.rewrites = rewrites;

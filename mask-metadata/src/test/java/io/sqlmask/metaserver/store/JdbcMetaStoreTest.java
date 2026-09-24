@@ -47,7 +47,7 @@ class JdbcMetaStoreTest {
     jdbc = new JdbcTemplate(ds);
     try (Connection connection = ds.getConnection()) {
       ScriptUtils.executeSqlScript(connection,
-          new ClassPathResource("/metadata-schema.sql", JdbcMetaStoreTest.class));
+          new ClassPathResource("/sql/metadata-schema.sql", JdbcMetaStoreTest.class));
     }
     store = new JdbcMetaStore(jdbc, new DataSourceTransactionManager(ds));
   }
@@ -108,7 +108,7 @@ class JdbcMetaStoreTest {
     jdbc.execute("ALTER TABLE meta_table DROP COLUMN kind");
     try (Connection connection = ds.getConnection()) {
       ScriptUtils.executeSqlScript(connection,
-          new ClassPathResource("/metadata-schema.sql", JdbcMetaStoreTest.class));
+          new ClassPathResource("/sql/metadata-schema.sql", JdbcMetaStoreTest.class));
     }
     Integer kindColumns = jdbc.queryForObject(
         "SELECT COUNT(*) FROM information_schema.columns "

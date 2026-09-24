@@ -41,7 +41,7 @@ class AdminAuditMetaTest {
 
   @Test
   void createInstanceEmitsAdminChange() throws Exception {
-    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+    mvc.perform(post("/api/meta/instances").contentType(MediaType.APPLICATION_JSON)
             .header("X-Api-Key", "test-key")
             .content("{\"name\": \"pg1\", \"dialect\": \"postgresql\"}"))
         .andExpect(status().isOk());
@@ -58,7 +58,7 @@ class AdminAuditMetaTest {
 
   @Test
   void failedCollectEmitsFailureEvent() throws Exception {
-    mvc.perform(post("/api/instances/missing/collect").header("X-Api-Key", "test-key"))
+    mvc.perform(post("/api/meta/instances/missing/collect").header("X-Api-Key", "test-key"))
         .andExpect(status().isNotFound()); // unknown instance -> 404 METADATA_INSTANCE_NOT_FOUND
     ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
     org.mockito.Mockito.verify(recorder, atLeastOnce()).record(captor.capture());

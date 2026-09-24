@@ -2,6 +2,7 @@ package io.sqlmask.common.metadata;
 
 import com.sun.net.httpserver.HttpServer;
 import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.common.metadata.HttpMetadataClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,7 @@ class MetadataClientTest {
     server.createContext("/api/metadata/instances/ghost", exchange ->
         exchange.sendResponseHeaders(404, -1));
     server.start();
-    client = new MetadataClient("http://127.0.0.1:" + server.getAddress().getPort(), "secret");
+    client = new HttpMetadataClient("http://127.0.0.1:" + server.getAddress().getPort(), "secret");
   }
 
   @AfterEach
@@ -95,7 +96,7 @@ class MetadataClientTest {
 
   @Test
   void wrongApiKeyFailsClosed() {
-    MetadataClient bad = new MetadataClient(
+    MetadataClient bad = new HttpMetadataClient(
         "http://127.0.0.1:" + server.getAddress().getPort(), "wrong");
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> bad.fetch("pg_prod"));
     assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
@@ -103,7 +104,7 @@ class MetadataClientTest {
 
   @Test
   void unreachableServiceFailsClosed() {
-    MetadataClient dead = new MetadataClient("http://127.0.0.1:1", "secret");
+    MetadataClient dead = new HttpMetadataClient("http://127.0.0.1:1", "secret");
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> dead.fetch("pg_prod"));
     assertEquals(SqlMaskException.Code.METADATA_SERVICE_UNAVAILABLE, e.getCode());
     assertTrue(e.getMessage().contains("metadata service"));

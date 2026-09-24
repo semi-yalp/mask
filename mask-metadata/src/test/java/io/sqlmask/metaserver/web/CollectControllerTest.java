@@ -65,7 +65,7 @@ class CollectControllerTest {
             List.of(new IntrospectionResult.TableInfo("db", "public", "customer",
                 List.of(new IntrospectionResult.ColumnInfo("id", "bigint", "int8", false)))),
             List.of()));
-    mockMvc.perform(post("/api/instances/pg_prod/collect").header("X-Api-Key", KEY))
+    mockMvc.perform(post("/api/meta/instances/pg_prod/collect").header("X-Api-Key", KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tableCount").value(1))
         .andExpect(jsonPath("$.metadataVersion").value(2));
@@ -80,7 +80,7 @@ class CollectControllerTest {
       throw new io.sqlmask.error.SqlMaskException(
           io.sqlmask.error.SqlMaskException.Code.INTROSPECT_ERROR, "db down");
     });
-    mockMvc.perform(post("/api/instances/pg_prod/collect").header("X-Api-Key", KEY))
+    mockMvc.perform(post("/api/meta/instances/pg_prod/collect").header("X-Api-Key", KEY))
         .andExpect(status().isBadGateway())
         .andExpect(jsonPath("$.code").value("INTROSPECT_ERROR"));
     org.junit.jupiter.api.Assertions.assertEquals(1, store.loadStructure("pg_prod").size());

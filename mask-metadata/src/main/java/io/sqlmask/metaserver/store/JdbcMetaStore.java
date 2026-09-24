@@ -72,7 +72,7 @@ public class JdbcMetaStore implements MetaStore {
           INSERT INTO meta_instance (name, dialect, engine, host, port, database, db_user,
                                      password_ref, sslmode, connect_timeout_seconds, schemas,
                                      include_views)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           row.name(), row.dialect(), row.engine(),
           c == null ? null : c.host(), c == null ? null : c.port(),
@@ -92,7 +92,7 @@ public class JdbcMetaStore implements MetaStore {
   public Optional<InstanceRow> findInstance(String name) {
     List<InstanceRow> rows = jdbc.query(
         "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
-            + "connect_timeout_seconds, schemas::text AS schemas, include_views, metadata_version "
+            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version "
             + "FROM meta_instance WHERE name = ?", INSTANCE_ROW, name);
     return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
   }
@@ -101,7 +101,7 @@ public class JdbcMetaStore implements MetaStore {
   public List<InstanceRow> listInstances() {
     return jdbc.query(
         "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
-            + "connect_timeout_seconds, schemas::text AS schemas, include_views, metadata_version "
+            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version "
             + "FROM meta_instance ORDER BY name", INSTANCE_ROW);
   }
 
@@ -110,7 +110,7 @@ public class JdbcMetaStore implements MetaStore {
     tx.execute(status -> {
       jdbc.update("""
           UPDATE meta_instance SET host = ?, port = ?, database = ?, db_user = ?, password_ref = ?,
-                   sslmode = ?, connect_timeout_seconds = ?, schemas = ?::jsonb, include_views = ?,
+                   sslmode = ?, connect_timeout_seconds = ?, schemas = ?, include_views = ?,
                    metadata_version = metadata_version + 1, updated_at = now()
           WHERE name = ?
           """,
@@ -141,11 +141,10 @@ public class JdbcMetaStore implements MetaStore {
       jdbc.update("DELETE FROM meta_table WHERE instance_id = ?", id);
       int tablePosition = 0;
       for (TableStructure table : tables) {
-        Long tableId = jdbc.queryForObject(
+        Long tableId = insertReturningId(
             "INSERT INTO meta_table (instance_id, catalog, schema_name, table_name, kind, position) "
-                + "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-            Long.class, id, table.catalog(), table.schema(), table.name(), table.kind(),
-            tablePosition++);
+                + "VALUES (?, ?, ?, ?, ?, ?)",
+            id, table.catalog(), table.schema(), table.name(), table.kind(), tablePosition++);
         int columnPosition = 0;
         for (ColumnStructure column : table.columns()) {
           jdbc.update(
@@ -156,6 +155,37 @@ public class JdbcMetaStore implements MetaStore {
       }
       return null;
     });
+  }
+
+  /** Identity-column insert that works on PostgreSQL and H2 alike (the
+   * RETURNING suffix is PostgreSQL-only). */
+  private Long insertReturningId(String sql, Object... args) {
+    org.springframework.jdbc.support.KeyHolder keys = new org.springframework.jdbc.support.GeneratedKeyHolder();
+    jdbc.update(con -> {
+      java.sql.PreparedStatement statement = con.prepareStatement(sql,
+          java.sql.Statement.RETURN_GENERATED_KEYS);
+      for (int i = 0; i < args.length; i++) {
+        try {
+          statement.setObject(i + 1, args[i]);
+        } catch (java.sql.SQLException e) {
+          throw new org.springframework.jdbc.UncategorizedSQLException(
+              "bind parameter " + (i + 1), null, e);
+        }
+      }
+      return statement;
+    }, keys);
+    if (!keys.getKeyList().isEmpty()) {
+      java.util.Map<String, Object> columns = keys.getKeyList().get(0);
+      if (columns.size() == 1) {
+        return ((Number) columns.values().iterator().next()).longValue();
+      }
+      // PostgreSQL returns the whole inserted row, not just the identity column
+      Object id = columns.get("id");
+      if (id instanceof Number number) {
+        return number.longValue();
+      }
+    }
+    throw new IllegalStateException("insert produced no identity key: " + sql);
   }
 
   @Override

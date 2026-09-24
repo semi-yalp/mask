@@ -17,7 +17,7 @@ import java.util.List;
 /** Calls mask-core's instance-scoped rewrite endpoint. Every failure before a
  * usable statement list is marked {@code rewritePhase} so the caller's audit
  * boundary can stay silent (mask-core already emitted REWRITE). */
-public final class RewriteServiceClient {
+public final class RewriteServiceClient implements QueryRewriter {
 
   // mask-core's rewrite payload carries fields beyond the statement views the
   // query path consumes (top-level rewrittenSql, per-statement unchanged); skip
@@ -34,6 +34,7 @@ public final class RewriteServiceClient {
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
   }
 
+  @Override
   public RewrittenQuery rewrite(String instance, String sql, String user, List<String> groups) {
     String payload;
     try {
@@ -93,9 +94,4 @@ public final class RewriteServiceClient {
           "rewrite service returned an unreadable payload", e, true);
     }
   }
-
-  public record RewrittenQuery(List<StatementView> statements) {}
-
-  public record StatementView(int ordinal, String originalSql, String rewrittenSql,
-      boolean masked, boolean rowFiltered, String kind) {}
 }

@@ -5,8 +5,9 @@ import io.sqlmask.query.error.QueryException;
 import io.sqlmask.query.executors.QueryEngine;
 import io.sqlmask.query.metadata.MetadataServiceClient.ConnectionView;
 import io.sqlmask.query.metadata.MetadataServiceClient.InstanceView;
-import io.sqlmask.query.rewrite.RewriteServiceClient;
-import io.sqlmask.query.rewrite.RewriteServiceClient.StatementView;
+import io.sqlmask.query.rewrite.QueryRewriter;
+import io.sqlmask.query.rewrite.RewrittenQuery;
+import io.sqlmask.query.rewrite.StatementView;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -28,7 +29,7 @@ class QueryServiceTest {
   private static final InstanceView PG = new InstanceView("pg", "postgresql", "postgresql", 1,
       new ConnectionView("h", 5432, "db", "u", "REF", "disable", 10));
 
-  private final RewriteServiceClient rewrites = mock(RewriteServiceClient.class);
+  private final QueryRewriter rewrites = mock(QueryRewriter.class);
   private final QueryService.InstanceDirectory directory = mock(QueryService.InstanceDirectory.class);
   private final Connection connection = mock(Connection.class);
   private final Statement statement = mock(Statement.class);
@@ -45,7 +46,7 @@ class QueryServiceTest {
       throws SQLException {
     when(directory.fetch("pg")).thenReturn(PG);
     when(rewrites.rewrite(any(), any(), any(), any()))
-        .thenReturn(new RewriteServiceClient.RewrittenQuery(List.of(
+        .thenReturn(new RewrittenQuery(List.of(
             new StatementView(1, "in", rewrittenSql, masked, rowFiltered, "SELECT"))));
     when(statement.executeQuery(any())).thenReturn(resultSet);
     when(resultSet.getMetaData()).thenReturn(meta);
@@ -80,7 +81,7 @@ class QueryServiceTest {
   void rejectsMultiStatementAndWrites() {
     when(directory.fetch("pg")).thenReturn(PG);
     when(rewrites.rewrite(any(), any(), any(), any()))
-        .thenReturn(new RewriteServiceClient.RewrittenQuery(List.of(
+        .thenReturn(new RewrittenQuery(List.of(
             new StatementView(1, "a", "b", false, false, "SELECT"),
             new StatementView(2, "c", "d", false, false, "SELECT"))));
     QueryService svc;
@@ -95,7 +96,7 @@ class QueryServiceTest {
         .hasFieldOrPropertyWithValue("code", "MULTI_STATEMENT");
 
     when(rewrites.rewrite(any(), any(), any(), any()))
-        .thenReturn(new RewriteServiceClient.RewrittenQuery(List.of(
+        .thenReturn(new RewrittenQuery(List.of(
             new StatementView(1, "a", "b", true, false, "INSERT_SELECT"))));
     assertThatThrownBy(() -> svc.execute(
             new QueryModels.QueryRequest("pg", "INSERT ...", null, List.of(), null, false),
@@ -107,7 +108,7 @@ class QueryServiceTest {
   void emptyRewriteResultBecomesConfigError() {
     when(directory.fetch("pg")).thenReturn(PG);
     when(rewrites.rewrite(any(), any(), any(), any()))
-        .thenReturn(new RewriteServiceClient.RewrittenQuery(List.of()));
+        .thenReturn(new RewrittenQuery(List.of()));
     QueryService svc;
     try {
       svc = service(new QueryProperties(null, null, null, null, null));

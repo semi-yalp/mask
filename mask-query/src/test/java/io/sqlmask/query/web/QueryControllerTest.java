@@ -48,8 +48,8 @@ class QueryControllerTest {
       org.mockito.Mockito.when(rewrites.rewrite(org.mockito.ArgumentMatchers.any(),
               org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
               org.mockito.ArgumentMatchers.any()))
-          .thenReturn(new io.sqlmask.query.rewrite.RewriteServiceClient.RewrittenQuery(
-              java.util.List.of(new io.sqlmask.query.rewrite.RewriteServiceClient.StatementView(
+          .thenReturn(new io.sqlmask.query.rewrite.RewrittenQuery(
+              java.util.List.of(new io.sqlmask.query.rewrite.StatementView(
                   1, "SELECT phone FROM customer", "SELECT mask_phone(r.phone,3,4) ...",
                   true, false, "SELECT"))));
       org.mockito.Mockito.when(connection.createStatement()).thenReturn(statement);

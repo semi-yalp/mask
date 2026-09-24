@@ -30,7 +30,7 @@ import java.util.Map;
  * untouched.
  */
 @RestController
-@RequestMapping("/api/instances")
+@RequestMapping("/api/meta/instances")
 public class MetadataAdminController {
 
   private final MetadataService instances;
@@ -40,7 +40,7 @@ public class MetadataAdminController {
   private final AdminMetrics adminMetrics;
 
   public MetadataAdminController(MetadataService instances, StructureService structures,
-      MetadataYamlImporter importer, AuditAdminHelper audit, AdminMetrics adminMetrics) {
+      MetadataYamlImporter importer, @org.springframework.beans.factory.annotation.Qualifier("metadataAuditAdminHelper") AuditAdminHelper audit, AdminMetrics adminMetrics) {
     this.instances = instances;
     this.structures = structures;
     this.importer = importer;

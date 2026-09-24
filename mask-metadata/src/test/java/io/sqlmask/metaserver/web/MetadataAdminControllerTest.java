@@ -51,13 +51,8 @@ class MetadataAdminControllerTest {
   }
 
   @Test
-  void requiresApiKey() throws Exception {
-    mockMvc.perform(get("/api/instances")).andExpect(status().isUnauthorized());
-  }
-
-  @Test
   void createListAndImportFlow() throws Exception {
-    mockMvc.perform(post("/api/instances")
+    mockMvc.perform(post("/api/meta/instances")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -71,11 +66,11 @@ class MetadataAdminControllerTest {
         .andExpect(jsonPath("$.name").value("pg_prod"))
         .andExpect(jsonPath("$.metadataVersion").value(1));
 
-    mockMvc.perform(get("/api/instances").header("X-Api-Key", KEY))
+    mockMvc.perform(get("/api/meta/instances").header("X-Api-Key", KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].dialect").value("postgresql"));
 
-    MvcResult importResult = mockMvc.perform(post("/api/instances/import")
+    MvcResult importResult = mockMvc.perform(post("/api/meta/instances/import")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -92,7 +87,7 @@ class MetadataAdminControllerTest {
 
   @Test
   void importRejectsRowFilterWith400() throws Exception {
-    mockMvc.perform(post("/api/instances/import")
+    mockMvc.perform(post("/api/meta/instances/import")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -107,7 +102,7 @@ class MetadataAdminControllerTest {
 
   @Test
   void importRejectsUnresolvableType() throws Exception {
-    mockMvc.perform(post("/api/instances/import")
+    mockMvc.perform(post("/api/meta/instances/import")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -116,14 +111,14 @@ class MetadataAdminControllerTest {
                 """))
         .andExpect(status().isBadRequest());
     // M8：结构步骤失败时补偿删除，不留"有实例无结构"的空壳
-    mockMvc.perform(get("/api/instances/pg_bad_type").header("X-Api-Key", KEY))
+    mockMvc.perform(get("/api/meta/instances/pg_bad_type").header("X-Api-Key", KEY))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("METADATA_INSTANCE_NOT_FOUND"));
   }
 
   @Test
   void getAndDeleteByNameEndpoint() throws Exception {
-    mockMvc.perform(post("/api/instances")
+    mockMvc.perform(post("/api/meta/instances")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -135,12 +130,12 @@ class MetadataAdminControllerTest {
                 """))
         .andExpect(status().isOk());
 
-    mockMvc.perform(get("/api/instances/pg_prod").header("X-Api-Key", KEY))
+    mockMvc.perform(get("/api/meta/instances/pg_prod").header("X-Api-Key", KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.name").value("pg_prod"))
         .andExpect(jsonPath("$.metadataVersion").value(1));
 
-    mockMvc.perform(delete("/api/instances/pg_prod").header("X-Api-Key", KEY))
+    mockMvc.perform(delete("/api/meta/instances/pg_prod").header("X-Api-Key", KEY))
         .andExpect(status().isOk());
   }
 
@@ -148,7 +143,7 @@ class MetadataAdminControllerTest {
   void putConnectionUpdatesAndBumpsVersion() throws Exception {
     createInstance("pg_prod");
 
-    mockMvc.perform(put("/api/instances/pg_prod").header("X-Api-Key", KEY)
+    mockMvc.perform(put("/api/meta/instances/pg_prod").header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {"connection":{"host":"10.0.0.8","port":3306,"database":"shop",
@@ -167,7 +162,7 @@ class MetadataAdminControllerTest {
   void putWithoutConnectionPreservesExistingAndKeepsVersion() throws Exception {
     createInstance("pg_prod");
 
-    mockMvc.perform(put("/api/instances/pg_prod").header("X-Api-Key", KEY)
+    mockMvc.perform(put("/api/meta/instances/pg_prod").header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.metadataVersion").value(1))
@@ -179,7 +174,7 @@ class MetadataAdminControllerTest {
   void duplicateCreateIs409() throws Exception {
     createInstance("pg_prod");
 
-    mockMvc.perform(post("/api/instances")
+    mockMvc.perform(post("/api/meta/instances")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -191,7 +186,7 @@ class MetadataAdminControllerTest {
 
   @Test
   void createWithoutDialectIs400() throws Exception {
-    mockMvc.perform(post("/api/instances")
+    mockMvc.perform(post("/api/meta/instances")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"pg_prod\"}"))
@@ -201,7 +196,7 @@ class MetadataAdminControllerTest {
 
   @Test
   void importWithoutDialectIs400() throws Exception {
-    mockMvc.perform(post("/api/instances/import")
+    mockMvc.perform(post("/api/meta/instances/import")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"pg_x\",\"metadataYaml\":\"metadata:\\n  tables: []\\n\"}"))
@@ -213,7 +208,7 @@ class MetadataAdminControllerTest {
 
   @Test
   void importWithNoTablesIs400() throws Exception {
-    mockMvc.perform(post("/api/instances/import")
+    mockMvc.perform(post("/api/meta/instances/import")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
@@ -227,18 +222,18 @@ class MetadataAdminControllerTest {
 
   @Test
   void unknownInstanceIs404OnGetPutAndDelete() throws Exception {
-    mockMvc.perform(get("/api/instances/ghost").header("X-Api-Key", KEY))
+    mockMvc.perform(get("/api/meta/instances/ghost").header("X-Api-Key", KEY))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("METADATA_INSTANCE_NOT_FOUND"));
-    mockMvc.perform(put("/api/instances/ghost").header("X-Api-Key", KEY)
+    mockMvc.perform(put("/api/meta/instances/ghost").header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isNotFound());
-    mockMvc.perform(delete("/api/instances/ghost").header("X-Api-Key", KEY))
+    mockMvc.perform(delete("/api/meta/instances/ghost").header("X-Api-Key", KEY))
         .andExpect(status().isNotFound());
   }
 
   private void createInstance(String name) throws Exception {
-    mockMvc.perform(post("/api/instances")
+    mockMvc.perform(post("/api/meta/instances")
             .header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content("""

@@ -16,7 +16,7 @@ import java.util.Map;
  * passwords. Every trigger emits one COLLECT ADMIN_CHANGE audit event.
  */
 @RestController
-@RequestMapping("/api/instances")
+@RequestMapping("/api/meta/instances")
 public class CollectController {
 
   private final CollectService collectService;
@@ -24,6 +24,7 @@ public class CollectController {
   private final AuditAdminHelper audit;
 
   public CollectController(CollectService collectService, MetadataService instances,
+      @org.springframework.beans.factory.annotation.Qualifier("metadataAuditAdminHelper")
       AuditAdminHelper audit) {
     this.collectService = collectService;
     this.instances = instances;

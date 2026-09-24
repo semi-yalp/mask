@@ -1,0 +1,22 @@
+# Library-mode tests: a dummy never-connected datasource URL satisfies the
+# store wiring (Hikari connects lazily and the tests @Primary the in-memory
+# store); schema init is off because nothing touches these tables.
+spring:
+  application:
+    name: mask-metadata
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:1/mask_metadata_test
+    username: test
+    password: test
+  sql:
+    init:
+      mode: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: mask-metadata

@@ -66,10 +66,15 @@ class QueryLdapBearerTest {
       """;
 
   @Test
-  void withoutTokenTheFailClosedKeyGateRejects() throws Exception {
+  void withoutTokenIsAcceptedInTheNoAuthDefault() throws Exception {
+    // the retired fail-closed API-key gate means anonymous requests now reach
+    // the data plane directly (auth is a central, optional monolith concern);
+    // the caller-asserted subject applies when no verified identity exists
+    when(queryService.execute(any(), any())).thenReturn(new QueryResult(
+        "pg", "postgresql", List.of(), List.of(), 0, false, true, false, 5, null));
     mockMvc.perform(post("/api/v1/query").servletPath("/api/v1/query")
             .contentType(MediaType.APPLICATION_JSON).content(QUERY_BODY))
-        .andExpect(status().isUnauthorized());
+        .andExpect(status().isOk());
   }
 
   @Test

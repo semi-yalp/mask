@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: sqlmask
+  sql:
+    init:
+      mode: always
+      schema-locations:
+        - classpath:sql/metadata-schema.sql
+        - classpath:sql/policy-schema.sql
+        - classpath:sql/server-schema.sql
+  web:
+    resources:
+      # SPA static hosting when the frontend build is bundled into the jar
+      # (docker/server.Dockerfile); a bare `java -jar` run without the bundle
+      # simply serves the API only.
+      static-locations: classpath:/static/,classpath:/public/
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+server:
+  port: 8080
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  observations:
+    key:
+      values:
+        application: ${spring.application.name}
+
+# Authentication is OFF by default (functionality first). Opt-in modes:
+#   simple - local user table (first start creates admin/admin, change it!)
+#   ldap   - MASK_AUTH_* environment variables (see docs/deployment.md)
+mask:
+  auth:
+    mode: ${MASK_AUTH_MODE:none}
+
+# Audit storage: jdbc (default, shared datasource), es or none. ES settings
+# only apply when store=es. (The jdbc store lands with the audit task; until
+# then the recorder stays off unless store=es.)
+audit:
+  enabled: ${AUDIT_ENABLED:false}
+  store: ${AUDIT_STORE:jdbc}
+  elasticsearch:
+    url: ${AUDIT_ES_URL:http://127.0.0.1:9200}
+    api-key: ${AUDIT_ES_API_KEY:}
+    username: ${AUDIT_ES_USER:}
+    password: ${AUDIT_ES_PASSWORD:}
+  index-prefix: ${AUDIT_INDEX_PREFIX:mask-audit}
+  queue-capacity: ${AUDIT_QUEUE_CAPACITY:10000}
+  batch-size: ${AUDIT_BATCH_SIZE:200}
+  flush-interval-ms: ${AUDIT_FLUSH_INTERVAL_MS:2000}
+  sql-max-chars: ${AUDIT_SQL_MAX_CHARS:8192}
+  effective-pull:
+    enabled: ${AUDIT_EFFECTIVE_PULL_ENABLED:true}
+
+# Remote-service transports (standalone deployments / CLI runs); blank means
+# the in-process local transports are used.
+sqlmask:
+  metadata-service:
+    base-url: ${SQLMASK_METADATA_BASE_URL:}
+    api-key: ${SQLMASK_METADATA_API_KEY:}
+  policy-service:
+    base-url: ${SQLMASK_POLICY_BASE_URL:}
+    api-key: ${SQLMASK_POLICY_API_KEY:}
+
+# Risk domain (embedded): demo data is NOT seeded unless asked for.
+risk:
+  store:
+    persistence-path: ${RISK_STORE_PATH:data/risk-store.json}
+  demo:
+    seed-on-start: ${RISK_SEED_ON_START:false}
+
+logging:
+  level:
+    root: INFO

@@ -17,7 +17,7 @@ import java.util.function.Supplier;
  * wrap so a failed audit and a failed metric coincide (spec §5.1). Duplicate of
  * the mask-core class on purpose: the two services share no module (spec §1.2).
  */
-@Component
+@Component("metadataAdminMetrics")
 public class AdminMetrics {
 
   private final MeterRegistry registry;

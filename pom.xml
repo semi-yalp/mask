@@ -18,12 +18,12 @@
     <module>mask-engine</module>
     <module>mask-audit</module>
     <module>mask-common</module>
-    <module>mask-core</module>
+    <module>mask-server</module>
     <module>mask-query</module>
     <module>mask-metadata</module>
-    <module>mask-policy-server</module>
+    <module>mask-policy-admin</module>
     <module>mask-auth</module>
-    <module>mask-risk-server</module>
+    <module>mask-risk</module>
   </modules>
 
   <properties>

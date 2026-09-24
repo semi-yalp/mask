@@ -12,7 +12,7 @@ class ApiExceptionHandlerTest {
 
   @Test
   void mapsQueryExceptionToPayloadWithClassSpecificStatus() {
-    var handler = new ApiExceptionHandler();
+    var handler = new QueryApiExceptionHandler();
     var busy = handler.queryException(new QueryException("QUERY_BUSY", "busy"));
     assertThat(busy.getStatusCode().value()).isEqualTo(429);
     assertThat(busy.getBody().code()).isEqualTo("QUERY_BUSY");
@@ -33,7 +33,7 @@ class ApiExceptionHandlerTest {
 
   @Test
   void mapsMalformedJsonBodyToConfigError() {
-    var handler = new ApiExceptionHandler();
+    var handler = new QueryApiExceptionHandler();
     var response = handler.handleUnreadable(new HttpMessageNotReadableException(
         "JSON parse error", new MockHttpInputMessage(new byte[0])));
     assertThat(response.getStatusCode().value()).isEqualTo(400);

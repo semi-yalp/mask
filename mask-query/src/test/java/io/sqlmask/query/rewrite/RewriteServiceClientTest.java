@@ -2,7 +2,7 @@ package io.sqlmask.query.rewrite;
 
 import com.sun.net.httpserver.HttpServer;
 import io.sqlmask.query.error.QueryException;
-import io.sqlmask.query.rewrite.RewriteServiceClient.RewrittenQuery;
+import io.sqlmask.query.rewrite.RewrittenQuery;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
