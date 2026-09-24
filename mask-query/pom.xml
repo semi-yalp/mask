@@ -18,6 +18,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <!-- AuditAutoConfiguration's jdbc-store beans introspect at boot -->
+    </dependency>
+    <dependency>
       <groupId>io.sqlmask</groupId>
       <artifactId>mask-audit</artifactId>
       <version>${project.version}</version>

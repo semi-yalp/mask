@@ -28,7 +28,7 @@ class MetricsEndpointSmokeTest {
         .andExpect(content().string(containsString("jvm_memory_used_bytes")))
         .andExpect(content().string(containsString("application=\"sqlmask\"")))
         // 审计管道指标（spec §3.5）
-        .andExpect(content().string(containsString("sqlmask_audit_queue_depth")))
-        .andExpect(content().string(containsString("sqlmask_audit_queue_capacity")));
+        .andExpect(content().string(containsString("sqlmask_audit_jdbc_queue_depth")))
+        .andExpect(content().string(containsString("sqlmask_audit_jdbc_queue_capacity")));
   }
 }

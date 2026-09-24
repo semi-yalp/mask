@@ -14,6 +14,27 @@ public final class AuditEventJson {
   private AuditEventJson() {
   }
 
+
+  private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+      new com.fasterxml.jackson.databind.ObjectMapper();
+
+  /** Serializes a document back to JSON (the jdbc store's payload column). */
+  public static String write(java.util.Map<String, Object> doc) {
+    try {
+      return JSON.writeValueAsString(doc);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      throw new IllegalStateException("cannot serialize audit document", e);
+    }
+  }
+
+  /** Reads a document back from JSON (the jdbc store's payload column). */
+  public static java.util.Map<String, Object> read(String json) {
+    try {
+      return JSON.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {});
+    } catch (java.io.IOException e) {
+      throw new IllegalStateException("cannot read audit document", e);
+    }
+  }
   public static Map<String, Object> toDocument(AuditEvent event, int sqlMaxChars) {
     Map<String, Object> doc = new LinkedHashMap<>();
     doc.put("@timestamp", event.timestamp().toEpochMilli());

@@ -19,23 +19,47 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
- * Wires the audit pipeline (spec §2/§4): explicit {@code audit.enabled=true}
- * builds a shared ES rest client (+ Java client) from
- * {@code audit.elasticsearch.*}, starts the background writer and exposes
- * the search client; otherwise (the Java default {@code enabled=false}) it
- * falls back to a Noop recorder. Nothing connects eagerly; with the
- * pipeline enabled, configuration errors (bad URL, conflicting credentials)
- * fail startup on purpose — auditing that silently never reaches ES is
- * worse than a refused boot.
+ * Wires the audit pipeline: with {@code audit.enabled=true} the storage
+ * backend is chosen by {@code audit.store} — {@code jdbc} (the monolith
+ * default) writes to the shared SQL datasource's {@code audit_event} table,
+ * {@code es} builds a shared ES rest client (+ Java client) from
+ * {@code audit.elasticsearch.*}. Nothing connects eagerly; with the pipeline
+ * enabled, configuration errors (bad URL, missing datasource) fail startup on
+ * purpose — auditing that silently never reaches its store is worse than a
+ * refused boot.
  *
- * <p>Additionally, a non-blank {@code risk.forward.url} wraps whichever recorder
- * is active into a {@link ForwardingAuditRecorder} ({@code @Primary}) that also
- * ships every event to the risk monitoring service - best-effort and fully
- * inert when the property is unset.
+ * <p>Risk forwarding: a non-blank {@code risk.forward.url} ships events to a
+ * standalone risk service over HTTP ({@link RiskForwarder}); otherwise an
+ * in-process {@link RiskIngestSink} bean (the monolith's risk bridge) receives
+ * them. Whichever recorder is active is wrapped into a {@link ForwardingAuditRecorder}
+ * ({@code @Primary}) — best-effort and fully inert when no sink exists.
  */
 @AutoConfiguration
 @EnableConfigurationProperties({AuditProperties.class, RiskForwardProperties.class})
 public class AuditAutoConfiguration {
+
+  /** enabled=true AND store=es: the ES-specific beans. */
+  static class EsStoreEnabled implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+      if (!"true".equals(context.getEnvironment().getProperty("audit.enabled"))) {
+        return false;
+      }
+      String store = context.getEnvironment().getProperty("audit.store", "es");
+      return !"jdbc".equalsIgnoreCase(store);
+    }
+  }
+
+  /** enabled=true AND store=jdbc: the SQL-store beans. */
+  static class JdbcStoreEnabled implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+      if (!"true".equals(context.getEnvironment().getProperty("audit.enabled"))) {
+        return false;
+      }
+      return "jdbc".equalsIgnoreCase(context.getEnvironment().getProperty("audit.store", "es"));
+    }
+  }
 
   /**
    * The pipeline builds only when {@code audit.enabled} is explicitly true:
@@ -44,7 +68,7 @@ public class AuditAutoConfiguration {
    * Noop recorder instead of pointing an ES pipeline at localhost.
    */
   @Bean(destroyMethod = "close")
-  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true")
+  @Conditional(AuditAutoConfiguration.EsStoreEnabled.class)
   RestClient auditRestClient(AuditProperties properties) {
     org.apache.http.HttpHost host;
     try {
@@ -91,30 +115,59 @@ public class AuditAutoConfiguration {
   }
 
   @Bean
-  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true")
+  @Conditional(AuditAutoConfiguration.EsStoreEnabled.class)
   ElasticsearchClient auditElasticsearchClient(RestClient auditRestClient) {
     return new ElasticsearchClient(
         new RestClientTransport(auditRestClient, new JacksonJsonpMapper(new ObjectMapper())));
   }
 
   @Bean(destroyMethod = "close")
-  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true")
+  @Conditional(AuditAutoConfiguration.EsStoreEnabled.class)
   EsAuditRecorder esAuditRecorder(ElasticsearchClient auditElasticsearchClient,
       AuditProperties properties, MeterRegistry meterRegistry) {
     return new EsAuditRecorder(auditElasticsearchClient, properties, meterRegistry);
   }
 
   @Bean
-  @ConditionalOnProperty(prefix = "audit", name = "enabled", havingValue = "true")
+  @Conditional(AuditAutoConfiguration.EsStoreEnabled.class)
   AuditSearchClient auditSearchClient(ElasticsearchClient auditElasticsearchClient,
       AuditProperties properties) {
     return new AuditSearchClient(auditElasticsearchClient, properties.getIndexPrefix());
   }
 
+  // ---- jdbc store ----
+
+  /** Local template over the shared datasource: built per bean (not as a
+   * container bean) so it never becomes an injection candidate for the
+   * domain stores' JdbcTemplate points (which would be a cycle). */
+  private static org.springframework.jdbc.core.JdbcTemplate auditJdbcTemplate(
+      ObjectProvider<javax.sql.DataSource> datasources) {
+    javax.sql.DataSource ds = datasources.getIfAvailable();
+    if (ds == null) {
+      throw new IllegalStateException("audit.store=jdbc requires a datasource "
+          + "(configure MASK_STORAGE_PG_URL or run the embedded H2 fallback)");
+    }
+    return new org.springframework.jdbc.core.JdbcTemplate(ds);
+  }
+
+  @Bean(destroyMethod = "close")
+  @Conditional(AuditAutoConfiguration.JdbcStoreEnabled.class)
+  JdbcAuditRecorder jdbcAuditRecorder(ObjectProvider<javax.sql.DataSource> datasources,
+      AuditProperties properties, ObjectProvider<MeterRegistry> registries) {
+    return new JdbcAuditRecorder(auditJdbcTemplate(datasources), properties,
+        registries.getIfAvailable());
+  }
+
+  @Bean
+  @Conditional(AuditAutoConfiguration.JdbcStoreEnabled.class)
+  JdbcAuditSearchClient jdbcAuditSearchClient(ObjectProvider<javax.sql.DataSource> datasources) {
+    return new JdbcAuditSearchClient(auditJdbcTemplate(datasources));
+  }
+
+  // ---- risk forwarding ----
+
   /**
    * Async risk forwarder, registered only for a non-blank ingest URL.
-   * Declared before the Noop fallback so the Noop bean's missing-bean
-   * condition can see the forwarding decorator and back off.
    */
   @Bean(destroyMethod = "close")
   @Conditional(AuditAutoConfiguration.RiskForwardEnabled.class)
@@ -124,26 +177,65 @@ public class AuditAutoConfiguration {
   }
 
   /**
-   * @Primary decorator over the active recorder when forwarding is on. Binds
-   * the delegate by its concrete type (never {@code AuditRecorder}) so the
+   * @Primary decorator over the active recorder when any risk sink exists:
+   * the HTTP forwarder (standalone risk service, {@code risk.forward.url})
+   * or an in-process {@link RiskIngestSink} bean (the monolith's risk
+   * bridge, visible here because user beans register before auto-configuration).
+   * Binds the delegate by concrete type (never {@code AuditRecorder}) so the
    * decoration cannot resolve back into itself while it is being created.
    */
   @Bean
   @Primary
-  @Conditional(AuditAutoConfiguration.RiskForwardEnabled.class)
+  @Conditional(AuditAutoConfiguration.AnyRiskSinkPresent.class)
   ForwardingAuditRecorder forwardingAuditRecorder(
       @org.springframework.lang.Nullable EsAuditRecorder esAuditRecorder,
-      RiskForwarder forwarder) {
-    AuditRecorder delegate = esAuditRecorder != null ? esAuditRecorder : new NoopAuditRecorder();
-    return new ForwardingAuditRecorder(delegate, forwarder);
+      @org.springframework.lang.Nullable JdbcAuditRecorder jdbcAuditRecorder,
+      ObjectProvider<RiskForwarder> forwarder,
+      ObjectProvider<RiskIngestSink> inProcess) {
+    AuditRecorder delegate;
+    if (esAuditRecorder != null) {
+      delegate = esAuditRecorder;
+    } else if (jdbcAuditRecorder != null) {
+      delegate = jdbcAuditRecorder;
+    } else {
+      delegate = new NoopAuditRecorder();
+    }
+    RiskForwarder http = forwarder.getIfAvailable();
+    if (http != null) {
+      return new ForwardingAuditRecorder(delegate, http::ship);
+    }
+    RiskIngestSink local = inProcess.getIfAvailable();
+    if (local != null) {
+      return new ForwardingAuditRecorder(delegate, local::ingest);
+    }
+    return new ForwardingAuditRecorder(delegate, event -> {
+    });
   }
 
-  /** Non-blank {@code risk.forward.url} enables the forwarding path. */
+  /** Non-blank {@code risk.forward.url} enables the HTTP forwarding path. */
   static class RiskForwardEnabled implements Condition {
+    static final RiskForwardEnabled INSTANCE_MATCHER = new RiskForwardEnabled();
+
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
       String url = context.getEnvironment().getProperty("risk.forward.url");
       return url != null && !url.isBlank();
+    }
+  }
+
+  /** HTTP forwarder configured OR an in-process risk bridge bean exists. */
+  static class AnyRiskSinkPresent implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+      if (RiskForwardEnabled.INSTANCE_MATCHER.matches(context, metadata)) {
+        return true;
+      }
+      try {
+        return context.getBeanFactory()
+            .getBeanNamesForType(RiskIngestSink.class, true, false).length > 0;
+      } catch (RuntimeException e) {
+        return false;
+      }
     }
   }
 

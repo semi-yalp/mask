@@ -1,19 +1,26 @@
 package io.sqlmask.audit;
 
 /**
- * Decorates another {@link AuditRecorder} with best-effort forwarding to the
- * risk monitoring service: the delegate keeps its existing behavior (ES write
- * or no-op) and every event is additionally offered to the {@link RiskForwarder}
- * queue. Neither leg may throw or block the request path.
+ * Decorates another {@link AuditRecorder} with best-effort risk forwarding:
+ * the delegate keeps its existing behavior (jdbc write, ES write or no-op)
+ * and every event is additionally offered to the configured {@link RiskEventSink}
+ * — the HTTP {@link RiskForwarder} for standalone risk deployments, or the
+ * in-process {@link RiskIngestSink} bridge in the monolith. Neither leg may
+ * throw or block the request path.
  */
 public final class ForwardingAuditRecorder implements AuditRecorder {
 
-  private final AuditRecorder delegate;
-  private final RiskForwarder forwarder;
+  /** What the forwarding decorator feeds: any best-effort risk consumer. */
+  public interface RiskEventSink {
+    void ship(AuditEvent event);
+  }
 
-  public ForwardingAuditRecorder(AuditRecorder delegate, RiskForwarder forwarder) {
+  private final AuditRecorder delegate;
+  private final RiskEventSink sink;
+
+  public ForwardingAuditRecorder(AuditRecorder delegate, RiskEventSink sink) {
     this.delegate = delegate;
-    this.forwarder = forwarder;
+    this.sink = sink;
   }
 
   /** The recorder that would have been injected without forwarding. */
@@ -28,6 +35,6 @@ public final class ForwardingAuditRecorder implements AuditRecorder {
     } catch (RuntimeException e) {
       // SPI promise: record never throws - defensive only.
     }
-    forwarder.record(event);
+    sink.ship(event);
   }
 }

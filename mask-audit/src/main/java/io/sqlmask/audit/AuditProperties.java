@@ -11,6 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AuditProperties {
 
   private boolean enabled = false;
+  /** Audit storage backend: "jdbc" (shared datasource) or "es". */
+  private String store = "es";
   private String indexPrefix = "mask-audit";
   private int indexReplicas = 1;
   private int queueCapacity = 10000;
@@ -22,6 +24,10 @@ public class AuditProperties {
 
   public boolean isEnabled() { return enabled; }
   public void setEnabled(boolean enabled) { this.enabled = enabled; }
+  public String getStore() { return store; }
+  public void setStore(String store) { this.store = store == null ? "es" : store; }
+  /** True when the pipeline targets the shared SQL datasource. */
+  public boolean isJdbcStore() { return "jdbc".equalsIgnoreCase(store); }
   public String getIndexPrefix() { return indexPrefix; }
   public void setIndexPrefix(String indexPrefix) { this.indexPrefix = indexPrefix; }
   public int getIndexReplicas() { return indexReplicas; }

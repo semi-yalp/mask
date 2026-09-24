@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * the caller's thread. Failures are rate-limited-logged and counted; the
  * queue never retries.
  */
-public final class RiskForwarder implements AutoCloseable {
+public final class RiskForwarder implements AutoCloseable, ForwardingAuditRecorder.RiskEventSink {
 
   private static final Logger log = LoggerFactory.getLogger(RiskForwarder.class);
 
@@ -78,6 +78,11 @@ public final class RiskForwarder implements AutoCloseable {
   }
 
   /** Enqueues one event; drops (and counts) when the queue is full. */
+  @Override
+  public void ship(AuditEvent event) {
+    record(event);
+  }
+
   public void record(AuditEvent event) {
     if (event == null || closing) {
       return;

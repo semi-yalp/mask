@@ -76,6 +76,11 @@ risk:
     persistence-path: ${RISK_STORE_PATH:data/risk-store.json}
   demo:
     seed-on-start: ${RISK_SEED_ON_START:false}
+  block:
+    # one-block-per-user self-loopback: the same process serves the policy
+    # admin API; requires auth off or an unauthenticated block path (see
+    # docs/known-issues-v2.md for the in-process target follow-up)
+    base-url: ${RISK_BLOCK_BASE_URL:http://127.0.0.1:8080}
 
 logging:
   level:

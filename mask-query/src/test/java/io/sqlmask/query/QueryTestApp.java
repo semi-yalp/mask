@@ -20,7 +20,7 @@ import org.springframework.context.annotation.ComponentScan;
  * {@code QueryRewriter} beans instead (mask-server QueryGatewayConfig).
  */
 @SpringBootConfiguration
-@EnableAutoConfiguration
+@EnableAutoConfiguration(exclude = org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class)
 @EnableConfigurationProperties({QueryProperties.class, UpstreamProperties.class})
 @ComponentScan(value = "io.sqlmask.query", excludeFilters = @ComponentScan.Filter(
     type = org.springframework.context.annotation.FilterType.ANNOTATION,
