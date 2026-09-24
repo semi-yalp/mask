@@ -62,26 +62,37 @@ class RiskForwarderTest {
     properties.setBatchSize(2);
     properties.setFlushIntervalMs(10_000); /* 拉长间隔:避免 CI 慢载下定时器抢在批满前刷出半批(flaky) */
 
-    String body;
+    java.util.List<String> batches = new java.util.ArrayList<>();
     try (RiskForwarder forwarder = new RiskForwarder(properties, new SimpleMeterRegistry())) {
       forwarder.record(sample("SELECT phone FROM crm.public.customer"));
       forwarder.record(sample("SELECT id_card FROM crm.public.customer"));
-      body = bodies.poll(5, TimeUnit.SECONDS);
-      assertThat(body).isNotNull();
+      String first = bodies.poll(5, TimeUnit.SECONDS);
+      assertThat(first).isNotNull();
+      batches.add(first);
+    }
+    // close() 会把剩余事件刷出；容忍定时器把两条拆成两批，总数恒为 2
+    String extra;
+    while ((extra = bodies.poll(2, TimeUnit.SECONDS)) != null) {
+      batches.add(extra);
     }
 
-    JsonNode array = new ObjectMapper().readTree(bodies.peek() == null ? "{}" : bodies.peek());
-    // The polled body is the one we inspect (single batch of two events).
-    JsonNode batch = new ObjectMapper().readTree(body);
-    assertThat(batch.isArray()).isTrue();
-    assertThat(batch.size()).isEqualTo(2);
-    JsonNode first = batch.get(0);
+    int total = 0;
+    JsonNode firstBatch = null;
+    for (String batchBody : batches) {
+      JsonNode batch = new ObjectMapper().readTree(batchBody);
+      assertThat(batch.isArray()).isTrue();
+      total += batch.size();
+      if (firstBatch == null) {
+        firstBatch = batch;
+      }
+    }
+    assertThat(total).isEqualTo(2);
+    JsonNode first = firstBatch.get(0);
     assertThat(first.get("@timestamp").isNumber()).isTrue();
     assertThat(first.get("eventType").asText()).isEqualTo("REWRITE");
     assertThat(first.get("actor").get("user").asText()).isEqualTo("analyst_q");
     assertThat(first.get("originalSql").asText()).contains("phone");
     assertThat(apiKeys.poll()).isEqualTo("risk-key");
-    assertThat(array).isNotNull();
   }
 
   @Test
