@@ -149,6 +149,31 @@ class RewriteInheritTest {
   }
 
   @Test
+  void renamedTargetColumnListNamesStructureColumnsFromTargetList() {
+    // 重命名目标列清单:inheritedTables 的结构列名必须取目标列清单(mobile/ename,
+    // 与 targetColumn 同源解析),而非源查询输出名(phone/name)——否则注册到
+    // 策略/元数据服务的目标表结构静默损坏
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "INSERT INTO crm.public.customer_copy (mobile, ename) "
+                + "SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(StatementKind.INSERT_SELECT, st.kind());
+    assertEquals(1, st.inheritedColumns().size());
+    assertEquals("mobile", st.inheritedColumns().get(0).targetColumn());
+    assertEquals(1, st.inheritedTables().size());
+    InheritedTable table = st.inheritedTables().get(0);
+    assertEquals("crm", table.catalog());
+    assertEquals("public", table.schema());
+    assertEquals("customer_copy", table.table());
+    assertEquals(List.of(
+        new InheritedTable.ColumnInfo("mobile", "varchar"),
+        new InheritedTable.ColumnInfo("ename", "varchar")),
+        table.columns());
+  }
+
+  @Test
   void readStatementsCarryNoInheritedTables() {
     List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
         .rewrite(METADATA, POLICY,

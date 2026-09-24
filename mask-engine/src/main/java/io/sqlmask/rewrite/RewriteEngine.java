@@ -27,6 +27,7 @@ import io.sqlmask.rowfilter.RowFilterRewriter;
 import io.sqlmask.sql.SqlStatementSplitter;
 import io.sqlmask.sql.ValidatedSql;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlInsert;
@@ -306,7 +307,7 @@ public final class RewriteEngine {
       }
       return new StatementRewrite(ordinal, statementText, rewritten, plan.requiresWrapper(),
           filtered.injections() > 0, writeKind, inherited,
-          inheritedTablesOf(validated, inherited));
+          inheritedTablesOf(validated, inherited, decider.targetColumnNames()));
     }
 
     // read statement: snapshot the statement as written before the row
@@ -335,21 +336,28 @@ public final class RewriteEngine {
    * 目标表完整输出列结构:按继承条目的目标三元组分表,每表填验证后行类型的
    * **全部**输出列(列名 + 方言类型声明)——混合复制(继承列 + 脱敏列 + 无策略
    * 列)时目标表落库的列不止继承列,注册方需要完整结构才能如实登记目标表。
-   * precision/scale 未指定(Calcite 的负数哨兵值)时传 null,{@code typeDeclaration}
-   * 输出不带括号的类型名。
+   * 目标列名与 {@link InheritedColumn#targetColumn()} 同源解析({@code
+   * targetColumnNames}):语句带目标列清单时按 ordinal 取清单项,否则用输出名
+   * ——{@code INSERT INTO t2(mobile) SELECT phone ...} 的结构列是 mobile 而非
+   * 输出名 phone。precision/scale 未指定(Calcite 的负数哨兵值)时传 null,
+   * {@code typeDeclaration} 输出不带括号的类型名。
    */
   private static List<InheritedTable> inheritedTablesOf(ValidatedSql validated,
-      List<InheritedColumn> inherited) {
-    List<InheritedTable.ColumnInfo> columns = validated.rowType().getFieldList().stream()
-        .map(field -> {
-          RelDataType type = field.getType();
-          Integer precision = type.getPrecision() >= 0 ? type.getPrecision() : null;
-          Integer scale = type.getScale() >= 0 ? type.getScale() : null;
-          return new InheritedTable.ColumnInfo(field.getName(),
-              new TableMetadata.Column(field.getName(), type.getSqlTypeName(),
-                  precision, scale).typeDeclaration());
-        })
-        .toList();
+      List<InheritedColumn> inherited, List<String> targetColumnNames) {
+    List<RelDataTypeField> fields = validated.rowType().getFieldList();
+    List<InheritedTable.ColumnInfo> columns = new ArrayList<>(fields.size());
+    for (int i = 0; i < fields.size(); i++) {
+      RelDataTypeField field = fields.get(i);
+      RelDataType type = field.getType();
+      Integer precision = type.getPrecision() >= 0 ? type.getPrecision() : null;
+      Integer scale = type.getScale() >= 0 ? type.getScale() : null;
+      String targetName = i < targetColumnNames.size()
+          ? targetColumnNames.get(i)
+          : field.getName();
+      columns.add(new InheritedTable.ColumnInfo(targetName,
+          new TableMetadata.Column(field.getName(), type.getSqlTypeName(),
+              precision, scale).typeDeclaration()));
+    }
     Map<String, InheritedTable> byTable = new LinkedHashMap<>();
     for (InheritedColumn column : inherited) {
       byTable.putIfAbsent(column.targetCatalog() + "." + column.targetSchema() + "."
@@ -393,6 +401,20 @@ public final class RewriteEngine {
 
     List<InheritedColumn> inheritedColumns() {
       return List.copyOf(inherited);
+    }
+
+    /**
+     * 全部输出列的目标列名(位置 = 输出 ordinal):与 {@link #targetColumnOf}
+     * 同一解析——语句带目标列清单(INSERT 目标列清单 / CREATE TABLE 列清单)时
+     * 按 ordinal 取清单项,否则用输出名。供目标表结构({@code inheritedTables})
+     * 使用,保证结构列名与继承条目的目标列名不漂移。
+     */
+    List<String> targetColumnNames() {
+      String[] names = new String[lineage.size()];
+      for (OutputLineage output : lineage) {
+        names[output.ordinal()] = targetColumnOf(output.ordinal(), output.outputName());
+      }
+      return List.of(names);
     }
 
     Set<Integer> inheritedOrdinals() {
