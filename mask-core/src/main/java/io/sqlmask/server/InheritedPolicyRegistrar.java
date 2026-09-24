@@ -1,11 +1,11 @@
 package io.sqlmask.server;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
-import io.sqlmask.policy.model.DataMaskItem;
-import io.sqlmask.policy.model.SubjectSelector;
 import io.sqlmask.rewrite.InheritedColumn;
+import io.sqlmask.rewrite.InheritedTable;
 import io.sqlmask.rewrite.RewriteEngine.StatementRewrite;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -29,17 +29,30 @@ import java.util.Set;
  * 改写后自动注册"复制表语句"的继承策略:改写引擎返回携带 {@code inheritedColumns}
  * 的语句后,本组件在返回前把目标表结构补入策略服务(合并 {@code PUT /tables})、为
  * 每个继承列创建 dataMask 策略(名 {@code auto.inherit.<table>.<column>},资源为
- * 目标表列,items 原样复制,目标资源上不声明 inheritOnCopy 以避免链式注册),并把
- * 目标表结构登记进元数据服务——先经数据面只读快照
- * ({@code GET /api/metadata/instances/{name}})取既有结构,按表合并后再
- * {@code PUT /structure}({@code PUT /api/instances/{name}/structure} 是整体替换
- * 语义,不合并会清掉实例其它表已登记的结构)。任一上游调用非 2xx 即抛
+ * 目标表列,目标资源上不声明 inheritOnCopy 以避免链式注册),并把目标表结构登记进
+ * 元数据服务——先经数据面只读快照({@code GET /api/metadata/instances/{name}})取
+ * 既有结构,按表合并后再 {@code PUT /structure}({@code PUT /api/instances/{name}/structure}
+ * 是整体替换语义,不合并会清掉实例其它表已登记的结构)。任一上游调用非 2xx 即抛
  * {@link SqlMaskException},使整个改写请求失败——绝不留下"数据已干净写入但继承策略
  * 未注册"的静默状态。
  *
+ * <p><b>全量策略视角</b>:注册流程以策略服务的全量策略列表
+ * ({@code GET /api/instances/{name}/policies})为准——引擎侧的有效配置按请求
+ * subject 编译,只能看见该 subject 可见的策略切片;若据此建目标表策略,其他
+ * subject(如 auditor)读目标表会静默不脱敏。因此注册前先做<b>全量冲突检查</b>
+ * (目标表列在任一启用 DATAMASK 策略中出现即拒绝,在写任何东西之前),并从全量
+ * 策略中收集源列的<b>完整 subjects+udf+arguments</b> 作为继承内容;某源列在全量
+ * 策略中无任何启用 DATAMASK 策略即拒绝(fail-closed)。引擎产出的
+ * {@code InheritedColumn.items()} 是 subject 切片,注册不再消费。</p>
+ *
+ * <p><b>双面密钥</b>:admin 面({@code /api/instances/**} 的读与写)用对应服务的
+ * admin API key(未单独配置时回落 data key,单 key 部署零配置兼容);metadata 的
+ * 数据面快照 GET 用 data key。</p>
+ *
  * <p>wire 契约对 {@code PolicyAdminController}(策略服务)与
  * {@code MetadataAdminController}(元数据服务)只读:本地定义轻量 DTO,不依赖那两个
- * 服务模块。</p>
+ * 服务模块。所有出站请求在 originUser 非空时带 {@code X-Originating-User},使上游
+ * 服务的审计事件能记录触发者。</p>
  */
 @Component
 public class InheritedPolicyRegistrar {
@@ -77,15 +90,22 @@ public class InheritedPolicyRegistrar {
       return;
     }
     Map<String, TableGroup> byTable = groupByTable(inherited);
+    Map<String, InheritedTable> structures = inheritedTablesByTarget(statements);
     requireConfigured(instanceName, originUser);
-    List<TableDto> merged = mergeTables(instanceName, byTable);
-    putTables(instanceName, merged);
+    // 次序:GET 全量策略 → 全量冲突检查 → 合并 tables → 逐条 POST policies → structure
+    // —— 冲突检查在写任何东西之前完成,整批失败
+    List<PolicyDto> policies = fetchPolicies(instanceName, originUser);
+    requireNoTargetConflicts(policies, byTable);
+    Map<String, List<InheritedItem>> inheritable = collectInheritableItems(policies, inherited);
+    List<TableDto> merged = mergeTables(instanceName, byTable, structures, originUser);
+    putTables(instanceName, merged, originUser);
     for (TableGroup group : byTable.values()) {
       for (InheritedColumn column : group.columns()) {
-        registerColumnPolicies(instanceName, column);
+        registerColumnPolicies(instanceName, column,
+            inheritable.get(itemKey(column)), originUser);
       }
     }
-    putStructure(instanceName, byTable);
+    putStructure(instanceName, byTable, structures, originUser);
   }
 
   private void requireConfigured(String instanceName, String originUser) {
@@ -116,9 +136,135 @@ public class InheritedPolicyRegistrar {
     return byTable;
   }
 
+  /** 引擎输出的目标表完整结构按三元组去重收集(多语句写同一目标表时取首个)。 */
+  private static Map<String, InheritedTable> inheritedTablesByTarget(
+      List<StatementRewrite> statements) {
+    Map<String, InheritedTable> byTarget = new LinkedHashMap<>();
+    if (statements == null) {
+      return byTarget;
+    }
+    for (StatementRewrite statement : statements) {
+      if (statement.inheritedTables() == null) {
+        continue;
+      }
+      for (InheritedTable table : statement.inheritedTables()) {
+        byTarget.putIfAbsent(key(table.catalog(), table.schema(), table.table()), table);
+      }
+    }
+    return byTarget;
+  }
+
+  /** GET 实例的全量策略列表:admin 面 {@code GET /api/instances/{name}/policies}
+   * 返回所有 subject 可见的完整策略——注册的冲突检查与继承内容都以此为唯一依据。 */
+  private List<PolicyDto> fetchPolicies(String instanceName, String originUser) {
+    HttpResponse<String> response = get(policyBase(instanceName) + "/policies",
+        policyService.effectiveAdminApiKey(), originUser);
+    requireOk(response, "GET /api/instances/" + instanceName + "/policies");
+    List<PolicyDto> policies = readPolicies(response.body(),
+        "rewrite 继承策略注册失败:policy 服务返回了无法解析的策略列表响应");
+    return policies == null ? List.of() : policies;
+  }
+
+  /** 该策略是否为启用的 DATAMASK 列策略(wire 里 policyType 为小写 {@code datamask})。 */
+  private static boolean enabledDataMask(PolicyDto policy) {
+    return policy.isEnabled() && policy.policyType() != null
+        && "datamask".equalsIgnoreCase(policy.policyType());
+  }
+
+  /** 全量冲突检查:目标表列出现在任一<b>启用</b> DATAMASK 策略的资源列中即拒绝
+   * —— 目标表已有自己的脱敏策略时继承会造成双口径,整批失败,且本检查发生在写
+   * 任何东西之前。策略服务保存所有 subject 的策略,引擎的 subject 相对切片看不见
+   * 他 subject 的既有策略,只有这里能可靠拒绝。 */
+  private static void requireNoTargetConflicts(List<PolicyDto> policies,
+      Map<String, TableGroup> byTable) {
+    for (PolicyDto policy : policies) {
+      if (!enabledDataMask(policy) || policy.resource() == null
+          || policy.resource().columns() == null) {
+        continue;
+      }
+      TableGroup group = byTable.get(key(policy.resource().catalog(),
+          policy.resource().schema(), policy.resource().table()));
+      if (group == null) {
+        continue;
+      }
+      for (String column : policy.resource().columns()) {
+        for (InheritedColumn target : group.columns()) {
+          if (normalize(column).equals(normalize(target.targetColumn()))) {
+            throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+                "复制继承被拒绝:目标表列 "
+                    + key(policy.resource().catalog(), policy.resource().schema(),
+                        policy.resource().table()) + "." + normalize(column)
+                    + " 已有自己的脱敏策略(策略 '" + policy.name() + "')");
+          }
+        }
+      }
+    }
+  }
+
+  /** 一条可继承的完整脱敏指令:来自全量策略视角的一条启用 DATAMASK 策略,
+   * subjects + udf + arguments 原样取自源策略(非引擎按 subject 切片的 items)。 */
+  private record InheritedItem(Set<String> users, Set<String> groups, String udf,
+      List<Object> arguments) {
+  }
+
+  /** 继承条目在 {@link #collectInheritableItems} 结果映射中的键(目标表 + 目标列)。 */
+  private static String itemKey(InheritedColumn column) {
+    return key(column.targetCatalog(), column.targetSchema(), column.targetTable())
+        + "." + normalize(column.targetColumn());
+  }
+
+  /** 对每个继承条目,从全量策略中筛出启用 DATAMASK 且资源匹配<b>源列</b>的策略,
+   * 收集其完整 subjects+udf+arguments 作为目标表策略内容。某源列在全量策略中无
+   * 任何启用 DATAMASK 策略即抛错(fail-closed):引擎看到的 subject 切片不足以
+   * 安全注册,静默跳过会留下"干净数据写入但读取不脱敏"的目标列。 */
+  private static Map<String, List<InheritedItem>> collectInheritableItems(
+      List<PolicyDto> policies, List<InheritedColumn> inherited) {
+    Map<String, List<InheritedItem>> byItem = new LinkedHashMap<>();
+    for (InheritedColumn column : inherited) {
+      var sourceKey = column.source() == null ? null : column.source().key();
+      if (sourceKey == null) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "复制继承被拒绝:继承条目缺少来源列,无法从全量策略中收集可继承的完整策略");
+      }
+      String sourceTable = key(sourceKey.catalog(), sourceKey.schema(), sourceKey.table());
+      String sourceColumn = normalize(sourceKey.column());
+      List<InheritedItem> items = new ArrayList<>();
+      for (PolicyDto policy : policies) {
+        if (!enabledDataMask(policy) || policy.resource() == null
+            || policy.resource().columns() == null) {
+          continue;
+        }
+        if (!key(policy.resource().catalog(), policy.resource().schema(),
+            policy.resource().table()).equals(sourceTable)) {
+          continue;
+        }
+        boolean resourceCoversSource = policy.resource().columns().stream()
+            .anyMatch(c -> normalize(c).equals(sourceColumn));
+        if (!resourceCoversSource) {
+          continue;
+        }
+        Set<String> users = policy.subjects() == null || policy.subjects().users() == null
+            ? Set.of() : policy.subjects().users();
+        Set<String> groups = policy.subjects() == null || policy.subjects().groups() == null
+            ? Set.of() : policy.subjects().groups();
+        items.add(new InheritedItem(users, groups, policy.udf(),
+            policy.arguments() == null ? List.of() : policy.arguments()));
+      }
+      if (items.isEmpty()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "复制继承被拒绝:源列 " + sourceTable + "." + sourceColumn
+                + " 在策略服务中无可继承的完整策略");
+      }
+      byItem.put(itemKey(column), items);
+    }
+    return byItem;
+  }
+
   /** GET 现有 tables 并与目标表合并:已存在的表按列合并,新表追加。 */
-  private List<TableDto> mergeTables(String instanceName, Map<String, TableGroup> byTable) {
-    HttpResponse<String> response = get(policyBase(instanceName), policyService.apiKey());
+  private List<TableDto> mergeTables(String instanceName, Map<String, TableGroup> byTable,
+      Map<String, InheritedTable> structures, String originUser) {
+    HttpResponse<String> response = get(policyBase(instanceName),
+        policyService.effectiveAdminApiKey(), originUser);
     requireOk(response, "GET /api/instances/" + instanceName);
     InstanceDto instance = readBody(response.body(), InstanceDto.class,
         "policy 服务返回了无法解析的实例响应");
@@ -132,15 +278,24 @@ public class InheritedPolicyRegistrar {
       String key = key(group.catalog(), group.schema(), group.table());
       TableDto existing = merged.get(key);
       merged.put(key, existing == null
-          ? new TableDto(group.catalog(), group.schema(), group.table(), columnsOf(group))
-          : mergeColumns(existing, group));
+          ? new TableDto(group.catalog(), group.schema(), group.table(),
+              columnsOf(group, structures.get(key)))
+          : mergeColumns(existing, group, structures.get(key)));
     }
     return List.copyOf(merged.values());
   }
 
-  /** 目标表全部列(按列名去重,类型用引擎填写的来源列 typeDeclaration,可为 null)。 */
-  private static List<ColumnDto> columnsOf(TableGroup group) {
+  /** 目标表全部列:优先用引擎输出的完整目标表结构(全部输出列,混合复制时不止
+   * 继承列);无完整结构时回落到继承列拼装(向后兼容)。按列名去重。 */
+  private static List<ColumnDto> columnsOf(TableGroup group, InheritedTable structure) {
     Map<String, ColumnDto> columns = new LinkedHashMap<>();
+    if (structure != null && !structure.columns().isEmpty()) {
+      for (InheritedTable.ColumnInfo column : structure.columns()) {
+        columns.putIfAbsent(normalize(column.name()),
+            new ColumnDto(column.name(), column.type()));
+      }
+      return List.copyOf(columns.values());
+    }
     for (InheritedColumn column : group.columns()) {
       columns.putIfAbsent(normalize(column.targetColumn()),
           new ColumnDto(column.targetColumn(), column.targetColumnType()));
@@ -148,15 +303,16 @@ public class InheritedPolicyRegistrar {
     return List.copyOf(columns.values());
   }
 
-  /** 表已存在(INSERT INTO 既有表):保留既有列,补入缺失的继承列。 */
-  private static TableDto mergeColumns(TableDto existing, TableGroup group) {
+  /** 表已存在(INSERT INTO 既有表):保留既有列,补入缺失的目标表列。 */
+  private static TableDto mergeColumns(TableDto existing, TableGroup group,
+      InheritedTable structure) {
     Map<String, ColumnDto> columns = new LinkedHashMap<>();
     if (existing.columns() != null) {
       for (ColumnDto column : existing.columns()) {
         columns.put(normalize(column.name()), column);
       }
     }
-    for (ColumnDto column : columnsOf(group)) {
+    for (ColumnDto column : columnsOf(group, structure)) {
       columns.putIfAbsent(normalize(column.name()), column);
     }
     return new TableDto(existing.catalog(), existing.schema(), existing.name(),
@@ -164,40 +320,47 @@ public class InheritedPolicyRegistrar {
   }
 
   /** 每个继承列一条/多条 dataMask 策略:名称 auto.inherit.<table>.<column>,
-   * 多条 items 依次以 .2/.3 后缀区分,优先级按 items 顺序递减(优先级高者在前)。 */
-  private void registerColumnPolicies(String instanceName, InheritedColumn column) {
-    List<DataMaskItem> items = column.items();
+   * 多条 items 依次以 .2/.3 后缀区分,优先级按 items 顺序递减(优先级高者在前)。
+   * 内容取全量策略视角收集的完整 subjects+udf+arguments——引擎的 subject 切片
+   * items 不再用于建策略(他 subject 对源列的既有策略只有全量视角可见)。 */
+  private void registerColumnPolicies(String instanceName, InheritedColumn column,
+      List<InheritedItem> items, String originUser) {
+    if (items == null || items.isEmpty()) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "rewrite 继承策略注册失败:继承列 " + itemKey(column) + " 没有可继承的完整策略");
+    }
     for (int i = 0; i < items.size(); i++) {
-      DataMaskItem item = items.get(i);
+      InheritedItem item = items.get(i);
       String name = "auto.inherit." + column.targetTable() + "." + column.targetColumn()
           + (i == 0 ? "" : "." + (i + 1));
       ResourceDto resource = new ResourceDto(column.targetCatalog(), column.targetSchema(),
           column.targetTable(), List.of(column.targetColumn()), List.of());
-      SubjectSelector selector = item.selector();
-      SubjectDto subjects = new SubjectDto(selector.users(), selector.groups());
+      SubjectDto subjects = new SubjectDto(item.users(), item.groups());
       // 目标资源不声明 inheritOnCopy:避免已注册的继承策略再次触发链式注册
       PolicyDto policy = new PolicyDto(name, "dataMask", true, items.size() - 1 - i, resource,
           subjects, item.udf(), item.arguments(), null);
       HttpResponse<String> response = post(policyBase(instanceName) + "/policies", policy,
-          policyService.apiKey());
+          policyService.effectiveAdminApiKey(), originUser);
       requireOk(response, "POST /api/instances/" + instanceName + "/policies (" + name + ")");
     }
   }
 
   /** 合并后的 tables 整体 PUT 到策略服务(整体替换语义)。 */
-  private void putTables(String instanceName, List<TableDto> tables) {
+  private void putTables(String instanceName, List<TableDto> tables, String originUser) {
     HttpResponse<String> response = put(policyBase(instanceName) + "/tables",
-        new TablesDto(tables), policyService.apiKey());
+        new TablesDto(tables), policyService.effectiveAdminApiKey(), originUser);
     requireOk(response, "PUT /api/instances/" + instanceName + "/tables");
   }
 
   /** 目标表结构登记进元数据服务:structure 端点是整体替换语义,直接 PUT 目标表会
-   * 清掉实例其它表已登记的结构——先调数据面只读快照 GET /api/metadata/instances/{name},
-   * 按 catalog/schema/table 合并(既有表保留,目标表缺失则追加、已存在则跳过不覆盖
-   * 既有列),再把合并后的完整表列表 PUT 到 structure,与策略服务侧的合并语义对称。 */
-  private void putStructure(String instanceName, Map<String, TableGroup> byTable) {
+   * 清掉实例其它表已登记的结构——先调数据面只读快照 GET /api/metadata/instances/{name}
+   * (data 面 key),按 catalog/schema/table 合并(既有表保留,目标表缺失则追加、
+   * 已存在则跳过不覆盖既有列),再把合并后的完整表列表 PUT 到 structure(admin 面
+   * key),与策略服务侧的合并语义对称。 */
+  private void putStructure(String instanceName, Map<String, TableGroup> byTable,
+      Map<String, InheritedTable> structures, String originUser) {
     HttpResponse<String> snapshot = get(metadataSnapshotBase(instanceName),
-        metadataService.apiKey());
+        metadataService.apiKey(), originUser);
     requireOk(snapshot, "GET /api/metadata/instances/" + instanceName);
     MetadataSnapshotDto existing = readBody(snapshot.body(), MetadataSnapshotDto.class,
         "rewrite 继承策略注册失败:metadata 服务返回了无法解析的结构快照响应");
@@ -208,14 +371,14 @@ public class InheritedPolicyRegistrar {
       }
     }
     for (TableGroup group : byTable.values()) {
-      merged.putIfAbsent(key(group.catalog(), group.schema(), group.table()),
-          new TablePayload(group.catalog(), group.schema(), group.table(),
-              columnsOf(group).stream()
-                  .map(column -> new ColumnPayload(column.name(), column.type()))
-                  .toList()));
+      String key = key(group.catalog(), group.schema(), group.table());
+      merged.putIfAbsent(key, new TablePayload(group.catalog(), group.schema(), group.table(),
+          columnsOf(group, structures.get(key)).stream()
+              .map(column -> new ColumnPayload(column.name(), column.type()))
+              .toList()));
     }
     HttpResponse<String> response = put(metadataBase(instanceName) + "/structure",
-        List.copyOf(merged.values()), metadataService.apiKey());
+        List.copyOf(merged.values()), metadataService.effectiveAdminApiKey(), originUser);
     requireOk(response, "PUT /api/instances/" + instanceName + "/structure");
   }
 
@@ -235,36 +398,41 @@ public class InheritedPolicyRegistrar {
         + encode(instanceName);
   }
 
-  private HttpResponse<String> get(String url, String apiKey) {
+  private HttpResponse<String> get(String url, String apiKey, String originUser) {
     return send(withApiKey(HttpRequest.newBuilder(URI.create(url))
         .timeout(Duration.ofSeconds(10))
-        .header("Accept", "application/json"), apiKey)
+        .header("Accept", "application/json"), apiKey, originUser)
         .GET()
         .build());
   }
 
-  private HttpResponse<String> put(String url, Object body, String apiKey) {
+  private HttpResponse<String> put(String url, Object body, String apiKey, String originUser) {
     return send(withApiKey(HttpRequest.newBuilder(URI.create(url))
         .timeout(Duration.ofSeconds(10))
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json"), apiKey)
+        .header("Content-Type", "application/json"), apiKey, originUser)
         .PUT(HttpRequest.BodyPublishers.ofString(toJson(body)))
         .build());
   }
 
-  private HttpResponse<String> post(String url, Object body, String apiKey) {
+  private HttpResponse<String> post(String url, Object body, String apiKey, String originUser) {
     return send(withApiKey(HttpRequest.newBuilder(URI.create(url))
         .timeout(Duration.ofSeconds(10))
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json"), apiKey)
+        .header("Content-Type", "application/json"), apiKey, originUser)
         .POST(HttpRequest.BodyPublishers.ofString(toJson(body)))
         .build());
   }
 
-  /** 所有请求带 X-Api-Key;apiKey 未配置时不加头(镜像 MetadataClient 的守卫)。 */
-  private static HttpRequest.Builder withApiKey(HttpRequest.Builder builder, String apiKey) {
+  /** 所有请求带 X-Api-Key;apiKey 未配置时不加头(镜像 MetadataClient 的守卫)。
+   * originUser 非空时带 X-Originating-User,上游的审计事件据此记录真实触发者。 */
+  private static HttpRequest.Builder withApiKey(HttpRequest.Builder builder, String apiKey,
+      String originUser) {
     if (apiKey != null && !apiKey.isBlank()) {
       builder.header("X-Api-Key", apiKey);
+    }
+    if (originUser != null && !originUser.isBlank()) {
+      builder.header("X-Originating-User", originUser);
     }
     return builder;
   }
@@ -294,6 +462,15 @@ public class InheritedPolicyRegistrar {
   private static <T> T readBody(String body, Class<T> type, String what) {
     try {
       return JSON.readValue(body, type);
+    } catch (IOException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, what, e);
+    }
+  }
+
+  private static List<PolicyDto> readPolicies(String body, String what) {
+    try {
+      return JSON.readValue(body, new TypeReference<List<PolicyDto>>() {
+      });
     } catch (IOException e) {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, what, e);
     }
