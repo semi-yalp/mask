@@ -5,7 +5,8 @@ package io.sqlmask.policy.model;
  * {@code column} is null for table-level (row filter) resources. Levels are
  * normalized on construction.
  */
-public record PolicyResource(String catalog, String schema, String table, String column) {
+public record PolicyResource(String catalog, String schema, String table, String column,
+    boolean inheritOnCopy) {
 
   public PolicyResource {
     catalog = PolicyNames.normalize(catalog, "catalog");
@@ -14,11 +15,21 @@ public record PolicyResource(String catalog, String schema, String table, String
     column = column == null ? null : PolicyNames.normalize(column, "column");
   }
 
+  /** 兼容既有调用:未声明继承标志即关闭。 */
+  public PolicyResource(String catalog, String schema, String table, String column) {
+    this(catalog, schema, table, column, false);
+  }
+
   public static PolicyResource table(String catalog, String schema, String table) {
-    return new PolicyResource(catalog, schema, table, null);
+    return new PolicyResource(catalog, schema, table, null, false);
   }
 
   public static PolicyResource column(String catalog, String schema, String table, String column) {
-    return new PolicyResource(catalog, schema, table, column);
+    return new PolicyResource(catalog, schema, table, column, false);
+  }
+
+  public static PolicyResource column(String catalog, String schema, String table, String column,
+      boolean inheritOnCopy) {
+    return new PolicyResource(catalog, schema, table, column, inheritOnCopy);
   }
 }

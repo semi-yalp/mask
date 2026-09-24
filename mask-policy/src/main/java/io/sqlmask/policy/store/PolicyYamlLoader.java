@@ -108,11 +108,19 @@ public final class PolicyYamlLoader {
     String schema = requiredString(map, "schema", path);
     String table = requiredString(map, "table", path);
     Object columnNode = map.get("column");
+    boolean inheritOnCopy = false;
+    Object inheritNode = map.get("inheritOnCopy");
+    if (inheritNode != null) {
+      if (!(inheritNode instanceof Boolean b)) {
+        throw new PolicyException(path + ".inheritOnCopy must be boolean");
+      }
+      inheritOnCopy = b;
+    }
     if (columnNode == null) {
-      return List.of(new PolicyResource(catalog, schema, table, null));
+      return List.of(new PolicyResource(catalog, schema, table, null, inheritOnCopy));
     }
     if (columnNode instanceof String column) {
-      return List.of(new PolicyResource(catalog, schema, table, column));
+      return List.of(new PolicyResource(catalog, schema, table, column, inheritOnCopy));
     }
     if (columnNode instanceof List<?> columns) {
       if (columns.isEmpty()) {
@@ -124,7 +132,7 @@ public final class PolicyYamlLoader {
           throw new PolicyException(
               path + ".column[" + i + "] must be a non-blank string or \"*\"");
         }
-        expanded.add(new PolicyResource(catalog, schema, table, column));
+        expanded.add(new PolicyResource(catalog, schema, table, column, inheritOnCopy));
       }
       return expanded;
     }
