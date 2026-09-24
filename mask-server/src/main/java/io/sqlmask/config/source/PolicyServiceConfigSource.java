@@ -1,6 +1,7 @@
 package io.sqlmask.config.source;
 import io.sqlmask.common.effective.EffectiveConfigResponse;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
@@ -44,7 +45,8 @@ public final class PolicyServiceConfigSource implements ConfigSource {
 
   private static final Logger log = LoggerFactory.getLogger(PolicyServiceConfigSource.class);
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = new ObjectMapper()
+      .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
   /** Cached-subject ceiling; excess evicts least-recently-used. */
   private static final int MAX_CACHED_SUBJECTS = 256;

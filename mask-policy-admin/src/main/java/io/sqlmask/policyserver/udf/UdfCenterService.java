@@ -59,8 +59,10 @@ public class UdfCenterService {
     this.lookup = lookup;
   }
 
-  /** Outcome of an engine import: how many definitions were created vs refreshed. */
-  public record ImportResult(int created, int updated, List<String> names) {
+  /** Outcome of an engine import: created/refreshed counts plus the names
+    * imported and the ones skipped (unsupported types, registry rejects). */
+  public record ImportResult(int created, int updated, List<String> names,
+      List<String> skipped) {
   }
 
   /**
@@ -76,17 +78,32 @@ public class UdfCenterService {
     policies.udfs(instance).forEach(u -> existing.put(u.name(), u));
     int created = 0;
     int updated = 0;
+    List<String> skipped = new ArrayList<>();
+    List<String> imported = new ArrayList<>();
     for (Map.Entry<String, List<UdfIntrospector.UdfSignature>> entry : byName.entrySet()) {
-      UdfDefinition definition = toDefinition(entry.getKey(), entry.getValue());
-      if (existing.containsKey(entry.getKey())) {
-        policies.replaceUdf(instance, entry.getKey(), definition);
-        updated++;
-      } else {
-        policies.createUdf(instance, definition);
-        created++;
+      UdfDefinition definition;
+      try {
+        definition = toDefinition(entry.getKey(), entry.getValue());
+      } catch (SqlMaskException unsupported) {
+        // 引擎里存在本系统类型体系不支持的函数（如 pgcrypto 的 bytea 系）：
+        // 跳过并记录，不阻断其余函数的导入
+        skipped.add(entry.getKey());
+        continue;
+      }
+      try {
+        if (existing.containsKey(entry.getKey())) {
+          policies.replaceUdf(instance, entry.getKey(), definition);
+          updated++;
+        } else {
+          policies.createUdf(instance, definition);
+          created++;
+        }
+        imported.add(entry.getKey());
+      } catch (SqlMaskException rejected) {
+        skipped.add(entry.getKey());
       }
     }
-    return new ImportResult(created, updated, List.copyOf(byName.keySet()));
+    return new ImportResult(created, updated, List.copyOf(imported), List.copyOf(skipped));
   }
 
   /** Registry-vs-engine diff: neither side is modified. */

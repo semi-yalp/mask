@@ -26,6 +26,11 @@ management:
     web:
       exposure:
         include: health,prometheus
+  health:
+    # elasticsearch-java is on the classpath for the optional audit store;
+    # don't let its default-URL health probe flip the whole app DOWN
+    elasticsearch:
+      enabled: false
   metrics:
     tags:
       application: ${spring.application.name}

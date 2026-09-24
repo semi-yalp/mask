@@ -1,5 +1,6 @@
 package io.sqlmask.common.metadata;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sqlmask.error.SqlMaskException;
 
@@ -21,7 +22,8 @@ import java.util.OptionalLong;
  */
 public final class HttpMetadataClient implements MetadataClient {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = new ObjectMapper()
+      .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
   private final HttpClient http;
   private final URI base;
