@@ -111,4 +111,40 @@ class AdminAuditMetaTest {
         .findFirst().orElseThrow();
     assertEquals(Integer.valueOf(0), e.detail().get("tableCount"));
   }
+
+  /** X-Originating-User(继承注册器等自动触发者)进入审计 detail;缺省时不写该键。 */
+  @Test
+  void registerStructureAuditRecordsOriginatingUserFromHeader() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("{\"name\": \"sr-origin\", \"dialect\": \"postgresql\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/instances/sr-origin/structure").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .header("X-Originating-User", "registrar")
+            .content("""
+                [{"catalog":"crm","schema":"public","name":"customer_copy",
+                  "columns":[{"name":"phone","type":"varchar"}]}]
+                """))
+        .andExpect(status().isOk());
+    ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+    org.mockito.Mockito.verify(recorder, atLeastOnce()).record(captor.capture());
+    AuditEvent e = captor.getAllValues().stream()
+        .filter(x -> "REGISTER_STRUCTURE".equals(x.action())
+            && "sr-origin".equals(x.instance()))
+        .findFirst().orElseThrow();
+    assertEquals("registrar", e.detail().get("originatingUser"));
+    mvc.perform(put("/api/instances/sr-origin/structure").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("[]"))
+        .andExpect(status().isOk());
+    org.mockito.Mockito.verify(recorder, atLeastOnce()).record(captor.capture());
+    AuditEvent withoutHeader = captor.getAllValues().stream()
+        .filter(x -> "REGISTER_STRUCTURE".equals(x.action())
+            && "sr-origin".equals(x.instance()))
+        .reduce((a, b) -> b).orElseThrow();
+    org.junit.jupiter.api.Assertions.assertFalse(
+        withoutHeader.detail().containsKey("originatingUser"),
+        () -> String.valueOf(withoutHeader.detail()));
+  }
 }

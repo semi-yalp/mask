@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -128,5 +129,74 @@ class AdminAuditTest {
         .reduce((a, b) -> b).orElseThrow();
     assertEquals("DELETE", instanceDelete.action());
     assertEquals(AuditEvent.SUCCESS, instanceDelete.outcome());
+  }
+
+  /** X-Originating-User(改写注册器等自动触发者)进入审计 detail;无 @Order,
+   * 自建实例,不依赖 Order(1)/(4) 的实例生命周期。 */
+  @Test
+  void policyCreateAndReplaceTablesAuditRecordsOriginatingUser() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name": "crm-origin", "dialect": "postgresql",
+                 "tables": [{"catalog": "crm", "schema": "public", "name": "customer",
+                   "columns": [{"name": "phone", "type": "varchar"}]}]}
+                """))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/crm-origin/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name": "mask_phone", "signatures": [{"params": ["varchar"],
+                 "returns": "varchar"}]}
+                """))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/instances/crm-origin/policies")
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("X-Originating-User", "alice")
+            .content("""
+                {"name": "p-origin", "policyType": "datamask",
+                 "resource": {"catalog": "crm", "schema": "public", "table": "customer",
+                              "columns": ["phone"]},
+                 "subjects": {"users": ["*"]}, "udf": "mask_phone", "arguments": []}
+                """))
+        .andExpect(status().isOk());
+    AuditEvent created = recorded().stream()
+        .filter(x -> "CREATE".equals(x.action()) && "POLICY".equals(x.resourceType())
+            && "p-origin".equals(x.resourceName()))
+        .findFirst().orElseThrow();
+    assertEquals("alice", created.detail().get("originatingUser"));
+    mvc.perform(put("/api/instances/crm-origin/tables").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Originating-User", "registrar")
+            .content("""
+                {"tables": [{"catalog": "crm", "schema": "public", "name": "customer",
+                  "columns": [{"name": "phone", "type": "varchar"},
+                              {"name": "name", "type": "varchar"}]}]}
+                """))
+        .andExpect(status().isOk());
+    AuditEvent replaced = recorded().stream()
+        .filter(x -> "REPLACE_TABLES".equals(x.action()) && "crm-origin".equals(x.instance()))
+        .reduce((a, b) -> b).orElseThrow();
+    assertEquals("registrar", replaced.detail().get("originatingUser"));
+    assertEquals(1, replaced.detail().get("tableCount"));
+  }
+
+  @Test
+  void auditDetailOmitsOriginatingUserWhenHeaderAbsent() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name": "crm-origin2", "dialect": "postgresql",
+                 "tables": [{"catalog": "crm", "schema": "public", "name": "customer",
+                   "columns": [{"name": "phone", "type": "varchar"}]}]}
+                """))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/instances/crm-origin2/tables").contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"tables": [{"catalog": "crm", "schema": "public", "name": "customer",
+                  "columns": [{"name": "phone", "type": "varchar"}]}]}
+                """))
+        .andExpect(status().isOk());
+    AuditEvent replaced = recorded().stream()
+        .filter(x -> "REPLACE_TABLES".equals(x.action()) && "crm-origin2".equals(x.instance()))
+        .reduce((a, b) -> b).orElseThrow();
+    assertFalse(replaced.detail().containsKey("originatingUser"),
+        () -> String.valueOf(replaced.detail()));
   }
 }

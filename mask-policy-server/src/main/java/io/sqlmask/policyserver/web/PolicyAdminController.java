@@ -99,7 +99,7 @@ public class PolicyAdminController {
     return adminMetrics.record("TABLES", "REPLACE_TABLES", () -> {
       List<TableDef> tables = toTables(request == null ? null : request.tables());
       return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
-          () -> Map.of("tableCount", tables.size()),
+          () -> withOriginatingUser(httpRequest, Map.of("tableCount", tables.size())),
           () -> toDto(service.updateInstanceTables(name, tables)));
     });
   }
@@ -121,7 +121,7 @@ public class PolicyAdminController {
     return adminMetrics.record("POLICY", "CREATE", () ->
         audit.adminChange(httpRequest, "CREATE", "POLICY", name,
             request == null ? null : request.name(),
-            () -> policyDetail(request),
+            () -> withOriginatingUser(httpRequest, policyDetail(request)),
             () -> toDto(service.createPolicy(name, toModel(request)))));
   }
 
@@ -179,6 +179,21 @@ public class PolicyAdminController {
           "groups", dto.subjects().groups() == null ? List.of() : dto.subjects().groups()));
     }
     return detail;
+  }
+
+  /** Merges the originating user into an audit detail: automated callers (the
+   * rewrite registrar) forward {@code X-Originating-User} so the event records
+   * the end user that actually triggered the mutation; an absent/blank header
+   * adds nothing. */
+  private static Map<String, Object> withOriginatingUser(HttpServletRequest request,
+      Map<String, Object> detail) {
+    String originUser = request.getHeader("X-Originating-User");
+    if (originUser == null || originUser.isBlank()) {
+      return detail;
+    }
+    var merged = new java.util.LinkedHashMap<String, Object>(detail);
+    merged.put("originatingUser", originUser);
+    return merged;
   }
 
   private static List<TableDef> toTables(List<TableDto> tables) {

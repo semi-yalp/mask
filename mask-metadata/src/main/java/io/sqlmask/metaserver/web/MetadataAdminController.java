@@ -88,7 +88,8 @@ public class MetadataAdminController {
       @RequestBody List<MetadataDtos.TablePayload> tables) {
     return adminMetrics.record("METADATA", "REGISTER_STRUCTURE", () ->
         audit.adminChange(httpRequest, "REGISTER_STRUCTURE", "INSTANCE", name, name,
-            () -> Map.of("tableCount", tables == null ? 0 : tables.size()),
+            () -> withOriginatingUser(httpRequest,
+                Map.of("tableCount", tables == null ? 0 : tables.size())),
             () -> detail(instances.registerStructure(name, toStructures(tables)))));
   }
 
@@ -193,6 +194,21 @@ public class MetadataAdminController {
                 .map(c -> new TableStructure.ColumnStructure(c.name(), c.type()))
                 .toList()))
         .toList();
+  }
+
+  /** Merges the originating user into an audit detail: automated callers (the
+   * rewrite registrar) forward {@code X-Originating-User} so the event records
+   * the end user that actually triggered the mutation; an absent/blank header
+   * adds nothing. */
+  private static Map<String, Object> withOriginatingUser(HttpServletRequest request,
+      Map<String, Object> detail) {
+    String originUser = request.getHeader("X-Originating-User");
+    if (originUser == null || originUser.isBlank()) {
+      return detail;
+    }
+    var merged = new java.util.LinkedHashMap<String, Object>(detail);
+    merged.put("originatingUser", originUser);
+    return merged;
   }
 
   /** The connection group to apply, or null when the body carries none. */
