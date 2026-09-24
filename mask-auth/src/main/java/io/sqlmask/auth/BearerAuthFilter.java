@@ -50,6 +50,11 @@ public final class BearerAuthFilter implements Filter {
       throws IOException, ServletException {
     HttpServletRequest request = (HttpServletRequest) req;
     HttpServletResponse response = (HttpServletResponse) res;
+    if (tokens == null) {
+      // disabled mode (no MASK_AUTH_SECRET): the filter is fully transparent
+      chain.doFilter(req, res);
+      return;
+    }
     String header = request.getHeader("Authorization");
     if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
       chain.doFilter(req, res);

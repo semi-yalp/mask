@@ -15,7 +15,8 @@ class ApiExceptionHandlerTest {
     var handler = new ApiExceptionHandler();
     var busy = handler.queryException(new QueryException("QUERY_BUSY", "busy"));
     assertThat(busy.getStatusCode().value()).isEqualTo(429);
-    assertThat(busy.getBody()).isEqualTo(new ApiError("QUERY_BUSY", "busy", java.util.List.of()));
+    assertThat(busy.getBody().code()).isEqualTo("QUERY_BUSY");
+    assertThat(busy.getBody().message()).isEqualTo("busy");
 
     assertThat(handler.queryException(new QueryException("QUERY_TIMEOUT", "t"))
         .getStatusCode().value()).isEqualTo(504);

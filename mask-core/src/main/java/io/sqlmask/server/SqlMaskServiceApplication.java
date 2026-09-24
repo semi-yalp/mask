@@ -136,7 +136,10 @@ public class SqlMaskServiceApplication {
       // disabled registration (not a null @Bean): a NullBean here breaks the
       // MockMvc builder's FilterRegistrationBean collection in default contexts
       org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
-          new org.springframework.boot.web.servlet.FilterRegistrationBean<>();
+          // a null-filter registration crashes real Tomcat (addFilter(getFilter())
+          // runs before setEnabled applies) - register a transparent instance instead
+          new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+              new io.sqlmask.auth.BearerAuthFilter(null, java.util.List.of()));
       off.setEnabled(false);
       return off; // no MASK_AUTH_SECRET → behaviour identical to the pre-LDAP build
     }

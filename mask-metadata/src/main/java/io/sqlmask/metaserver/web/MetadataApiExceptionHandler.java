@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.List;
+
 /**
  * Maps failures to the shared {code, message, details[]} body with spec §4.3
  * status mapping. Generic mappings come from {@link BaseApiExceptionHandler};

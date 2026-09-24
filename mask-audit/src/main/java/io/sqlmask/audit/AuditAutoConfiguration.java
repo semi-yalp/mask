@@ -22,9 +22,14 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
  * Wires the audit pipeline (spec §2/§4): enabled (default) builds a shared ES
  * rest client (+ Java client) from {@code audit.elasticsearch.*}, starts the
  * background writer and exposes the search client; disabled falls back to a
+<<<<<<< HEAD
  * Noop recorder. Nothing connects eagerly; configuration errors (bad URL,
  * conflicting credentials) fail startup on purpose — auditing that silently
  * never reaches ES is worse than a refused boot.
+=======
+ * Noop recorder. Nothing here connects eagerly and nothing here can fail
+ * application startup.
+>>>>>>> origin/main
  *
  * <p>Additionally, a non-blank {@code risk.forward.url} wraps whichever recorder
  * is active into a {@link ForwardingAuditRecorder} ({@code @Primary}) that also

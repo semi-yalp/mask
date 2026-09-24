@@ -9,8 +9,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class MetadataServerConfig {
 
-  /** Fail-closed gate: an unconfigured server key rejects every request. */
+  /** Per-plane key gate: /api/metadata/** uses the data key, everything
+   *  else the admin key; the legacy single key (METADATA_API_KEY) keeps
+   *  existing single-key deployments working on both planes. */
   @Bean
+<<<<<<< HEAD
   public FilterRegistrationBean<ApiKeyFilter> adminPlaneFilter(
       @Value("${metadata.api-key:}") String legacyKey,
       @Value("${metadata.admin-api-key:}") String adminKey) {
@@ -33,6 +36,19 @@ public class MetadataServerConfig {
     FilterRegistrationBean<ApiKeyFilter> registration =
         new FilterRegistrationBean<>(ApiKeyFilter.failClosed(effective));
     registration.addUrlPatterns("/api/metadata/*");
+=======
+  public FilterRegistrationBean<ApiKeyFilter> apiKeyFilter(
+      @Value("${metadata.api-key:}") String legacyKey,
+      @Value("${metadata.admin-api-key:}") String adminKey,
+      @Value("${metadata.data-api-key:}") String dataKey) {
+    String admin = adminKey == null || adminKey.isBlank() ? legacyKey : adminKey;
+    String data = dataKey == null || dataKey.isBlank() ? legacyKey : dataKey;
+    FilterRegistrationBean<ApiKeyFilter> registration =
+        new FilterRegistrationBean<>(ApiKeyFilter.surfaces(
+            new ApiKeyFilter.Surface("/api/metadata", data),
+            new ApiKeyFilter.Surface("/", admin)));
+    registration.addUrlPatterns("/api/*");
+>>>>>>> origin/main
     registration.setOrder(1);
     return registration;
   }

@@ -3,8 +3,6 @@ package io.sqlmask.server;
 import io.sqlmask.common.web.ApiError;
 import io.sqlmask.common.web.BaseApiExceptionHandler;
 import io.sqlmask.error.SqlMaskException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,19 +13,27 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * code + message instead of a stack trace. Status mirrors the failure class
  * (404 missing instance, 503 downstream outage, 400 request problems);
  * generic mappings (malformed JSON, unexpected 500) come from the shared
+<<<<<<< HEAD
  * {@link BaseApiExceptionHandler} — unexpected 500s are logged server-side
  * and answered with a generic message so JDBC/host internals never reach the
  * caller.
+=======
+ * {@link BaseApiExceptionHandler}.
+>>>>>>> origin/main
  */
 @RestControllerAdvice
 public class ApiExceptionHandler extends BaseApiExceptionHandler {
 
+<<<<<<< HEAD
   private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+=======
+>>>>>>> origin/main
   @ExceptionHandler(SqlMaskException.class)
   public ResponseEntity<ApiError> handle(SqlMaskException e) {
     return ResponseEntity.status(statusFor(e.getCode().name()))
         .body(ApiError.of(e.getCode().name(), e.getMessage()));
+<<<<<<< HEAD
   }
 
   private static HttpStatus statusFor(String code) {
@@ -37,6 +43,8 @@ public class ApiExceptionHandler extends BaseApiExceptionHandler {
           "METADATA_CREDENTIAL_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
       default -> HttpStatus.BAD_REQUEST;
     };
+=======
+>>>>>>> origin/main
   }
 
   /** Policy subsystem errors arrive as plain configuration errors. */
@@ -54,10 +62,20 @@ public class ApiExceptionHandler extends BaseApiExceptionHandler {
         e.getMessage() == null ? "elasticsearch unavailable" : e.getMessage()));
   }
 
+<<<<<<< HEAD
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception e) {
     log.error("unhandled error on the rewrite service", e);
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
         .body(ApiError.internal("internal server error"));
+=======
+  private static HttpStatus statusFor(String code) {
+    return switch (code) {
+      case "POLICY_INSTANCE_NOT_FOUND", "METADATA_INSTANCE_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+      case "POLICY_SERVICE_UNAVAILABLE", "METADATA_SERVICE_UNAVAILABLE",
+          "METADATA_CREDENTIAL_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+      default -> HttpStatus.BAD_REQUEST;
+    };
+>>>>>>> origin/main
   }
 }
