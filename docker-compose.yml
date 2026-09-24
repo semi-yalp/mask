@@ -1,0 +1,104 @@
+# sqlmask 一键部署（arch-v2 单体）
+#
+#   docker compose up -d          # 零配置启动:PostgreSQL + 单体(内嵌前端),无认证,审计入库
+#   docker compose --profile ldap up -d      # 加 OpenLDAP 演示目录(simple/ldap 认证联调)
+#   docker compose --profile es up -d        # 审计改走 Elasticsearch
+#   docker compose --profile tools up -d     # 加 Prometheus
+#
+# 端口:80 → 控制台+API(单进程)。升级/备份/环境变量全表见 docs/deployment.md。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sqlmask
+      POSTGRES_USER: sqlmask
+      POSTGRES_PASSWORD: ${MASK_STORAGE_PG_PASSWORD:?set MASK_STORAGE_PG_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sqlmask -d sqlmask"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sqlmask:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    image: sqlmask/server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "80:8080"
+    environment:
+      # ---- 存储:默认容器内 PG;裸跑 java -jar 时不设即用 H2 文件 ----
+      MASK_STORAGE_PG_URL: jdbc:postgresql://postgres:5432/sqlmask
+      MASK_STORAGE_PG_USER: sqlmask
+      MASK_STORAGE_PG_PASSWORD: ${MASK_STORAGE_PG_PASSWORD:?set MASK_STORAGE_PG_PASSWORD}
+      # ---- 认证:默认无认证;simple 首启建 admin/admin,ldap 见 docs/deployment.md ----
+      MASK_AUTH_MODE: ${MASK_AUTH_MODE:-none}
+      MASK_AUTH_SECRET: ${MASK_AUTH_SECRET:-}
+      MASK_AUTH_LDAP_URL: ${MASK_AUTH_LDAP_URL:-}
+      MASK_AUTH_LDAP_BASE_DN: ${MASK_AUTH_LDAP_BASE_DN:-}
+      MASK_AUTH_ADMIN_GROUPS: ${MASK_AUTH_ADMIN_GROUPS:-}
+      MASK_AUTH_AUDITOR_GROUPS: ${MASK_AUTH_AUDITOR_GROUPS:-}
+      # ---- 审计:默认 jdbc(共享库);es profile 切换 ----
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      AUDIT_STORE: ${AUDIT_STORE:-jdbc}
+      AUDIT_ES_URL: ${AUDIT_ES_URL:-http://elasticsearch:9200}
+      # ---- 风控(内嵌):阻断走自环,演示数据默认不播种 ----
+      RISK_BLOCK_BASE_URL: http://sqlmask:8080
+      RISK_SEED_ON_START: ${RISK_SEED_ON_START:-false}
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx768m}
+    volumes:
+      - appdata:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 60s
+
+  # ---- 可选:OpenLDAP 演示目录(amy/bob/carol + 三个角色组) ----
+  openldap:
+    image: osixia/openldap:1.5.0
+    profiles: ["ldap"]
+    command: [--copy-service]
+    ports:
+      - "3890:389"
+    volumes:
+      - ldapdata:/var/lib/ldap
+      - ldapconfig:/etc/ldap/slapd.d
+
+  # ---- 可选:审计 Elasticsearch ----
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    profiles: ["es"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  # ---- 可选:Prometheus ----
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["tools"]
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+volumes:
+  pgdata:
+  appdata:
+  ldapdata:
+  ldapconfig:
+  esdata:
