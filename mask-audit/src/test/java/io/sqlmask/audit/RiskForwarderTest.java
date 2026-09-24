@@ -60,7 +60,7 @@ class RiskForwarderTest {
     properties.setUrl(url);
     properties.setApiKey("risk-key");
     properties.setBatchSize(2);
-    properties.setFlushIntervalMs(100);
+    properties.setFlushIntervalMs(10_000); /* 拉长间隔:避免 CI 慢载下定时器抢在批满前刷出半批(flaky) */
 
     String body;
     try (RiskForwarder forwarder = new RiskForwarder(properties, new SimpleMeterRegistry())) {
