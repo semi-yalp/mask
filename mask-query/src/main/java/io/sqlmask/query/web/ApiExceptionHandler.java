@@ -25,11 +25,7 @@ public class ApiExceptionHandler extends BaseApiExceptionHandler {
   @ExceptionHandler(QueryException.class)
   public ResponseEntity<ApiError> queryException(QueryException e) {
     return ResponseEntity.status(statusFor(e.code())).body(
-<<<<<<< HEAD
-        new ApiError(e.code(), e.getMessage() == null ? "" : e.getMessage(), java.util.List.of()));
-=======
         new ApiError(e.code(), e.getMessage() == null ? "" : e.getMessage(), List.of()));
->>>>>>> origin/main
   }
 
   /** Status mirrors the failure class. */
