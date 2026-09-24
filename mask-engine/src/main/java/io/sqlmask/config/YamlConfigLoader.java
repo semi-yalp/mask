@@ -228,7 +228,16 @@ public final class YamlConfigLoader {
         throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
             bindingPath + ": duplicate policy binding for column '" + key + "'");
       }
-      bindings.add(new MaskingConfig.ColumnPolicyBinding(key, policyName));
+      boolean inheritOnCopy = false;
+      Object inheritNode = bindingMap.get("inheritOnCopy");
+      if (inheritNode != null) {
+        if (!(inheritNode instanceof Boolean b)) {
+          throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+              bindingPath + ".inheritOnCopy must be boolean");
+        }
+        inheritOnCopy = b;
+      }
+      bindings.add(new MaskingConfig.ColumnPolicyBinding(key, policyName, inheritOnCopy));
     }
     return bindings;
   }

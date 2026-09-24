@@ -33,7 +33,8 @@ public final class LegacyPolicyAdapter {
       policies.add(new Policy(
           binding.policyName(),
           true, 0, PolicyType.DATA_MASK,
-          List.of(PolicyResource.column(key.catalog(), key.schema(), key.table(), key.column())),
+          List.of(PolicyResource.column(key.catalog(), key.schema(), key.table(), key.column(),
+              binding.inheritOnCopy())),
           List.of(new DataMaskItem(everyone, policy.udf(), policy.arguments())),
           List.of()));
     }
