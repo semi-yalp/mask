@@ -85,6 +85,38 @@ public final class PolicyEngine {
     return List.copyOf(hits);
   }
 
+  /** 该列是否命中任一启用 dataMask 策略中声明了复制继承的资源(列级属性,不按 subject)。 */
+  public boolean maskInheritsOnCopy(String catalog, String schema, String table, String column) {
+    String c = PolicyNames.normalize(catalog, "catalog");
+    String s = PolicyNames.normalize(schema, "schema");
+    String t = PolicyNames.normalize(table, "table");
+    String col = PolicyNames.normalize(column, "column");
+    for (Policy policy : index.dataMasks()) {
+      for (PolicyResource resource : policy.resources()) {
+        if (resource.inheritOnCopy() && matches(resource, c, s, t, col)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** 该列命中的所有启用 dataMask 策略 items(决策顺序:优先级高者在前),用于复制继承注册。 */
+  public List<DataMaskItem> maskItemsFor(String catalog, String schema, String table,
+      String column) {
+    String c = PolicyNames.normalize(catalog, "catalog");
+    String s = PolicyNames.normalize(schema, "schema");
+    String t = PolicyNames.normalize(table, "table");
+    String col = PolicyNames.normalize(column, "column");
+    List<DataMaskItem> items = new ArrayList<>();
+    for (Policy policy : index.dataMasks()) {
+      if (policy.resources().stream().anyMatch(r -> matches(r, c, s, t, col))) {
+        items.addAll(policy.dataMaskItems());
+      }
+    }
+    return List.copyOf(items);
+  }
+
   private static boolean matches(PolicyResource r, String c, String s, String t, String column) {
     if (!levelMatches(r.catalog(), c) || !levelMatches(r.schema(), s)
         || !levelMatches(r.table(), t)) {

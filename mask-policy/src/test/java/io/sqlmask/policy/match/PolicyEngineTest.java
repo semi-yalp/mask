@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyEngineTest {
@@ -146,5 +147,34 @@ class PolicyEngineTest {
         .rowFiltersFor("crm", "public", "tmp_orders", ANON);
     assertEquals(1, hits.size());
     assertEquals("tenant = 1", hits.get(0).expr());
+  }
+
+  @Test
+  void maskInheritsOnCopyMatchesDeclaredColumnOnly() {
+    Policy inherited = new Policy("crm.phone", true, 0, PolicyType.DATA_MASK,
+        List.of(new PolicyResource("crm", "public", "customer", "phone", true)),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_phone", List.of())),
+        List.of());
+    Policy plain = new Policy("crm.name", true, 0, PolicyType.DATA_MASK,
+        List.of(new PolicyResource("crm", "public", "customer", "name", false)),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_name", List.of())),
+        List.of());
+    PolicyEngine engine = new PolicyEngine(PolicyIndex.of(List.of(inherited, plain)));
+    assertTrue(engine.maskInheritsOnCopy("crm", "public", "customer", "phone"));
+    assertFalse(engine.maskInheritsOnCopy("crm", "public", "customer", "name"));
+    assertFalse(engine.maskInheritsOnCopy("crm", "public", "other", "phone"));
+  }
+
+  @Test
+  void maskItemsForReturnsAllMatchingItemsInDecisionOrder() {
+    DataMaskItem item = new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_phone", List.of());
+    Policy inherited = new Policy("crm.phone", true, 0, PolicyType.DATA_MASK,
+        List.of(new PolicyResource("crm", "public", "customer", "phone", true)),
+        List.of(item), List.of());
+    PolicyEngine engine = new PolicyEngine(PolicyIndex.of(List.of(inherited)));
+    List<DataMaskItem> items = engine.maskItemsFor("crm", "public", "customer", "phone");
+    assertEquals(1, items.size());
+    assertEquals("mask_phone", items.get(0).udf());
+    assertTrue(engine.maskItemsFor("crm", "public", "customer", "name").isEmpty());
   }
 }
