@@ -129,6 +129,35 @@ class RewriteInheritTest {
   }
 
   @Test
+  void writeWithInheritedColumnsCarriesFullTargetTableStructure() {
+    // 混合复制(继承列 + 脱敏列)后目标表落库的列不止继承列:inheritedTables
+    // 必须携带验证后行类型的**全部**输出列,注册方才能如实登记目标表结构
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(1, st.inheritedTables().size());
+    InheritedTable table = st.inheritedTables().get(0);
+    assertEquals("crm", table.catalog());
+    assertEquals("public", table.schema());
+    assertEquals("customer_copy", table.table());
+    assertEquals(List.of(
+        new InheritedTable.ColumnInfo("phone", "varchar"),
+        new InheritedTable.ColumnInfo("name", "varchar")),
+        table.columns());
+  }
+
+  @Test
+  void readStatementsCarryNoInheritedTables() {
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "SELECT phone FROM crm.public.customer", "postgresql", Subject.anonymous());
+    assertTrue(results.get(0).inheritedTables().isEmpty(), "读语句不应有目标表结构");
+    assertTrue(results.get(0).inheritedColumns().isEmpty());
+  }
+
+  @Test
   void expressionColumnOverInheritedSourceIsRejected() {
     SqlMaskException e = assertThrows(SqlMaskException.class, () -> new RewriteEngine()
         .rewrite(METADATA, POLICY,

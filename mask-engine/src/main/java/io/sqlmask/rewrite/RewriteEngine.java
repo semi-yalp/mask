@@ -26,6 +26,7 @@ import io.sqlmask.rowfilter.RowFilterRegistry;
 import io.sqlmask.rowfilter.RowFilterRewriter;
 import io.sqlmask.sql.SqlStatementSplitter;
 import io.sqlmask.sql.ValidatedSql;
+import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlInsert;
@@ -36,8 +37,10 @@ import org.apache.calcite.sql.ddl.SqlColumnDeclaration;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -63,11 +66,16 @@ public final class RewriteEngine {
    * columns declared {@code inheritOnCopy}: the target column is written
    * clean (never wrapped) and each entry lets the caller register the
    * inherited policy on the target table; always empty for read statements
-   * and for writes with no inherited column.
+   * and for writes with no inherited column. {@code inheritedTables} carries
+   * the target tables' full output-column structure (from the validated row
+   * type) so the caller can register the complete target schema — a mixed
+   * copy (inherited + masked + unpoliced columns) lands more columns in the
+   * target table than the inherited entries alone; always empty for read
+   * statements and for writes with no inherited column.
    */
   public record StatementRewrite(int ordinal, String originalSql, String rewrittenSql,
       boolean masked, boolean rowFiltered, StatementKind kind,
-      List<InheritedColumn> inheritedColumns) {
+      List<InheritedColumn> inheritedColumns, List<InheritedTable> inheritedTables) {
 
     /** Convenience constructor for statements without a row filter. */
     public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked) {
@@ -83,7 +91,16 @@ public final class RewriteEngine {
     /** Convenience constructor: statements with no inherited columns. */
     public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked,
         boolean rowFiltered, StatementKind kind) {
-      this(ordinal, originalSql, rewrittenSql, masked, rowFiltered, kind, List.of());
+      this(ordinal, originalSql, rewrittenSql, masked, rowFiltered, kind, List.of(), List.of());
+    }
+
+    /** Convenience constructor: write statements with inherited columns but
+     * no separately declared target-table structures (callers fall back to
+     * the inherited columns for structure registration). */
+    public StatementRewrite(int ordinal, String originalSql, String rewrittenSql, boolean masked,
+        boolean rowFiltered, StatementKind kind, List<InheritedColumn> inheritedColumns) {
+      this(ordinal, originalSql, rewrittenSql, masked, rowFiltered, kind, inheritedColumns,
+          List.of());
     }
 
     /** Serialized into API responses; the web UI keys the original-SQL view off it. */
@@ -288,7 +305,8 @@ public final class RewriteEngine {
         rewritten = statementText;
       }
       return new StatementRewrite(ordinal, statementText, rewritten, plan.requiresWrapper(),
-          filtered.injections() > 0, writeKind, inherited);
+          filtered.injections() > 0, writeKind, inherited,
+          inheritedTablesOf(validated, inherited));
     }
 
     // read statement: snapshot the statement as written before the row
@@ -311,6 +329,35 @@ public final class RewriteEngine {
         .map(s -> s.rewrittenSql() + ";")
         .reduce((a, b) -> a + "\n\n" + b)
         .orElse("");
+  }
+
+  /**
+   * 目标表完整输出列结构:按继承条目的目标三元组分表,每表填验证后行类型的
+   * **全部**输出列(列名 + 方言类型声明)——混合复制(继承列 + 脱敏列 + 无策略
+   * 列)时目标表落库的列不止继承列,注册方需要完整结构才能如实登记目标表。
+   * precision/scale 未指定(Calcite 的负数哨兵值)时传 null,{@code typeDeclaration}
+   * 输出不带括号的类型名。
+   */
+  private static List<InheritedTable> inheritedTablesOf(ValidatedSql validated,
+      List<InheritedColumn> inherited) {
+    List<InheritedTable.ColumnInfo> columns = validated.rowType().getFieldList().stream()
+        .map(field -> {
+          RelDataType type = field.getType();
+          Integer precision = type.getPrecision() >= 0 ? type.getPrecision() : null;
+          Integer scale = type.getScale() >= 0 ? type.getScale() : null;
+          return new InheritedTable.ColumnInfo(field.getName(),
+              new TableMetadata.Column(field.getName(), type.getSqlTypeName(),
+                  precision, scale).typeDeclaration());
+        })
+        .toList();
+    Map<String, InheritedTable> byTable = new LinkedHashMap<>();
+    for (InheritedColumn column : inherited) {
+      byTable.putIfAbsent(column.targetCatalog() + "." + column.targetSchema() + "."
+              + column.targetTable(),
+          new InheritedTable(column.targetCatalog(), column.targetSchema(),
+              column.targetTable(), columns));
+    }
+    return List.copyOf(byTable.values());
   }
 
   private DialectAdapter createDialect(String name) {
