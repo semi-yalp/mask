@@ -39,7 +39,9 @@ public class MetadataDataController {
     MetaStore.InstanceSnapshot snapshot = instances.snapshot(name);
     InstanceRow row = snapshot.instance();
     return new MetadataDtos.MetadataResponse(row.name(), row.dialect(), row.metadataVersion(),
-        snapshot.tables().stream().map(MetadataDataController::toPayload).toList());
+        snapshot.tables().stream().map(MetadataDataController::toPayload).toList(),
+        new MetadataDtos.GatewayOptionsResponse(row.submitter(), row.onRewriteFailure(),
+            row.topN(), row.insertOverwrite()));
   }
 
   @GetMapping("/instances/{name}/version")

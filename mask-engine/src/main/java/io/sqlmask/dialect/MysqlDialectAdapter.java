@@ -29,6 +29,11 @@ public final class MysqlDialectAdapter extends AbstractCalciteDialectAdapter {
   public static final String NAME = "mysql";
 
   public MysqlDialectAdapter() {
+    this(DialectFeatures.DEFAULTS);
+  }
+
+  /** Features override the dialect-default syntax extensions (topN, insertOverwrite). */
+  public MysqlDialectAdapter(DialectFeatures features) {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -37,7 +42,8 @@ public final class MysqlDialectAdapter extends AbstractCalciteDialectAdapter {
             .withUnquotedCasing(Casing.UNCHANGED)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(false)
-            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.MYSQL_5, false, false)),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.MYSQL_5,
+                features.topNOrDefault(false), features.insertOverwriteOrDefault(false))),
         SqlConformanceEnum.MYSQL_5,
         false,
         MysqlFunctions.TABLE,

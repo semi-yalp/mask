@@ -13,11 +13,11 @@ import java.util.Base64;
 
 /** Normalizes JDBC values into JSON-safe objects (driver date/time classes
  * would otherwise serialize as arrays or epoch numbers). */
-final class ValueJson {
+public final class ValueJson {
 
   private ValueJson() {}
 
-  static Object toSerializable(Object value) {
+public static Object toSerializable(Object value) {
     if (value == null || value instanceof String || value instanceof Boolean
         || value instanceof BigDecimal) {
       return value;

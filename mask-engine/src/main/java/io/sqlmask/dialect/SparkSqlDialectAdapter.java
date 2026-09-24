@@ -26,6 +26,11 @@ public final class SparkSqlDialectAdapter extends AbstractCalciteDialectAdapter 
   public static final String NAME = "sparksql";
 
   public SparkSqlDialectAdapter() {
+    this(DialectFeatures.DEFAULTS);
+  }
+
+  /** Features override the dialect-default syntax extensions (topN, insertOverwrite). */
+  public SparkSqlDialectAdapter(DialectFeatures features) {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -34,7 +39,8 @@ public final class SparkSqlDialectAdapter extends AbstractCalciteDialectAdapter 
             .withUnquotedCasing(Casing.TO_LOWER)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(false)
-            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.LENIENT, false, true)),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.LENIENT,
+                features.topNOrDefault(false), features.insertOverwriteOrDefault(true))),
         SqlConformanceEnum.LENIENT,
         false,
         MysqlFunctions.TABLE,

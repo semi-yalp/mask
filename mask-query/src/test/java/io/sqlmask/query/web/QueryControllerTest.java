@@ -63,7 +63,11 @@ class QueryControllerTest {
       org.mockito.Mockito.when(resultSet.getObject(1)).thenReturn("138****0001");
       return new io.sqlmask.query.service.QueryService(directory, rewrites,
           new io.sqlmask.query.config.QueryProperties(null, null, null, null, null),
-          (engine, c, password) -> connection, ref -> "pw");
+          new io.sqlmask.query.submit.SubmitterRegistry(java.util.List.of(
+              new io.sqlmask.query.submit.JdbcQuerySubmitter(
+                  (engine, c, password) -> connection, ref -> "pw",
+                  new io.sqlmask.query.config.QueryProperties(null, null, null, null, null)))),
+          null);
     }
   }
 

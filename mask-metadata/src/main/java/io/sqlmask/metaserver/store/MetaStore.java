@@ -24,6 +24,12 @@ public interface MetaStore {
   /** Updates the mutable connection group; bumps metadata_version in the same transaction. */
   void updateInstance(String name, ConnectionInfo connection);
 
+  /** Updates the query-gateway options (submitter, rewrite posture, syntax
+   * overrides) without touching the structure or the connection. */
+  default void updateGatewayOptions(String name, InstanceRow updated) {
+    throw new UnsupportedOperationException("gateway options not supported by this store");
+  }
+
   void deleteInstance(String name);
 
   /** Replaces the whole table structure; bumps metadata_version in the same transaction. */

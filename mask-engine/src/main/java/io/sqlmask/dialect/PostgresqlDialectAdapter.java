@@ -26,6 +26,11 @@ public final class PostgresqlDialectAdapter extends AbstractCalciteDialectAdapte
   public static final String NAME = "postgresql";
 
   public PostgresqlDialectAdapter() {
+    this(DialectFeatures.DEFAULTS);
+  }
+
+  /** Features override the dialect-default syntax extensions (topN, insertOverwrite). */
+  public PostgresqlDialectAdapter(DialectFeatures features) {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -34,7 +39,8 @@ public final class PostgresqlDialectAdapter extends AbstractCalciteDialectAdapte
             .withUnquotedCasing(Casing.TO_LOWER)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(true)
-            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.DEFAULT, false, false)),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.DEFAULT,
+                features.topNOrDefault(false), features.insertOverwriteOrDefault(false))),
         SqlConformanceEnum.DEFAULT,
         true,
         PostgresqlFunctions.TABLE,

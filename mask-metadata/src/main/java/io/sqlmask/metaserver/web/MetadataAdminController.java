@@ -64,7 +64,8 @@ public class MetadataAdminController {
         () -> Map.of("dialect", request.dialect()),
         () -> {
           InstanceRow row = instances.create(request.name(), request.dialect(), request.engine(),
-              ofNullable(request.connection()));
+              ofNullable(request.connection()), request.submitter(), request.onRewriteFailure(),
+              request.topN(), request.insertOverwrite());
           return detail(row);
         });
   }
@@ -94,13 +95,23 @@ public class MetadataAdminController {
     return audit.adminChange(httpRequest, "UPDATE", "INSTANCE", null, name, Map::of,
         () -> {
           ConnectionInfo connection = connectionOrNull(request);
-          if (connection == null) {
-            // absent/empty connection body must not wipe the stored one: a
-            // PUT with no connection group is a no-op, not a clear
-            return detail(instances.get(name));
+          if (connection != null) {
+            instances.updateConnection(name, connection);
           }
-          return detail(instances.updateConnection(name, connection));
+          if (request != null && carriesGatewayOptions(request)) {
+            // a body without option fields keeps the stored ones (same no-op
+            // discipline as the connection group above)
+            instances.updateGatewayOptions(name,
+                request.submitter(), request.onRewriteFailure(),
+                request.topN(), request.insertOverwrite());
+          }
+          return detail(instances.get(name));
         });
+  }
+
+  private static boolean carriesGatewayOptions(MetadataDtos.InstanceUpdateRequest request) {
+    return request.submitter() != null || request.onRewriteFailure() != null
+        || request.topN() != null || request.insertOverwrite() != null;
   }
 
   @DeleteMapping("/{name}")
@@ -179,6 +190,8 @@ public class MetadataAdminController {
   private MetadataDtos.InstanceDetailResponse detail(InstanceRow row) {
     return new MetadataDtos.InstanceDetailResponse(row.name(), row.dialect(),
         row.effectiveEngine(), row.metadataVersion(), row.connection(),
-        structures.load(row.name()));
+        structures.load(row.name()),
+        new MetadataDtos.GatewayOptionsResponse(row.submitter(), row.onRewriteFailure(),
+            row.topN(), row.insertOverwrite()));
   }
 }

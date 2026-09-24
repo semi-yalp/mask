@@ -43,7 +43,11 @@ public class JdbcMetaStore implements MetaStore {
           rs.getString("dialect"),
           rs.getString("engine"),
           connectionOf(rs),
-          rs.getLong("metadata_version"));
+          rs.getLong("metadata_version"),
+          rs.getString("submitter"),
+          rs.getString("on_rewrite_failure"),
+          (Boolean) rs.getObject("top_n"),
+          (Boolean) rs.getObject("insert_overwrite"));
 
   private static ConnectionInfo connectionOf(ResultSet rs) throws SQLException {
     String host = rs.getString("host");
@@ -71,15 +75,17 @@ public class JdbcMetaStore implements MetaStore {
       jdbc.update("""
           INSERT INTO meta_instance (name, dialect, engine, host, port, database, db_user,
                                      password_ref, sslmode, connect_timeout_seconds, schemas,
-                                     include_views)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     include_views, submitter, on_rewrite_failure, top_n,
+                                     insert_overwrite)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           row.name(), row.dialect(), row.engine(),
           c == null ? null : c.host(), c == null ? null : c.port(),
           c == null ? null : c.database(), c == null ? null : c.dbUser(),
           c == null ? null : c.passwordRef(), c == null ? null : c.sslmode(),
           c == null ? null : c.connectTimeoutSeconds(),
-          c == null ? null : toJson(c.schemas()), c != null && c.includeViews());
+          c == null ? null : toJson(c.schemas()), c != null && c.includeViews(),
+          row.submitter(), row.onRewriteFailure(), row.topN(), row.insertOverwrite());
     } catch (org.springframework.dao.DuplicateKeyException e) {
       // concurrent create lost the race against the unique key: a 409, not a 500 (M10)
       throw new io.sqlmask.error.SqlMaskException(
@@ -92,7 +98,7 @@ public class JdbcMetaStore implements MetaStore {
   public Optional<InstanceRow> findInstance(String name) {
     List<InstanceRow> rows = jdbc.query(
         "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
-            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version "
+            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version, submitter, on_rewrite_failure, top_n, insert_overwrite "
             + "FROM meta_instance WHERE name = ?", INSTANCE_ROW, name);
     return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
   }
@@ -101,7 +107,7 @@ public class JdbcMetaStore implements MetaStore {
   public List<InstanceRow> listInstances() {
     return jdbc.query(
         "SELECT name, dialect, engine, host, port, database, db_user, password_ref, sslmode, "
-            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version "
+            + "connect_timeout_seconds, schemas AS schemas, include_views, metadata_version, submitter, on_rewrite_failure, top_n, insert_overwrite "
             + "FROM meta_instance ORDER BY name", INSTANCE_ROW);
   }
 
@@ -121,6 +127,17 @@ public class JdbcMetaStore implements MetaStore {
           c == null ? null : toJson(c.schemas()), c != null && c.includeViews(), name);
       return null;
     });
+  }
+
+  @Override
+  public void updateGatewayOptions(String name, InstanceRow updated) {
+    jdbc.update("""
+        UPDATE meta_instance SET submitter = ?, on_rewrite_failure = ?, top_n = ?,
+                 insert_overwrite = ?, updated_at = now()
+        WHERE name = ?
+        """,
+        updated.submitter(), updated.onRewriteFailure(), updated.topN(),
+        updated.insertOverwrite(), name);
   }
 
   @Override

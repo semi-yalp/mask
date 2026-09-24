@@ -36,7 +36,8 @@ public class QueryGatewayConfig {
           c.host(), c.port(), c.database(), c.dbUser(), c.passwordRef(),
           c.sslmode(), c.connectTimeoutSeconds());
       return new InstanceView(row.name(), row.effectiveEngine(), row.dialect(),
-          row.metadataVersion(), connection);
+          row.metadataVersion(), connection,
+          row.submitter(), row.onRewriteFailure(), row.topN(), row.insertOverwrite());
     };
   }
 

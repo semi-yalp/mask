@@ -74,6 +74,7 @@ public final class MetadataServiceClient {
     try {
       JsonNode node = JSON.readTree(response.body());
       JsonNode connection = node.get("connection");
+      JsonNode gateway = node.path("gatewayOptions");
       return new InstanceView(
           node.path("name").asText(instance),
           effectiveEngine(node.path("engine").isMissingNode() ? null : textOrNull(node.get("engine")),
@@ -87,7 +88,11 @@ public final class MetadataServiceClient {
               connection.path("dbUser").asText(),
               connection.path("passwordRef").asText(),
               connection.path("sslmode").asText("disable"),
-              connection.path("connectTimeoutSeconds").asInt(10)));
+              connection.path("connectTimeoutSeconds").asInt(10)),
+          gateway.hasNonNull("submitter") ? gateway.get("submitter").asText() : null,
+          gateway.hasNonNull("onRewriteFailure") ? gateway.get("onRewriteFailure").asText() : null,
+          gateway.hasNonNull("topN") ? gateway.get("topN").asBoolean() : null,
+          gateway.hasNonNull("insertOverwrite") ? gateway.get("insertOverwrite").asBoolean() : null);
     } catch (IOException e) {
       throw new QueryException("METADATA_SERVICE_UNAVAILABLE",
           "metadata service returned an unreadable instance payload", e);
@@ -112,7 +117,24 @@ public final class MetadataServiceClient {
   }
 
   public record InstanceView(String name, String engine, String dialect, long metadataVersion,
-      ConnectionView connection) {}
+      ConnectionView connection, String submitter, String onRewriteFailure,
+      Boolean topN, Boolean insertOverwrite) {
+
+    public InstanceView(String name, String engine, String dialect, long metadataVersion,
+        ConnectionView connection) {
+      this(name, engine, dialect, metadataVersion, connection, null, null, null, null);
+    }
+
+    /** "jdbc" unless the instance explicitly chose another registered type. */
+    public String effectiveSubmitter() {
+      return submitter == null || submitter.isBlank() ? "jdbc" : submitter;
+    }
+
+    /** REJECT (fail-closed) unless PASSTHROUGH was explicitly configured. */
+    public boolean passthroughOnRewriteFailure() {
+      return "PASSTHROUGH".equalsIgnoreCase(onRewriteFailure);
+    }
+  }
 
   public record ConnectionView(String host, int port, String database, String dbUser,
       String passwordRef, String sslmode, int connectTimeoutSeconds) {}

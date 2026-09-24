@@ -26,6 +26,11 @@ public final class HiveDialectAdapter extends AbstractCalciteDialectAdapter {
   public static final String NAME = "hive";
 
   public HiveDialectAdapter() {
+    this(DialectFeatures.DEFAULTS);
+  }
+
+  /** Features override the dialect-default syntax extensions (topN, insertOverwrite). */
+  public HiveDialectAdapter(DialectFeatures features) {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -34,7 +39,8 @@ public final class HiveDialectAdapter extends AbstractCalciteDialectAdapter {
             .withUnquotedCasing(Casing.TO_LOWER)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(false)
-            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.LENIENT, false, true)),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.LENIENT,
+                features.topNOrDefault(false), features.insertOverwriteOrDefault(true))),
         SqlConformanceEnum.LENIENT,
         false,
         MysqlFunctions.TABLE,

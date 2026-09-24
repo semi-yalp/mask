@@ -20,16 +20,37 @@ public class MetadataService {
   }
 
   public InstanceRow create(String name, String dialect, String engine, ConnectionInfo connection) {
+    return create(name, dialect, engine, connection, null, null, null, null);
+  }
+
+  /** Full create with the query-gateway options (submitter, rewrite-failure
+   * posture, syntax-extension overrides). */
+  public InstanceRow create(String name, String dialect, String engine, ConnectionInfo connection,
+      String submitter, String onRewriteFailure, Boolean topN, Boolean insertOverwrite) {
     String trimmed = requireName(name);
     String normalizedDialect = normalizeDialect(dialect);
     String normalizedEngine = normalizeEngine(engine, normalizedDialect);
+    InstanceRow row = new InstanceRow(trimmed, normalizedDialect, normalizedEngine, connection, 1,
+        submitter, onRewriteFailure, topN, insertOverwrite);
+    row.validateGatewayOptions();
     if (store.findInstance(trimmed).isPresent()) {
       throw new SqlMaskException(SqlMaskException.Code.METADATA_INSTANCE_EXISTS,
           "instance '" + trimmed + "' already exists");
     }
-    store.createInstance(
-        new InstanceRow(trimmed, normalizedDialect, normalizedEngine, connection, 1));
+    store.createInstance(row);
     return store.findInstance(trimmed).orElseThrow();
+  }
+
+  /** Updates the query-gateway options of an existing instance. */
+  public InstanceRow updateGatewayOptions(String name, String submitter, String onRewriteFailure,
+      Boolean topN, Boolean insertOverwrite) {
+    InstanceRow current = get(name);
+    InstanceRow updated = new InstanceRow(current.name(), current.dialect(), current.engine(),
+        current.connection(), current.metadataVersion(),
+        submitter, onRewriteFailure, topN, insertOverwrite);
+    updated.validateGatewayOptions();
+    store.updateGatewayOptions(name, updated);
+    return get(name);
   }
 
   public InstanceRow get(String name) {

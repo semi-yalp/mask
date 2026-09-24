@@ -27,6 +27,11 @@ public final class TrinoDialectAdapter extends AbstractCalciteDialectAdapter {
   public static final String NAME = "trino";
 
   public TrinoDialectAdapter() {
+    this(DialectFeatures.DEFAULTS);
+  }
+
+  /** Features override the dialect-default syntax extensions (topN, insertOverwrite). */
+  public TrinoDialectAdapter(DialectFeatures features) {
     super(new DialectProfile(
         NAME,
         SqlParser.config()
@@ -35,7 +40,8 @@ public final class TrinoDialectAdapter extends AbstractCalciteDialectAdapter {
             .withUnquotedCasing(Casing.TO_LOWER)
             .withQuotedCasing(Casing.UNCHANGED)
             .withCaseSensitive(true)
-            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.DEFAULT, false, false)),
+            .withConformance(SqlMaskConformance.of(SqlConformanceEnum.DEFAULT,
+                features.topNOrDefault(false), features.insertOverwriteOrDefault(false))),
         SqlConformanceEnum.DEFAULT,
         true,
         org.apache.calcite.sql.fun.SqlStdOperatorTable.instance(),

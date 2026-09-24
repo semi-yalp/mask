@@ -17,10 +17,12 @@ public final class MetadataDtos {
   }
 
   public record InstanceCreateRequest(String name, String dialect, String engine,
-      ConnectionRequest connection) {
+      ConnectionRequest connection, String submitter, String onRewriteFailure, Boolean topN,
+      Boolean insertOverwrite) {
   }
 
-  public record InstanceUpdateRequest(ConnectionRequest connection) {
+  public record InstanceUpdateRequest(ConnectionRequest connection, String submitter,
+      String onRewriteFailure, Boolean topN, Boolean insertOverwrite) {
   }
 
   public record InstanceImportRequest(String name, String dialect, ConnectionRequest connection,
@@ -32,7 +34,15 @@ public final class MetadataDtos {
   }
 
   public record InstanceDetailResponse(String name, String dialect, String engine,
-      long metadataVersion, ConnectionInfo connection, List<TableStructure> tables) {
+      long metadataVersion, ConnectionInfo connection, List<TableStructure> tables,
+      GatewayOptionsResponse gatewayOptions) {
+  }
+
+  /** Query-gateway posture of an instance: how queries are submitted, what
+   * happens when the rewrite fails, and which dialect syntax extensions are
+   * force-enabled/disabled. */
+  public record GatewayOptionsResponse(String submitter, String onRewriteFailure, Boolean topN,
+      Boolean insertOverwrite) {
   }
 
   public record ImportResponse(String name, int tableCount, int columnCount,
@@ -44,7 +54,7 @@ public final class MetadataDtos {
   }
 
   public record MetadataResponse(String instance, String dialect, long metadataVersion,
-      List<TablePayload> tables) {
+      List<TablePayload> tables, GatewayOptionsResponse gatewayOptions) {
   }
 
   public record TablePayload(String catalog, String schema, String name,

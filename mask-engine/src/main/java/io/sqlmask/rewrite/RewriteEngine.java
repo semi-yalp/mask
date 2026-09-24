@@ -108,6 +108,40 @@ public final class RewriteEngine {
   }
 
   /**
+   * Rewrites with per-instance syntax-extension overrides (TOP n, INSERT
+   * OVERWRITE); {@code null} features keep the dialect defaults.
+   */
+  public List<StatementRewrite> rewrite(LoadedConfig loaded, String sqlText, String dialectName,
+      io.sqlmask.dialect.DialectFeatures features) {
+    List<Policy> policies = buildPolicies(loaded, null);
+    PolicyEngine engine = new PolicyEngine(PolicyIndex.of(policies));
+    SchemaPlus schema = YamlCalciteSchemaFactory.create(loaded);
+    DialectAdapter dialect = createDialect(dialectName, features);
+    RowFilterRegistry rowFilters = RowFilterRegistry.build(loaded, dialect, schema);
+    RowFilterRewriter rowFilterRewriter = new RowFilterRewriter(dialect);
+    LineageAnalyzer analyzer = new LineageAnalyzer();
+    MaskSelector selector = new PdpMaskSelector(engine, Subject.anonymous());
+    SqlRewriteService rewriteService = new SqlRewriteService();
+
+    List<String> statements = new SqlStatementSplitter().split(sqlText == null ? "" : sqlText);
+    List<StatementRewrite> results = new ArrayList<>();
+    int ordinal = 0;
+    for (String statement : statements) {
+      ordinal++;
+      try {
+        results.add(rewriteOne(dialect, analyzer, selector, rewriteService, schema,
+            loaded, rowFilters, rowFilterRewriter, statement, ordinal));
+      } catch (SqlMaskException e) {
+        String message = e.getMessage() != null && e.getMessage().startsWith("statement ")
+            ? e.getMessage()
+            : "statement " + ordinal + ": " + e.getMessage();
+        throw new SqlMaskException(e.getCode(), message, e);
+      }
+    }
+    return results;
+  }
+
+  /**
    * Rewrites against a resolved configuration with an optional Ranger-style
    * policy file and query subject. A blank {@code policyYaml} means the
    * configuration's own legacy policy sections are the single policy source
@@ -263,5 +297,9 @@ public final class RewriteEngine {
 
   private DialectAdapter createDialect(String name) {
     return DialectRegistry.create(name);
+  }
+
+  private DialectAdapter createDialect(String name, io.sqlmask.dialect.DialectFeatures features) {
+    return features == null ? DialectRegistry.create(name) : DialectRegistry.create(name, features);
   }
 }

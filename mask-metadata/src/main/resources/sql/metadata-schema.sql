@@ -51,3 +51,9 @@ CREATE TABLE IF NOT EXISTS meta_classification (
 
 -- 存量库补列：spring.sql.init mode=always 每次启动执行；新库上无效果（幂等）
 ALTER TABLE meta_table ADD COLUMN IF NOT EXISTS kind VARCHAR(32) NOT NULL DEFAULT 'table';
+
+-- 查询网关选项（submitter / 放行姿态 / 方言能力覆盖）：存量库幂等补列
+ALTER TABLE meta_instance ADD COLUMN IF NOT EXISTS submitter VARCHAR(16) NOT NULL DEFAULT 'jdbc';
+ALTER TABLE meta_instance ADD COLUMN IF NOT EXISTS on_rewrite_failure VARCHAR(16) NOT NULL DEFAULT 'REJECT';
+ALTER TABLE meta_instance ADD COLUMN IF NOT EXISTS top_n BOOLEAN;
+ALTER TABLE meta_instance ADD COLUMN IF NOT EXISTS insert_overwrite BOOLEAN;

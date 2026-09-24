@@ -15,11 +15,11 @@ import java.util.Locale;
  * message stays server-side — QueryService logs it (with instance and engine)
  * and the audit trail records it.
  */
-final class ErrorClassifier {
+public final class ErrorClassifier {
 
   private ErrorClassifier() {}
 
-  static QueryException classify(SQLException e) {
+public static QueryException classify(SQLException e) {
     String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
     boolean timeout = "57014".equals(e.getSQLState())
         || message.contains("statement timeout")
