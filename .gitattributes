@@ -1,2 +1,4 @@
-mask-core/src/test/resources/golden/*.sql text eol=lf
-mask-core/src/test/resources/golden/*.yaml text eol=lf
+mask-engine/src/test/resources/golden/*.sql text eol=lf
+mask-engine/src/test/resources/golden/*.yaml text eol=lf
+# byte-exact golden fixtures compared against LF generator output
+mask-engine/src/test/resources/golden/*.yaml text eol=lf

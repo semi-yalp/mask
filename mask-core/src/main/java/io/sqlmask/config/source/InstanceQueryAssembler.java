@@ -5,7 +5,7 @@ import io.sqlmask.config.MaskingConfig;
 import io.sqlmask.dialect.DialectProfiles;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.TableMetadata;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

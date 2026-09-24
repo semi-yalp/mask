@@ -2,7 +2,7 @@ package io.sqlmask.policyserver.web;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.sqlmask.audit.AuditRecorder;
-import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.PolicyService;

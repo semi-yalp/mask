@@ -1,0 +1,28 @@
+# sql-mask 本地 LDAP 演示目录（OpenLDAP）
+#
+# 起一个带示例用户/组的 OpenLDAP，供控制台登录联调：
+#   amy / amy-secret     → mask-admins   → ADMIN
+#   bob / bob-secret     → mask-auditors → AUDITOR
+#   carol / carol-secret → mask-users    → USER
+#
+# 用法：docker compose -f docker/auth/docker-compose.auth.yml up -d
+# 然后给四个服务与前端同注入下述 MASK_AUTH_* 环境变量（完整清单见
+# README「LDAP 用户认证」章节）。
+#
+# 端口映射 3890:389，避免与本机已运行的 slapd 冲突。
+
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: mask-demo-openldap
+    environment:
+      LDAP_ORGANISATION: "sql-mask demo"
+      LDAP_DOMAIN: "example.org"
+      LDAP_ADMIN_PASSWORD: "admin-secret"
+    ports:
+      - "3890:389"
+      - "6360:636"
+    volumes:
+      # 首次启动时由镜像自动导入（默认 schema 下无需 memberOf overlay：
+      # 服务端用组检索模式解析成员）
+      - ./bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/50-mask-bootstrap.ldif:ro

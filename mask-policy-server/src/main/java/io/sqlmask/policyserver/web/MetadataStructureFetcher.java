@@ -1,6 +1,6 @@
 package io.sqlmask.policyserver.web;
 
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 
 /**
  * Thin seam over {@link MetadataClient} so import flows (and their tests) don't

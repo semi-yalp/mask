@@ -14,12 +14,16 @@
   <modules>
     <module>mask-build-tools</module>
     <module>mask-sqlparser</module>
-    <module>mask-core</module>
-    <module>mask-audit</module>
-    <module>mask-query</module>
     <module>mask-policy</module>
+    <module>mask-engine</module>
+    <module>mask-audit</module>
+    <module>mask-common</module>
+    <module>mask-core</module>
+    <module>mask-query</module>
     <module>mask-metadata</module>
     <module>mask-policy-server</module>
+    <module>mask-auth</module>
+    <module>mask-risk-server</module>
   </modules>
 
   <properties>
@@ -29,12 +33,14 @@
     <calcite.version>1.42.0</calcite.version>
     <snakeyaml.version>2.2</snakeyaml.version>
     <picocli.version>4.7.7</picocli.version>
+    <unboundid.ldapsdk.version>7.0.2</unboundid.ldapsdk.version>
     <junit.version>5.10.2</junit.version>
     <spring-boot.version>3.3.5</spring-boot.version>
 
     <surefire.version>3.2.5</surefire.version>
     <jar.plugin.version>3.3.0</jar.plugin.version>
     <shade.version>3.5.1</shade.version>
+    <enforcer.version>3.4.1</enforcer.version>
   </properties>
 
   <dependencyManagement>
@@ -48,4 +54,25 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${enforcer.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-java</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion><version>[17,)</version></requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

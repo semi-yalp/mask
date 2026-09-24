@@ -4,11 +4,11 @@ import io.sqlmask.audit.AuditEvent;
 import io.sqlmask.audit.AuditEvents;
 import io.sqlmask.audit.AuditProperties;
 import io.sqlmask.audit.AuditRecorder;
-import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.policy.model.Subject;
 import io.sqlmask.policyserver.PolicyService;
-import io.sqlmask.server.EffectiveMetrics;
+import io.sqlmask.common.metrics.EffectiveMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,11 +46,16 @@ public class EffectiveConfigController {
       @RequestParam(value = "user", required = false) String user,
       @RequestParam(value = "groups", required = false) List<String> groups,
       HttpServletRequest httpRequest) {
+    // a verified console identity wins over caller-asserted subject parameters:
+    // policies must compile for who actually asked, not for who the caller claims
+    io.sqlmask.auth.AuthPrincipal principal = io.sqlmask.auth.AuthTokens.principal(httpRequest);
+    String subjectUser = principal != null ? principal.username() : user;
+    List<String> subjectGroups = principal != null ? principal.groups() : groups;
     long start = System.nanoTime();
     try {
-      EffectiveConfigResponse response = service.effective(instance, Subject.of(user, groups));
+      EffectiveConfigResponse response = service.effective(instance, Subject.of(subjectUser, subjectGroups));
       metrics.success(instance, response, start);
-      record(httpRequest, instance, user, groups, start, AuditEvent.SUCCESS, null, null);
+      record(httpRequest, instance, subjectUser, subjectGroups, start, AuditEvent.SUCCESS, null, null);
       return response;
     } catch (RuntimeException e) {
       if (e instanceof SqlMaskException sme
@@ -59,7 +64,7 @@ public class EffectiveConfigController {
       } else {
         metrics.failure(instance, start);
       }
-      record(httpRequest, instance, user, groups, start, AuditEvent.FAILURE,
+      record(httpRequest, instance, subjectUser, subjectGroups, start, AuditEvent.FAILURE,
           e instanceof SqlMaskException sme ? sme.getCode().name() : e.getClass().getSimpleName(),
           e.getMessage());
       throw e;

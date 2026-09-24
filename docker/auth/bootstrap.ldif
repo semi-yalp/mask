@@ -1,0 +1,47 @@
+# sql-mask 控制台登录演示数据（配合 docker/auth/docker-compose.auth.yml）
+# 基础域 dc=example,dc=org 由 osixia 镜像按 LDAP_DOMAIN 自动创建，
+# 这里只补组织单元、三个演示用户和三个角色组。
+
+dn: ou=people,dc=example,dc=org
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=amy,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+uid: amy
+cn: Amy Admin
+sn: Admin
+userPassword: amy-secret
+
+dn: uid=bob,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Auditor
+sn: Auditor
+userPassword: bob-secret
+
+dn: uid=carol,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol User
+sn: User
+userPassword: carol-secret
+
+dn: cn=mask-admins,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: mask-admins
+member: uid=amy,ou=people,dc=example,dc=org
+
+dn: cn=mask-auditors,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: mask-auditors
+member: uid=bob,ou=people,dc=example,dc=org
+
+dn: cn=mask-users,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: mask-users
+member: uid=carol,ou=people,dc=example,dc=org

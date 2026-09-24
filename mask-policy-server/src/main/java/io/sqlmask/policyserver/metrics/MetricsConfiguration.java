@@ -1,7 +1,7 @@
 package io.sqlmask.policyserver.metrics;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.sqlmask.server.EffectiveMetrics;
+import io.sqlmask.common.metrics.EffectiveMetrics;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

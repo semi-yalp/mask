@@ -1,4 +1,6 @@
 package io.sqlmask.server;
+import io.sqlmask.common.metrics.EffectiveMetrics;
+import io.sqlmask.common.metrics.RewriteMetrics;
 
 import io.sqlmask.config.source.PolicyServiceConfigSource;
 import org.slf4j.Logger;

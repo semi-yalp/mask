@@ -44,3 +44,7 @@ tpcds/out/
 
 # TPC-DS bench: regenerable raw outputs (summarize into results/*.tsv instead)
 bench/tpcds-mask-lite/results/raw/
+.tools/
+
+# risk-server 本地持久化(demo 快照)
+/data/

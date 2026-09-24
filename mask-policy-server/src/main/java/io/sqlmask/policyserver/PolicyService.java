@@ -1,6 +1,6 @@
 package io.sqlmask.policyserver;
 
-import io.sqlmask.config.source.EffectiveConfigResponse;
+import io.sqlmask.common.effective.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
 import io.sqlmask.policy.model.Subject;

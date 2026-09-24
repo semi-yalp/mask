@@ -1,7 +1,7 @@
 package io.sqlmask.config.source;
 
 import io.sqlmask.config.LoadedConfig;
-import io.sqlmask.metadataclient.MetadataClient;
+import io.sqlmask.common.metadata.MetadataClient;
 import io.sqlmask.error.SqlMaskException;
 import org.junit.jupiter.api.Test;
 

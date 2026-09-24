@@ -1,0 +1,32 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: mask-risk
+
+risk:
+  api-key: ${RISK_API_KEY:}
+  alerting:
+    min-severity: ${RISK_ALERT_MIN_SEVERITY:MEDIUM}
+    cooldown-minutes: ${RISK_ALERT_COOLDOWN_MINUTES:15}
+  notify:
+    webhook-url: ${RISK_NOTIFY_WEBHOOK_URL:}
+    min-severity: ${RISK_NOTIFY_MIN_SEVERITY:HIGH}
+  block:
+    base-url: ${RISK_BLOCK_POLICY_BASE_URL:http://127.0.0.1:8081}
+    api-key: ${RISK_BLOCK_POLICY_API_KEY:local-admin-key}
+    default-instance: ${RISK_BLOCK_INSTANCE:crm}
+    state-path: ${RISK_BLOCK_STATE_PATH:data/risk-blocks.json}
+  ueba:
+    refresh-seconds: ${RISK_UEBA_REFRESH_SECONDS:300}
+  store:
+    max-events: ${RISK_MAX_EVENTS:50000}
+    persistence-path: ${RISK_STORE_PATH:data/risk-store.json}
+    max-persisted-events: ${RISK_MAX_PERSISTED_EVENTS:10000}
+  demo:
+    seed-on-start: ${RISK_DEMO_SEED:true}
+
+logging:
+  level:
+    io.sqlmask.riskserver: INFO

@@ -3,7 +3,7 @@ package io.sqlmask.policyserver.metrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import io.sqlmask.server.RewriteMetrics;
+import io.sqlmask.common.metrics.RewriteMetrics;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
