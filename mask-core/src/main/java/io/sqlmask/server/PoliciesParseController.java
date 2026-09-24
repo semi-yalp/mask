@@ -12,19 +12,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
-<<<<<<< HEAD
-<<<<<<<< HEAD:mask-core/src/main/java/io/sqlmask/server/PolicyController.java
- * Policy YAML validation endpoint, served by the rewrite service (the built-in
- * page's「策略文件」tab parses-and-previews here). Living in mask-core — not in
- * the mask-policy library — keeps the library free of the web stack (A3) while
- * serving the same documented contract; errors are PolicyException, mapped by
-========
- * Policy YAML validation endpoint (POST /api/policies/parse). Errors are PolicyException; the combined jar maps them via
->>>>>>>> origin/feat/risk-monitor:mask-core/src/main/java/io/sqlmask/server/PoliciesParseController.java
-=======
- * Policy YAML validation endpoint (POST /api/policies/parse). Errors are PolicyException; the combined jar maps them via
->>>>>>> origin/main
- * ApiExceptionHandler to 400 CONFIG_ERROR.
+ * Policy YAML validation endpoint (POST /api/policies/parse), served by the
+ * rewrite service (the console's policy drawer parse-previews here). Living in
+ * mask-core — not in the mask-policy library — keeps the library free of the
+ * web stack (A3) while serving the same documented contract; errors are
+ * PolicyException, mapped by ApiExceptionHandler to 400 CONFIG_ERROR.
  */
 @RestController
 @RequestMapping("/api/policies")

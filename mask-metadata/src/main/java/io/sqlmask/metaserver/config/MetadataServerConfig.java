@@ -13,30 +13,6 @@ public class MetadataServerConfig {
    *  else the admin key; the legacy single key (METADATA_API_KEY) keeps
    *  existing single-key deployments working on both planes. */
   @Bean
-<<<<<<< HEAD
-  public FilterRegistrationBean<ApiKeyFilter> adminPlaneFilter(
-      @Value("${metadata.api-key:}") String legacyKey,
-      @Value("${metadata.admin-api-key:}") String adminKey) {
-    // per-plane keys win; the legacy single key (METADATA_API_KEY) keeps
-    // existing single-key deployments working on both planes
-    String effective = adminKey == null || adminKey.isBlank() ? legacyKey : adminKey;
-    FilterRegistrationBean<ApiKeyFilter> registration =
-        new FilterRegistrationBean<>(ApiKeyFilter.failClosed(effective));
-    registration.addUrlPatterns("/api/instances/*");
-    registration.setOrder(1);
-    return registration;
-  }
-
-  /** Data plane (/api/metadata/**) has its own key, also fail-closed. */
-  @Bean
-  public FilterRegistrationBean<ApiKeyFilter> dataPlaneFilter(
-      @Value("${metadata.api-key:}") String legacyKey,
-      @Value("${metadata.data-api-key:}") String dataKey) {
-    String effective = dataKey == null || dataKey.isBlank() ? legacyKey : dataKey;
-    FilterRegistrationBean<ApiKeyFilter> registration =
-        new FilterRegistrationBean<>(ApiKeyFilter.failClosed(effective));
-    registration.addUrlPatterns("/api/metadata/*");
-=======
   public FilterRegistrationBean<ApiKeyFilter> apiKeyFilter(
       @Value("${metadata.api-key:}") String legacyKey,
       @Value("${metadata.admin-api-key:}") String adminKey,
@@ -48,7 +24,6 @@ public class MetadataServerConfig {
             new ApiKeyFilter.Surface("/api/metadata", data),
             new ApiKeyFilter.Surface("/", admin)));
     registration.addUrlPatterns("/api/*");
->>>>>>> origin/main
     registration.setOrder(1);
     return registration;
   }
