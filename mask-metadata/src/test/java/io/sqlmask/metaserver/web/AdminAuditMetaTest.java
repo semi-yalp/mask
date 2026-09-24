@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {"metadata.api-key=test-key", "spring.sql.init.mode=never"})
@@ -66,5 +67,48 @@ class AdminAuditMetaTest {
     assertEquals("COLLECT", e.action());
     assertEquals(AuditEvent.FAILURE, e.outcome());
     assertEquals("METADATA_INSTANCE_NOT_FOUND", e.errorCode());
+  }
+
+  @Test
+  void registerStructureEmitsAdminChangeWithTableCount() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("{\"name\": \"sr1\", \"dialect\": \"postgresql\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/instances/sr1/structure").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("""
+                [{"catalog":"crm","schema":"public","name":"customer_copy",
+                  "columns":[{"name":"phone","type":"varchar"}]}]
+                """))
+        .andExpect(status().isOk());
+    ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+    org.mockito.Mockito.verify(recorder, atLeastOnce()).record(captor.capture());
+    AuditEvent e = captor.getAllValues().stream()
+        .filter(x -> "REGISTER_STRUCTURE".equals(x.action()))
+        .findFirst().orElseThrow();
+    assertEquals(AuditEvent.ADMIN_CHANGE, e.eventType());
+    assertEquals("mask-metadata", e.service());
+    assertEquals("INSTANCE", e.resourceType());
+    assertEquals("sr1", e.resourceName());
+    assertEquals(Integer.valueOf(1), e.detail().get("tableCount"));
+  }
+
+  @Test
+  void registerStructureWithoutTablesAuditsZeroCount() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("{\"name\": \"sr2\", \"dialect\": \"postgresql\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/instances/sr2/structure").contentType(MediaType.APPLICATION_JSON)
+            .header("X-Api-Key", "test-key")
+            .content("[]"))
+        .andExpect(status().isOk());
+    ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+    org.mockito.Mockito.verify(recorder, atLeastOnce()).record(captor.capture());
+    AuditEvent e = captor.getAllValues().stream()
+        .filter(x -> "REGISTER_STRUCTURE".equals(x.action()))
+        .findFirst().orElseThrow();
+    assertEquals(Integer.valueOf(0), e.detail().get("tableCount"));
   }
 }
