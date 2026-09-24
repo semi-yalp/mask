@@ -318,4 +318,44 @@ class RewriteControllerTest {
         .andExpect(jsonPath("$.message")
             .value(org.hamcrest.Matchers.containsString("single source")));
   }
+
+  private static final String INHERIT_METADATA = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            columns: [{name: phone, type: varchar}]
+      policies: {}
+      """;
+
+  private static final String INHERIT_POLICY_FILE = """
+      policies:
+        - name: crm.phone
+          type: dataMask
+          resources:
+            - catalog: crm
+              schema: public
+              table: customer
+              column: phone
+              inheritOnCopy: true
+          dataMaskItems:
+            - {groups: ["*"], udf: mask_phone}
+      """;
+
+  @Test
+  void copyInheritStatementIsRejectedOnLegacyRewriteChannel() throws Exception {
+    // fail-closed:/api/rewrite(inline YAML)没有继承注册能力——inheritOnCopy 列的
+    // 复制语句会产出"干净数据 + 无策略"的 SQL,必须报错而不是静默返回
+    mvc.perform(post("/api/rewrite")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of(
+                "metadataYaml", INHERIT_METADATA, "policyYaml", INHERIT_POLICY_FILE,
+                "sql",
+                "CREATE TABLE crm.public.customer_copy AS SELECT phone FROM crm.public.customer"))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("UNSUPPORTED_STATEMENT"))
+        .andExpect(jsonPath("$.message")
+            .value(org.hamcrest.Matchers.containsString("无法自动注册继承策略")));
+  }
 }

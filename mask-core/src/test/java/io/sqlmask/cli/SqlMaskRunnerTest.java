@@ -87,6 +87,39 @@ class SqlMaskRunnerTest {
     assertEquals("", runner.run(options(";;", null, null)));
   }
 
+  @Test
+  void copyInheritStatementIsRejectedBecauseCliCannotRegisterPolicies() throws Exception {
+    // fail-closed:CLI 产出继承改写("干净数据")但无人注册继承策略——必须报错
+    Path metadata = Files.writeString(tempDir.resolve("metadata.yaml"), """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns: [{name: phone, type: varchar}]
+        policies: {}
+        """);
+    Path policies = Files.writeString(tempDir.resolve("policies.yaml"), """
+        policies:
+          - name: crm.phone
+            type: dataMask
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+                inheritOnCopy: true
+            dataMaskItems:
+              - {groups: ["*"], udf: mask_phone}
+        """);
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> runner.run(new CliOptions(metadata, policies, null, null,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone FROM crm.public.customer",
+            null, null, "postgresql")));
+    assertEquals(SqlMaskException.Code.UNSUPPORTED_STATEMENT, e.getCode());
+    assertTrue(e.getMessage().contains("无法自动注册继承策略"), () -> e.getMessage());
+  }
+
   private static String flat(String sql) {
     return sql.replaceAll("\\s+", " ").trim();
   }

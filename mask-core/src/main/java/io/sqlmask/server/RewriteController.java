@@ -103,6 +103,14 @@ public class RewriteController {
           statements = engine.rewrite(request.metadataYaml(), request.policyYaml(),
               request.sql(), dialect, subject);
         }
+        // fail-closed:inheritOnCopy 列的复制语句产出"干净数据"改写,但本通道(inline
+        // YAML 与 instance 模式 alike)没有继承策略注册能力——静默返回会让用户拿到
+        // "干净数据 + 无策略"的 SQL;实例改写端点才会自动注册继承策略
+        if (statements.stream().anyMatch(s -> !s.inheritedColumns().isEmpty())) {
+          throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
+              "inheritOnCopy 策略列出现在复制语句中,但当前改写通道无法自动注册继承策略;"
+                  + "请使用实例改写端点 /api/rewrite/instances/{name}");
+        }
       } catch (SqlMaskException e) {
         throw recorded(httpRequest, start, request, e.getCode(), e);
       } catch (RuntimeException e) {
