@@ -52,9 +52,12 @@ public class MetadataServerConfig {
       io.sqlmask.auth.AuthConfig config,
       org.springframework.beans.factory.ObjectProvider<io.sqlmask.auth.AuthTokenService> tokens) {
     if (!config.tokenEnabled()) {
-      // disabled registration (not a null @Bean): a NullBean here breaks the
-      // MockMvc builder's FilterRegistrationBean collection in default contexts
-      FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off = new FilterRegistrationBean<>();
+      // a null-filter registration crashes real Tomcat (addFilter(getFilter())
+      // runs before setEnabled applies) - register a transparent instance
+      // instead (same fix as mask-core's SqlMaskServiceApplication)
+      FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter> off =
+          new FilterRegistrationBean<>(
+              new io.sqlmask.auth.BearerAuthFilter(null, java.util.List.of()));
       off.setEnabled(false);
       return off; // no MASK_AUTH_SECRET → behaviour identical to the pre-LDAP build
     }

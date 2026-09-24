@@ -194,3 +194,22 @@ RiskSeverity.parse(request.severity()), request.enabled() || true,
 
 ### 未做(属后续批次)
 - 第二批 M6(登录限流/risk api-key 默认开放)中 api-key 默认值策略、M22/M23 凭据注入化、第三批全部(方言重复合并、死代码、分支清理、.gitignore 行尾等)。
+
+### 重新部署验证补记(2026-09-24 中午,本地全栈 + 真机 Tomcat)
+
+重部署时又暴露并修复了两个部署级问题:
+
+| 编号 | 问题 | 修复 |
+|---|---|---|
+| D1 | **mask-metadata 也有同样的空 FilterRegistrationBean 崩溃点**(此前报告漏了第三个服务):默认配置(无 MASK_AUTH_SECRET)下真机 Tomcat 启动即崩 `Filter must not be null`。policy/query 修完后还剩它 | MetadataServerConfig.java:57-59 改为透明实例注册,重启后 Tomcat 正常启动 |
+| D2 | **mask-query fat jar 启动即崩**:hive-jdbc → hive-common 传递引入 2007 年 Tomcat 5.5 时代 `tomcat:jasper-*` 与 `org.glassfish.web:javax.servlet.jsp:2.3.2`(内嵌 org/apache/jasper 实现类),Spring Boot 把它当 JSP servlet 装配,与 tomcat-embed 10 冲突(`JspServlet is not a Servlet`,ClassCastException)。此前该服务从未在本地/CI 以 fat jar 启动过 | mask-query/pom.xml 的 hive-jdbc 排除清单补 `tomcat:jasper-compiler/runtime`、`org.glassfish.web:javax.servlet.jsp`、`javax.servlet.jsp:jsp-api`;重建后 7.7s 启动成功 |
+
+**完整端到端验证结果(全部真实服务、真实 PG,PG 为本地 5432 便携实例,补建 mask_policy/mask_metadata/crm 三库 + UDF + 50 行 crm 种子):**
+- 元数据:实例创建 + collect 拉了 4 表 21 列 ✓
+- 策略:import-metadata、4 个 UDF、5 条策略(4 脱敏 + 1 行过滤)✓
+- 生效配置:alice(devs) 4 列脱敏无行过滤;bob(analysts) 同脱敏 + orders 行过滤 ✓
+- 改写:core instance 模式输出 `mask_name/mask_phone/mask_email/mask_idcard` 包装 SQL ✓
+- 真库查询:alice 返回 3 行全脱敏(`138****4517`/`u***@test.org`/`330102********0011` 等);bob 联表 rowFiltered=true 仅 north 26 行 ✓
+- **运行时安全门禁**(新修复的真机验证):`POST /admin/cache/refresh` 无 Key → 401(M7);`POST /api/instances` 精确路径无 Key → 401、带 Key → 200(H2)✓
+- 风控:审计事件形状摄取 accepted + SQLI 命中 + 生成告警 ✓
+- policy/metadata 的 `actuator/health` 显示 503 仅为 ES 健康指示器(本机无 ES 9200),服务本身正常;启动时应带 `MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED=false`(start-local.sh 本就带)。

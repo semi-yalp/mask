@@ -86,6 +86,26 @@
           <groupId>org.eclipse.jetty</groupId>
           <artifactId>jetty-runner</artifactId>
         </exclusion>
+        <!-- hive-common 拖入的 Tomcat 5.5 时代 jasper(2007 年 javax.servlet 版)会在
+             fat jar 里被 Spring Boot 当成 JSP servlet 装配,与 tomcat-embed 10 冲突,
+             启动即崩(JspServlet is not a Servlet)。glassfish.web 的 javax.servlet.jsp
+             2.3.2 同样内嵌 org/apache/jasper 实现类,一并排除。 -->
+        <exclusion>
+          <groupId>tomcat</groupId>
+          <artifactId>jasper-compiler</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>tomcat</groupId>
+          <artifactId>jasper-runtime</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.glassfish.web</groupId>
+          <artifactId>javax.servlet.jsp</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>javax.servlet.jsp</groupId>
+          <artifactId>jsp-api</artifactId>
+        </exclusion>
       </exclusions>
     </dependency>
     <dependency>
