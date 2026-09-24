@@ -21,6 +21,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -339,32 +340,65 @@ public class JdbcPolicyStore implements PolicyStore {
   private void insertUdfSignatures(long instanceId, UdfDefinition udf) {
     for (int i = 0; i < udf.signatures().size(); i++) {
       UdfDefinition.UdfSignature signature = udf.signatures().get(i);
-      jdbc.update("INSERT INTO instance_udf (instance_id, name, param_types, return_type, position)"
-              + " VALUES (?, ?, ?, ?, ?)",
-          instanceId, udf.name(), toJson(signature.params()), signature.returns(), i);
+      int position = i;
+      jdbc.update("INSERT INTO instance_udf (instance_id, name, param_types, return_type, position,"
+              + " source, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          ps -> {
+            ps.setLong(1, instanceId);
+            ps.setString(2, udf.name());
+            ps.setString(3, toJson(signature.params()));
+            ps.setString(4, signature.returns());
+            ps.setInt(5, position);
+            ps.setString(6, udf.source() == null ? "REGISTERED" : udf.source());
+            setNullableTimestamp(ps, 7, udf.lastSyncedAt());
+          });
     }
   }
 
   private List<UdfDefinition> loadUdfs(long instanceId, String onlyName) {
     StringBuilder sql = new StringBuilder(
-        "SELECT name, param_types, return_type FROM instance_udf WHERE instance_id = ?");
+        "SELECT name, param_types, return_type, source, last_synced_at FROM instance_udf"
+            + " WHERE instance_id = ?");
     List<Object> args = new ArrayList<>(List.of(instanceId));
     if (onlyName != null) {
       sql.append(" AND name = ?");
       args.add(onlyName);
     }
     sql.append(" ORDER BY name, position");
+    // source/last_synced_at are per-definition attributes stored on every
+    // signature row; the first row of each name carries the authoritative pair.
     Map<String, List<UdfDefinition.UdfSignature>> byName = new LinkedHashMap<>();
+    Map<String, UdfRowMeta> metaByName = new LinkedHashMap<>();
     jdbc.query(sql.toString(), (rs, n) -> {
-      byName.computeIfAbsent(rs.getString("name"),
-              k -> new ArrayList<>())
+      String name = rs.getString("name");
+      byName.computeIfAbsent(name, k -> new ArrayList<>())
           .add(new UdfDefinition.UdfSignature(stringsFrom(rs.getString("param_types")),
               rs.getString("return_type")));
+      String source = rs.getString("source");
+      Instant lastSyncedAt = instantOf(rs, "last_synced_at");
+      metaByName.computeIfAbsent(name, k -> new UdfRowMeta(source, lastSyncedAt));
       return null;
     }, args.toArray());
     return byName.entrySet().stream()
-        .map(e -> new UdfDefinition(e.getKey(), List.copyOf(e.getValue())))
+        .map(e -> {
+          UdfRowMeta meta = metaByName.get(e.getKey());
+          return new UdfDefinition(e.getKey(), List.copyOf(e.getValue()),
+              meta.source(), meta.lastSyncedAt());
+        })
         .collect(Collectors.toList());
+  }
+
+  private record UdfRowMeta(String source, Instant lastSyncedAt) {
+  }
+
+  private static Instant instantOf(ResultSet rs, String column) {
+    try {
+      java.sql.Timestamp timestamp = rs.getTimestamp(column);
+      return timestamp == null ? null : timestamp.toInstant();
+    } catch (SQLException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+          "could not read udf " + column + ": " + e.getMessage());
+    }
   }
 
   private List<String> stringsFrom(String json) {
@@ -434,6 +468,15 @@ public class JdbcPolicyStore implements PolicyStore {
       ps.setNull(index, Types.VARCHAR);
     } else {
       ps.setString(index, value);
+    }
+  }
+
+  private static void setNullableTimestamp(PreparedStatement ps, int index, Instant value)
+      throws SQLException {
+    if (value == null) {
+      ps.setNull(index, Types.TIMESTAMP);
+    } else {
+      ps.setTimestamp(index, java.sql.Timestamp.from(value));
     }
   }
 

@@ -234,6 +234,34 @@ class JdbcPolicyStoreTest {
                 new UdfDefinition.UdfSignature(List.of("varchar"), "varchar")))));
   }
 
+  @Test
+  void udfSourceAndLastSyncedAtRoundTrip() {
+    store.createInstance(instance());
+    // timestamptz keeps microseconds: truncate so the round trip is comparable
+    java.time.Instant synced = java.time.Instant.now()
+        .truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    store.createUdf(instanceName(), new UdfDefinition("mask_phone", List.of(
+        new UdfDefinition.UdfSignature(List.of("text"), "text")), "IMPORTED", synced));
+    UdfDefinition imported = store.findUdf(instanceName(), "mask_phone").orElseThrow();
+    assertEquals("IMPORTED", imported.source());
+    assertEquals(synced, imported.lastSyncedAt());
+
+    // the historical two-arg constructor persists as REGISTERED/never-synced
+    store.createUdf(instanceName(), new UdfDefinition("mask_email", List.of(
+        new UdfDefinition.UdfSignature(List.of("text"), "text"))));
+    UdfDefinition registered = store.findUdf(instanceName(), "mask_email").orElseThrow();
+    assertEquals("REGISTERED", registered.source());
+    assertTrue(registered.lastSyncedAt() == null);
+
+    // a replace rewrites the metadata alongside the signatures
+    store.replaceUdf(instanceName(), "mask_email", new UdfDefinition("mask_email", List.of(
+        new UdfDefinition.UdfSignature(List.of("text", "integer"), "text")), "IMPORTED", synced));
+    UdfDefinition replaced = store.findUdf(instanceName(), "mask_email").orElseThrow();
+    assertEquals("IMPORTED", replaced.source());
+    assertEquals(synced, replaced.lastSyncedAt());
+    assertEquals(2, replaced.signatures().get(0).params().size());
+  }
+
   // ---- subjects 持久化 ----
 
   @Test

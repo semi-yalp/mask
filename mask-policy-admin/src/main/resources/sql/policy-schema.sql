@@ -51,7 +51,13 @@ CREATE TABLE IF NOT EXISTS instance_udf (
   param_types TEXT NOT NULL,
   return_type VARCHAR(255) NOT NULL,
   position INT NOT NULL,
+  source VARCHAR(32) NOT NULL DEFAULT 'REGISTERED',
+  last_synced_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   UNIQUE (instance_id, name, param_types)
 );
+
+-- 存量库升级（幂等）：REGISTERED/IMPORTED 来源与最近一次引擎同步时间
+ALTER TABLE instance_udf ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'REGISTERED';
+ALTER TABLE instance_udf ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP WITH TIME ZONE;

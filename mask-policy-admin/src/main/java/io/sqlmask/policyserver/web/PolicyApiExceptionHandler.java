@@ -28,6 +28,12 @@ public class PolicyApiExceptionHandler extends BaseApiExceptionHandler {
     if (code == SqlMaskException.Code.POLICY_INSTANCE_NOT_FOUND) {
       return HttpStatus.NOT_FOUND;
     }
+    // UDF-center engine calls: the database is an upstream whose reachability
+    // is not this service's fault — same semantics as a gateway's upstream
+    // failure, not a malformed request.
+    if (code == SqlMaskException.Code.INTROSPECT_ERROR) {
+      return HttpStatus.BAD_GATEWAY;
+    }
     return HttpStatus.BAD_REQUEST;
   }
 
