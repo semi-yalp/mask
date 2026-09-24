@@ -160,15 +160,15 @@ class MetadataAdminControllerTest {
   }
 
   @Test
-  void putWithoutConnectionClearsItAndBumpsVersion() throws Exception {
+  void putWithoutConnectionPreservesExistingAndKeepsVersion() throws Exception {
     createInstance("pg_prod");
 
     mockMvc.perform(put("/api/instances/pg_prod").header("X-Api-Key", KEY)
             .contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.metadataVersion").value(2))
-        .andExpect(jsonPath("$.connection")
-            .value(org.hamcrest.Matchers.nullValue()));
+        .andExpect(jsonPath("$.metadataVersion").value(1))
+        .andExpect(jsonPath("$.connection.host").value("127.0.0.1"))
+        .andExpect(jsonPath("$.connection.port").value(5432));
   }
 
   @Test

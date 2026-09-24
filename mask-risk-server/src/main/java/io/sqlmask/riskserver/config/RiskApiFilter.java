@@ -42,6 +42,14 @@ public final class RiskApiFilter implements Filter {
       return;
     }
     HttpServletRequest http = (HttpServletRequest) request;
+    // a verified bearer token (the mask-auth console user, stamped by
+    // BearerAuthFilter at a lower order) satisfies this gate as well. Literal
+    // attribute contract — not a compile-time reference to io.sqlmask.auth —
+    // so this filter keeps working even without mask-auth on the classpath.
+    if (Boolean.TRUE.equals(http.getAttribute("auth.bearer"))) {
+      chain.doFilter(request, response);
+      return;
+    }
     HttpServletResponse res = (HttpServletResponse) response;
     String provided = http.getHeader("X-Api-Key");
     boolean ok = provided != null

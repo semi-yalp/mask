@@ -23,9 +23,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Best-effort async forwarder that ships every {@link AuditEvent} to the risk
  * monitoring service's ingest endpoint, mirroring {@link EsAuditRecorder}'s
- * semantics: a bounded queue, one daemon worker, batch flush by size or
- * interval, and never a throw (nor a block) on the caller's thread. Failures
- * are rate-limited-logged and counted; the queue never retries.
+ * semantics: a bounded queue, one daemon worker, batch flush by size or by a
+ * max hold time after the first event, and never a throw (nor a block) on
+ * the caller's thread. Failures are rate-limited-logged and counted; the
+ * queue never retries.
  */
 public final class RiskForwarder implements AutoCloseable {
 
@@ -97,15 +98,32 @@ public final class RiskForwarder implements AutoCloseable {
   }
 
   private void run() {
+    // A batch ships when it fills to batchSize, or when flushIntervalMs has
+    // elapsed since the first event — the interval is a max hold, not a
+    // separate timer, so a sparse stream is batched by time and a busy one
+    // by size, and the worker never flushes a half batch out from under a
+    // concurrent record() just because a clock ticked.
     List<AuditEvent> batch = new ArrayList<>(batchSize);
     while (!closing) {
       try {
         AuditEvent first = queue.poll(flushIntervalMs, TimeUnit.MILLISECONDS);
         if (first == null) {
-          continue;
+          continue; // idle for a full interval: nothing to send
         }
         batch.add(first);
         queue.drainTo(batch, batchSize - 1);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(flushIntervalMs);
+        while (batch.size() < batchSize && !closing) {
+          long remaining = deadline - System.nanoTime();
+          if (remaining <= 0) {
+            break; // hold interval elapsed: ship what we have
+          }
+          AuditEvent more = queue.poll(remaining, TimeUnit.NANOSECONDS);
+          if (more == null) {
+            break; // no more traffic right now: ship what we have
+          }
+          batch.add(more);
+        }
         flush(batch);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();

@@ -12,7 +12,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+/** 审计管线指标只有 audit.enabled=true 时注册(默认关闭,spec §7 新契约)。 */
+@SpringBootTest(properties = "audit.enabled=true")
 @AutoConfigureObservability
 @AutoConfigureMockMvc
 class MetricsEndpointSmokeTest {
@@ -26,7 +27,7 @@ class MetricsEndpointSmokeTest {
         .andExpect(status().isOk())
         .andExpect(content().string(containsString("jvm_memory_used_bytes")))
         .andExpect(content().string(containsString("application=\"sql-mask\"")))
-        // 审计管道指标（spec §3.5），audit.enabled 缺省开启（spec §7 原契约）。
+        // 审计管道指标（spec §3.5）
         .andExpect(content().string(containsString("sqlmask_audit_queue_depth")))
         .andExpect(content().string(containsString("sqlmask_audit_queue_capacity")));
   }

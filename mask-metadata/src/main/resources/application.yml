@@ -16,8 +16,9 @@ spring:
 metadata:
   api-key: ${METADATA_API_KEY:}
 
+# 审计默认关闭(与 mask-core/mask-query 一致):部署 ES 审计管道时以 AUDIT_ENABLED=true 打开
 audit:
-  enabled: ${AUDIT_ENABLED:true}
+  enabled: ${AUDIT_ENABLED:false}
   elasticsearch:
     url: ${AUDIT_ES_URL:http://127.0.0.1:9200}
     api-key: ${AUDIT_ES_API_KEY:}

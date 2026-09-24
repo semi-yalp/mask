@@ -68,30 +68,53 @@ public final class PolicyServiceConfigSource implements ConfigSource {
   }
 
   @Override
-  public synchronized ResolvedConfig load() {
+  public ResolvedConfig load() {
     return load(Subject.anonymous());
   }
 
-  /** Loads (and caches) the effective config compiled for one subject. */
-  public synchronized ResolvedConfig load(Subject subject) {
+  /**
+   * Loads (and caches) the effective config compiled for one subject.
+   * Network calls (10s timeout) happen outside the cache lock, so one slow
+   * subject fetch no longer serializes every other subject's load or the
+   * scheduler's refresh; a concurrent duplicate fetch for the same new
+   * subject is harmless (last write wins).
+   */
+  public ResolvedConfig load(Subject subject) {
     SubjectKey key = keyOf(subject);
-    ResolvedConfig cached = cache.get(key);
-    if (cached != null) {
-      return cached;
+    synchronized (cache) {
+      ResolvedConfig cached = cache.get(key);
+      if (cached != null) {
+        return cached;
+      }
     }
     ResolvedConfig fresh = fetchAndAssemble(key);
-    cache.put(key, fresh);
+    synchronized (cache) {
+      cache.put(key, fresh);
+    }
     return fresh;
   }
 
-  /** Polls every cached subject; true when any subject's version moved. */
-  public synchronized boolean refresh() {
+  /**
+   * Polls every cached subject; true when any subject's version moved. Keys
+   * are snapshotted under lock, fetches run outside it, and an entry evicted
+   * meanwhile is skipped (not resurrected). The version comparison reads the
+   * cached value before the put: put mutates the map's live entry in place,
+   * so reading it after would always see the fresh value.
+   */
+  public boolean refresh() {
+    List<Map.Entry<SubjectKey, ResolvedConfig>> snapshot;
+    synchronized (cache) {
+      snapshot = new ArrayList<>(cache.entrySet());
+    }
     boolean anyUpdated = false;
-    for (Map.Entry<SubjectKey, ResolvedConfig> entry : cache.entrySet()) {
+    for (Map.Entry<SubjectKey, ResolvedConfig> entry : snapshot) {
       ResolvedConfig fresh = fetchAndAssemble(entry.getKey());
-      if (entry.getValue().configVersion() != fresh.configVersion()) {
-        entry.setValue(fresh);
-        anyUpdated = true;
+      synchronized (cache) {
+        ResolvedConfig current = cache.get(entry.getKey());
+        if (current != null) {
+          anyUpdated |= current.configVersion() != fresh.configVersion();
+          cache.put(entry.getKey(), fresh);
+        }
       }
     }
     return anyUpdated;

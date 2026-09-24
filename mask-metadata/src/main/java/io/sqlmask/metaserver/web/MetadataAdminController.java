@@ -93,7 +93,12 @@ public class MetadataAdminController {
       String name, MetadataDtos.InstanceUpdateRequest request) {
     return audit.adminChange(httpRequest, "UPDATE", "INSTANCE", null, name, Map::of,
         () -> {
-          ConnectionInfo connection = ofNullable(request == null ? null : request.connection());
+          ConnectionInfo connection = connectionOrNull(request);
+          if (connection == null) {
+            // absent/empty connection body must not wipe the stored one: a
+            // PUT with no connection group is a no-op, not a clear
+            return detail(instances.get(name));
+          }
           return detail(instances.updateConnection(name, connection));
         });
   }
@@ -153,6 +158,11 @@ public class MetadataAdminController {
     return request == null ? null : ConnectionInfo.ofNullable(request.host(), request.port(),
         request.database(), request.dbUser(), request.passwordRef(), request.sslmode(),
         request.connectTimeoutSeconds(), request.schemas(), request.includeViews());
+  }
+
+  /** The connection group to apply, or null when the body carries none. */
+  private static ConnectionInfo connectionOrNull(MetadataDtos.InstanceUpdateRequest request) {
+    return ofNullable(request == null ? null : request.connection());
   }
 
   private MetadataDtos.InstanceDetailResponse detail(InstanceRow row) {

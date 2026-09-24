@@ -3,7 +3,9 @@ package io.sqlmask.policyserver;
 import io.sqlmask.common.effective.EffectiveConfigResponse;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metadata.ColumnKey;
+import io.sqlmask.policy.PolicyException;
 import io.sqlmask.policy.model.Subject;
+import io.sqlmask.policy.store.PolicyYamlLoader;
 import io.sqlmask.policyserver.compile.EffectiveConfigCompiler;
 import io.sqlmask.policyserver.model.EngineInstance;
 import io.sqlmask.policyserver.model.PolicyEntity;
@@ -12,6 +14,7 @@ import io.sqlmask.policyserver.model.ResourceSelector;
 import io.sqlmask.policyserver.model.TableDef;
 import io.sqlmask.policyserver.model.UdfDefinition;
 import io.sqlmask.policyserver.store.PolicyStore;
+import io.sqlmask.policyserver.transfer.PolicyImportMapper;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -82,6 +85,74 @@ public class PolicyService {
 
   public List<PolicyEntity> policies(String instanceName) {
     return store.listPolicies(instanceName);
+  }
+
+  /** Outcome of a policies.yaml import: how many policies were created vs updated. */
+  public record ImportResult(int created, int updated) {
+  }
+
+  private final PolicyImportMapper importMapper = new PolicyImportMapper();
+
+  /**
+   * Imports a Ranger-style policies.yaml document into the instance. The
+   * whole file is validated before anything is written — structural errors
+   * surface with their YAML path (e.g. {@code policies.yaml:
+   * policies[0].dataMaskItems[1]}), and semantic validation simulates the
+   * sequential create/update state, so an invalid policy rejects the file
+   * without touching the instance. Existing policies are upserted by name.
+   * The apply loop writes policies one by one (each bumps config_version);
+   * it is not a single transaction, so a concurrent admin change could in
+   * theory interleave mid-import.
+   */
+  public ImportResult importPolicies(String instanceName, String yaml) {
+    requireInstance(instanceName);
+    List<PolicyEntity> entities;
+    try {
+      entities = importMapper.toEntities(new PolicyYamlLoader().parse(yaml, "policies.yaml"));
+    } catch (PolicyException e) {
+      throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR, e.getMessage());
+    }
+    validateImport(instanceName, entities);
+    Set<String> existingNames = new HashSet<>();
+    store.listPolicies(instanceName).forEach(p -> existingNames.add(p.name()));
+    int created = 0;
+    int updated = 0;
+    for (PolicyEntity entity : entities) {
+      if (existingNames.contains(entity.name())) {
+        store.updatePolicy(instanceName, entity.name(), entity);
+        updated++;
+      } else {
+        store.createPolicy(instanceName, entity);
+        created++;
+      }
+    }
+    return new ImportResult(created, updated);
+  }
+
+  /**
+   * Validates every imported entity against the instance before any write,
+   * simulating the state sequential create/update would produce: existing
+   * enabled policies with names the file replaces drop out of the overlap
+   * check, earlier enabled file entities join it. First failure rejects the
+   * whole file.
+   */
+  private void validateImport(String instanceName, List<PolicyEntity> entities) {
+    EngineInstance instance = requireInstance(instanceName);
+    List<UdfDefinition> udfs = store.listUdfs(instanceName);
+    Set<String> importedNames = new HashSet<>();
+    entities.forEach(e -> importedNames.add(e.name()));
+    List<PolicyEntity> simulatedEnabled = new ArrayList<>();
+    for (PolicyEntity existing : store.listPolicies(instanceName)) {
+      if (existing.enabled() && !importedNames.contains(existing.name())) {
+        simulatedEnabled.add(existing);
+      }
+    }
+    for (PolicyEntity entity : entities) {
+      if (entity.enabled()) {
+        simulatedEnabled.add(entity);
+      }
+      validator.validatePolicy(instance, udfs, entity, simulatedEnabled);
+    }
   }
 
   public UdfDefinition createUdf(String instanceName, UdfDefinition udf) {

@@ -68,12 +68,13 @@ class MetadataApiExceptionHandlerTest {
         handler.handleUnexpected(new IllegalStateException("boom"));
     assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
     assertEquals("INTERNAL_ERROR", response.getBody().code());
-    assertEquals("boom", response.getBody().message());
+    // the raw message is never echoed to the client (details go to the log)
+    assertEquals("internal server error", response.getBody().message());
   }
 
   @Test
-  void unexpectedExceptionWithoutMessageFallsBackToExceptionName() {
-    assertEquals("NullPointerException",
+  void unexpectedExceptionWithoutMessageStillMasksDetails() {
+    assertEquals("internal server error",
         handler.handleUnexpected(new NullPointerException()).getBody().message());
   }
 }

@@ -109,6 +109,29 @@ public class SqlMaskServiceApplication {
     return registration;
   }
 
+  /**
+   * Admin gate for the manual cache-drop endpoint. Fail-closed even when the
+   * key is unconfigured: an unauthenticated cache clear is a management
+   * action that nothing defaults to opening (unlike the data surfaces, whose
+   * patterns already scope them to read-only query paths).
+   */
+  @Bean
+  org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter>
+      cacheRefreshApiKeyFilter(org.springframework.core.env.Environment env) {
+    String adminKey = env.getProperty("SQLMASK_ADMIN_API_KEY", "");
+    if (adminKey.isBlank()) {
+      org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
+          "SQLMASK_ADMIN_API_KEY is not configured: POST /admin/cache/refresh is "
+              + "REJECTED until the key is set (send it as X-Api-Key)");
+    }
+    org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> registration =
+        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+            io.sqlmask.common.web.ApiKeyFilter.failClosed(adminKey));
+    registration.addUrlPatterns("/admin/cache/refresh");
+    registration.setOrder(3);
+    return registration;
+  }
+
   // ---- console-user (LDAP) authentication & authorization ----
 
   @Bean
