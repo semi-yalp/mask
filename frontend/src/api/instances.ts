@@ -24,7 +24,8 @@ export function putTables(name: string, tables: TableDef[]): Promise<void> {
 export interface MetadataImportBody {
   metadataBaseUrl: string;
   metadataInstance: string;
-  metadataApiKey: string | null;
+  /** 仅供独立部署的 metadata 服务使用;单体同源自环无需密钥。 */
+  metadataApiKey?: string | null;
 }
 
 export function importMetadata(name: string, body: MetadataImportBody): Promise<{ tables: unknown[] }> {

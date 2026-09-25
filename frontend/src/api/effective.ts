@@ -6,5 +6,5 @@ export function getEffective(instance: string, subject: { user?: string; groups?
   if (subject.user) q.set("user", subject.user);
   (subject.groups || []).forEach((g) => q.append("groups", g));
   const suffix = q.toString() ? "?" + q.toString() : "";
-  return call("GET", "/api/effective/" + encodeURIComponent(instance) + suffix, undefined, "data");
+  return call("GET", "/api/effective/" + encodeURIComponent(instance) + suffix);
 }

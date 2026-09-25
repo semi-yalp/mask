@@ -54,9 +54,6 @@
         <el-form-item label="metadata 实例名">
           <el-input v-model="impInstance" placeholder="如 crm" />
         </el-form-item>
-        <el-form-item label="metadata API Key">
-          <el-input v-model="impKey" placeholder="可选" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="importDialog = false">取消</el-button>
@@ -98,7 +95,6 @@ const importDialog = ref(false);
 const importing = ref(false);
 const impBase = ref("http://127.0.0.1:8082");
 const impInstance = ref("");
-const impKey = ref("");
 
 async function reload() {
   loadError.value = "";
@@ -129,7 +125,6 @@ async function doImport() {
     const res = await importMetadata(props.name, {
       metadataBaseUrl: impBase.value.trim() || "http://127.0.0.1:8082",
       metadataInstance: impInstance.value.trim(),
-      metadataApiKey: impKey.value.trim() || null
     });
     ElMessage.success(`导入成功:${(res.tables || []).length} 张表`);
     importDialog.value = false;

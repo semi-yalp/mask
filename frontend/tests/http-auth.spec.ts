@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { call } from "@/api/http";
 import { useAuthStore } from "@/stores/auth";
-import { useSettingsStore } from "@/stores/settings";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -19,7 +18,6 @@ const okMock = () =>
 beforeEach(() => {
   localStorage.clear();
   setActivePinia(createPinia());
-  useSettingsStore().setKeys("", "");
 });
 
 function loginAs(role: "ADMIN" | "AUDITOR" | "USER") {
@@ -31,9 +29,8 @@ function loginAs(role: "ADMIN" | "AUDITOR" | "USER") {
 }
 
 describe("call() 的 Bearer 认证", () => {
-  it("已登录时注入 Authorization: Bearer 且不发 X-Api-Key", async () => {
+  it("已登录时注入 Authorization: Bearer", async () => {
     loginAs("USER");
-    useSettingsStore().setKeys("adm-key", "dat-key");
     const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
     await call("GET", "/api/x");
@@ -42,16 +39,14 @@ describe("call() 的 Bearer 认证", () => {
     expect(init?.headers?.["X-Api-Key"]).toBeUndefined();
   });
 
-  it("令牌过期后回落到 API Key 模式", async () => {
+  it("令牌过期后不再携带任何认证头(none/匿名语义)", async () => {
     const auth = loginAs("USER");
     auth.expiresAt = Date.now() - 1000;
-    useSettingsStore().setKeys("adm-key", "dat-key");
     const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
-    await call("GET", "/api/x", undefined, "admin");
+    await call("GET", "/api/x");
     const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
     expect(init?.headers?.["Authorization"]).toBeUndefined();
-    expect(init?.headers?.["X-Api-Key"]).toBe("adm-key");
   });
 
   it("带令牌收到 401：清会话、广播过期事件并抛登录过期", async () => {
@@ -66,10 +61,10 @@ describe("call() 的 Bearer 认证", () => {
     expect(events).toEqual(["fired"]);
   });
 
-  it("未登录收到 401：维持旧行为（抛后端错误体）", async () => {
+  it("未登录收到 401：抛后端错误体(none 模式不应出现,保护性断言)", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse(401, { code: "UNAUTHORIZED", message: "missing or invalid API key" }));
+      jsonResponse(401, { code: "UNAUTHORIZED", message: "missing bearer token" }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(call("GET", "/api/instances")).rejects.toThrow("[UNAUTHORIZED] missing or invalid API key");
+    await expect(call("GET", "/api/instances")).rejects.toThrow("[UNAUTHORIZED] missing bearer token");
   });
 });

@@ -42,6 +42,8 @@ export const useAuthStore = defineStore("auth", () => {
 
   /** 旧字段兼容:路由守卫与组件以此判断"是否强制登录"。 */
   const ldapMode = computed(() => (mode.value === null ? null : mode.value !== "none"));
+  /** 当前认证姿态(none/simple/ldap),未知时为 null —— 设置页与侧边栏徽标使用。 */
+  const authMode = computed(() => mode.value);
 
   const role = computed(() => user.value?.role || null);
   const isAdmin = computed(() => user.value?.role === "ADMIN");
@@ -107,7 +109,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   return {
-    token, user, expiresAt, mode, ldapMode,
+    token, user, expiresAt, mode, ldapMode, authMode,
     isLoggedIn, role, isAdmin, isAuditorPlus,
     login, logout, sessionExpired, loadMode
   };

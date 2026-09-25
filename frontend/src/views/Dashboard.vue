@@ -70,8 +70,8 @@
                 <span class="muted">按事件类型 / 主体 / 时间范围检索改写与管理面审计</span>
               </router-link>
               <router-link :to="{ name: 'settings' }" class="quick-item">
-                <div class="quick-head"><el-icon><Key /></el-icon><b>配置 API Key</b></div>
-                <span class="muted">管理 / 数据 / 查询三把 Key,对应各服务的 X-Api-Key 门禁</span>
+                <div class="quick-head"><el-icon><Key /></el-icon><b>认证与拓扑</b></div>
+                <span class="muted">查看当前认证模式(none/simple/ldap)与单体服务拓扑</span>
               </router-link>
             </div>
           </el-card>
@@ -89,8 +89,8 @@
             </div>
             <EmptyHint v-else>暂无实例,去访问管理创建</EmptyHint>
             <div class="gate-line">
-              门禁:<el-tag :type="settings.gateConfigured ? 'success' : 'warning'" size="small">
-                {{ settings.gateConfigured ? "已配置 X-Api-Key 鉴权" : "未配置(开放)" }}
+              认证:<el-tag :type="auth.authMode === 'none' ? 'warning' : 'success'" size="small">
+                {{ auth.authMode === null ? "探测中…" : auth.authMode === 'none' ? "关闭(开放)" : auth.authMode }}
               </el-tag>
               <router-link :to="{ name: 'settings' }" class="muted gate-link">前往设置</router-link>
             </div>
@@ -105,14 +105,17 @@
 import { computed, onMounted } from "vue";
 import { Coin, EditPen, Document, FolderOpened, CaretRight, Key } from "@element-plus/icons-vue";
 import { useInstancesStore } from "@/stores/instances";
-import { useSettingsStore } from "@/stores/settings";
+import { useAuthStore } from "@/stores/auth";
 import ErrorAlert from "@/components/ErrorAlert.vue";
 import EmptyHint from "@/components/EmptyHint.vue";
 
 const store = useInstancesStore();
-const settings = useSettingsStore();
+const auth = useAuthStore();
 
-onMounted(() => store.load());
+onMounted(() => {
+  store.load();
+  auth.loadMode();
+});
 
 const totalTables = computed(() => store.list.reduce((sum, i) => sum + (i.tables || []).length, 0));
 const recent = computed(() => store.list.slice(0, 6));

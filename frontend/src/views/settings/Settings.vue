@@ -2,57 +2,53 @@
   <div>
     <div class="page-topnav">
       <span class="topnav-title">设置 · Settings</span>
-      <span class="muted">访问凭据与服务拓扑</span>
+      <span class="muted">认证模式与服务拓扑</span>
     </div>
 
     <div class="page">
       <div class="crumb"><a href="#/settings">设置</a></div>
 
       <el-row :gutter="14">
-        <el-col :span="12">
+        <el-col :xs="24" :md="12">
           <el-card shadow="never" class="card-block">
             <template #header>
               <div class="card-title">
-                <el-icon><Key /></el-icon>API Key(门禁)
+                <el-icon><Key /></el-icon>认证模式
                 <span class="spacer" />
-                <el-tag size="small" :type="settings.gateConfigured ? 'success' : 'warning'">
-                  {{ settings.gateConfigured ? "已配置 X-Api-Key 鉴权" : "未配置(开放)" }}
-                </el-tag>
+                <el-tag size="small" :type="modeTag">{{ modeText }}</el-tag>
               </div>
             </template>
-            <el-form label-width="110px" @submit.prevent>
-              <el-form-item label="管理 Key">
-                <el-input v-model="adminKeyDraft" type="password" show-password
-                  placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
-              </el-form-item>
-              <el-form-item label="数据 Key">
-                <el-input v-model="dataKeyDraft" type="password" show-password
-                  placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
-              </el-form-item>
-              <el-form-item label="查询 Key">
-                <el-input v-model="queryKeyDraft" type="password" show-password
-                  placeholder="mask-query 数据面(未配置即全 401)" autocomplete="off" />
-              </el-form-item>
-            </el-form>
-            <div class="key-actions">
-              <el-button @click="clearKeys">清除</el-button>
-              <el-button type="primary" @click="saveKeys">保存</el-button>
+            <div v-loading="loading">
+              <template v-if="mode === 'simple'">
+                <p class="mode-line">本地用户模式:登录走 <code>/api/auth/login</code>,用户由管理员在
+                  <code>/api/auth/users</code> 维护,首次启动自动创建 <b>admin/admin</b>(请立即改密)。</p>
+              </template>
+              <template v-else-if="mode === 'ldap'">
+                <p class="mode-line">LDAP 目录模式:登录走企业目录,角色由
+                  <code>MASK_AUTH_ADMIN_GROUPS / MASK_AUTH_AUDITOR_GROUPS</code> 组映射。</p>
+              </template>
+              <template v-else>
+                <p class="mode-line">无认证模式(<b>默认</b>):所有页面与 API 开放,审计记 ANONYMOUS。
+                  开启认证需在服务端设置环境变量后重启:</p>
+                <pre class="env-snip">MASK_AUTH_MODE=simple        # 本地用户(首启 admin/admin)
+# 或
+MASK_AUTH_MODE=ldap          # LDAP:还需 MASK_AUTH_LDAP_URL / MASK_AUTH_LDAP_BASE_DN
+MASK_AUTH_SECRET=至少32字节随机串</pre>
+              </template>
             </div>
-            <p class="muted key-note">管理 Key 用于实例/策略/UDF 管理面(8081),数据 Key 用于生效配置查询(8081),查询 Key 用于统一查询数据面(8083,服务端未配置时全 401);仅保存在浏览器 localStorage,请求时经 X-Api-Key 头携带。</p>
           </el-card>
         </el-col>
-        <el-col :span="12">
+        <el-col :xs="24" :md="12">
           <el-card shadow="never">
             <template #header>
               <div class="card-title"><el-icon><Connection /></el-icon>服务拓扑</div>
             </template>
             <div class="topo">
-              <div class="topo-row"><el-tag size="small">8080</el-tag><span><b>mask-core</b> 改写服务(/api/rewrite、/api/audit、/api/config、/api/policies)</span></div>
-              <div class="topo-row"><el-tag size="small">8081</el-tag><span><b>mask-policy-server</b> 策略服务(/api/instances、/api/effective)</span></div>
-              <div class="topo-row"><el-tag size="small">8082</el-tag><span><b>mask-metadata</b> 元数据服务(控制台经 /api/meta/ 前缀访问)</span></div>
-              <div class="topo-row"><el-tag size="small">8083</el-tag><span><b>mask-query</b> 查询服务(/api/v1/query,数据面查询页)</span></div>
+              <div class="topo-row"><el-tag size="small">单体</el-tag><span><b>mask-server</b> 一个进程承载全部 API 与控制台——元数据(/api/meta、/api/classification)、策略(/api/instances)、查询网关(/api/v1)、审计(/api/audit)、风控(/api/risk)、认证(/api/auth)、授权(/api/grants)</span></div>
+              <div class="topo-row"><el-tag size="small">内核</el-tag><span><b>mask-engine</b> 纯库(零 Spring),改写/血缘/行过滤,可独立嵌入查询引擎</span></div>
+              <div class="topo-row"><el-tag size="small">存储</el-tag><span>平台库:H2 文件(默认)或 PostgreSQL(<code>MASK_STORAGE_PG_URL</code>);数据引擎按实例连接走 JDBC/HTTP</span></div>
             </div>
-            <p class="muted key-note">前端 nginx 按路径前缀反代:/api/instances 与 /api/effective 指向 8081,/api/meta/ 重写到 8082 的 /api/,/api/v1/ 指向 8083,其余 /api 指向 8080。</p>
+            <p class="muted key-note">控制台与 API 同源(单端口),前端 nginx/dev 代理只需一条 /api 规则;旧的多服务端口(8081-8084)已退役。</p>
           </el-card>
         </el-col>
       </el-row>
@@ -61,27 +57,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { Key, Connection } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
-import { useSettingsStore } from "@/stores/settings";
+import { modeRequest } from "@/api/auth";
 
-const settings = useSettingsStore();
-const adminKeyDraft = ref(settings.adminKey);
-const dataKeyDraft = ref(settings.dataKey);
-const queryKeyDraft = ref(settings.queryKey);
+const mode = ref<"none" | "simple" | "ldap" | null>(null);
+const loading = ref(true);
 
-function saveKeys() {
-  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value, queryKeyDraft.value);
-  ElMessage.success("API Key 已保存到本地");
-}
-function clearKeys() {
-  adminKeyDraft.value = "";
-  dataKeyDraft.value = "";
-  queryKeyDraft.value = "";
-  settings.setKeys("", "", "");
-  ElMessage.info("API Key 已清除");
-}
+const modeText = ref("…");
+const modeTag = ref<"info" | "success" | "warning">("info");
+
+onMounted(async () => {
+  try {
+    const { ok, body } = await modeRequest();
+    mode.value = ok && body?.mode
+      ? (String(body.mode).toLowerCase() as "none" | "simple" | "ldap")
+      : "none";
+  } catch {
+    mode.value = "none";
+  } finally {
+    loading.value = false;
+    if (mode.value === "simple") { modeText.value = "simple(本地用户)"; modeTag.value = "success"; }
+    else if (mode.value === "ldap") { modeText.value = "LDAP(目录登录)"; modeTag.value = "success"; }
+    else { modeText.value = "none(无认证)"; modeTag.value = "warning"; }
+  }
+});
 </script>
 
 <style scoped lang="scss">
@@ -89,11 +89,16 @@ function clearKeys() {
   display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px;
   .spacer { flex: 1; }
 }
-.key-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.mode-line { font-size: 13px; line-height: 1.8; margin: 0 0 8px; code { background: #eef3f6; padding: 1px 5px; border-radius: 3px; } }
+.env-snip {
+  background: #0f172a; color: #d7e3ee; font-size: 12px; line-height: 1.7;
+  padding: 10px 12px; border-radius: 6px; overflow-x: auto;
+}
 .key-note { font-size: 12px; line-height: 1.7; margin: 10px 0 0; }
 .topo { display: flex; flex-direction: column; gap: 10px; }
 .topo-row {
-  display: flex; align-items: center; gap: 10px; font-size: 12.5px;
+  display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px;
   b { color: var(--sm-primary-dark); }
+  .el-tag { margin-top: 1px; }
 }
 </style>

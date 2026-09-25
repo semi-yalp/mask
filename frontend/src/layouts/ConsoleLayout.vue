@@ -59,8 +59,8 @@
         </a>
       </nav>
       <div class="sidebar-foot">
-        <div class="gate" :class="{ open: !settings.gateConfigured && !auth.isLoggedIn }">
-          {{ auth.isLoggedIn ? "认证:LDAP 已登录" : settings.gateConfigured ? "门禁:已配置鉴权" : "门禁:未配置(开放)" }}
+        <div class="gate" :class="{ open: auth.authMode !== 'none' && !auth.isLoggedIn }">
+          {{ auth.isLoggedIn ? "已登录:" + (auth.user?.displayName || auth.user?.username) : auth.authMode === 'none' ? "认证:关闭(开放)" : "认证:" + auth.authMode + "(未登录)" }}
         </div>
         <div v-if="auth.isLoggedIn && auth.user" class="whoami">
           <div class="whoami-name" :title="auth.user.displayName">{{ auth.user.displayName || auth.user.username }}</div>
@@ -70,7 +70,7 @@
           </div>
           <a class="logout-link" href="#/login" @click.prevent.stop="logout">退出登录</a>
         </div>
-        <a v-else class="foot-link" href="#/settings" @click.prevent.stop="openKeyDialog">API Key 设置</a>
+        <a v-else class="foot-link" href="#/settings" @click.prevent.stop="go('/settings', 'settings')">设置</a>
       </div>
     </aside>
 
@@ -158,7 +158,6 @@
           <el-icon class="flyout-close" @click="drawer = null"><Close /></el-icon>
         </div>
         <div class="flyout-scroll">
-          <a class="flyout-item" @click="openKeyDialog()"><el-icon><Key /></el-icon><span>API Key 设置</span></a>
           <a class="flyout-item" @click="go('/settings', 'settings')"><el-icon><Connection /></el-icon><span>服务拓扑</span></a>
         </div>
       </template>
@@ -167,28 +166,6 @@
     <div class="content" @click="drawer = null">
       <router-view />
     </div>
-
-    <el-dialog v-model="keyDialog" title="API Key 设置" width="460px" append-to-body>
-      <el-form label-width="110px">
-        <el-form-item label="管理 Key">
-          <el-input v-model="adminKeyDraft" type="password" show-password
-            placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
-        </el-form-item>
-        <el-form-item label="数据 Key">
-          <el-input v-model="dataKeyDraft" type="password" show-password
-            placeholder="留空 = 未配置(门禁开放)" autocomplete="off" />
-        </el-form-item>
-        <el-form-item label="查询 Key">
-          <el-input v-model="queryKeyDraft" type="password" show-password
-            placeholder="mask-query 数据面(未配置即全 401)" autocomplete="off" />
-        </el-form-item>
-      </el-form>
-      <p class="muted" style="margin:0 0 4px">管理 Key 用于实例/策略/UDF 管理面,数据 Key 用于生效配置查询,查询 Key 用于统一查询数据面;仅保存在浏览器 localStorage。</p>
-      <template #footer>
-        <el-button @click="clearKeys">清除</el-button>
-        <el-button type="primary" @click="saveKeys">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -196,37 +173,23 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Odometer, Coin, EditPen, Document, Setting, ArrowRight, Close, Grid, Key, Connection, Lock, FolderOpened, CaretRight, Warning, Bell, Filter, PriceTag, Collection } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
-import { useSettingsStore } from "@/stores/settings";
 import { useInstancesStore } from "@/stores/instances";
 import { POLICY_DIALECTS } from "@/constants";
-import { UNAUTHORIZED_EVENT } from "@/api/http";
 import { useAuthStore, SESSION_EXPIRED_EVENT } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
-const settings = useSettingsStore();
 const instances = useInstancesStore();
 const auth = useAuthStore();
 
-// LDAP 模式下按角色显隐；API Key 模式（未登录）保持原样全显
+// 认证开启(simple/ldap)时按角色显隐;none 模式(未登录)全显
 const showAdmin = computed(() => !auth.isLoggedIn || auth.isAdmin);
 const showAudit = computed(() => !auth.isLoggedIn || auth.isAuditorPlus);
 
 const drawer = ref<"access" | "audit" | "risk" | "settings" | null>(null);
 const dialectFilter = ref<string[]>([]);
-const keyDialog = ref(false);
-const adminKeyDraft = ref(settings.adminKey);
-const dataKeyDraft = ref(settings.dataKey);
-const queryKeyDraft = ref(settings.queryKey);
 
 const dialects = [...POLICY_DIALECTS];
-
-function onUnauthorized(e: Event) {
-  const role = (e as CustomEvent<{ role?: string }>).detail?.role || "admin";
-  const label = role === "query" ? "查询 Key" : role === "data" ? "数据 Key" : "管理 Key";
-  ElMessage.warning(`请求被 401 拒绝:请检查设置中的「${label}」是否已配置/正确`);
-}
 
 const groupedInstances = computed(() => {
   const selected = dialectFilter.value;
@@ -267,27 +230,6 @@ function goAudit(eventType: string) {
   router.push({ name: "audit", query: eventType ? { eventType } : {} }).catch(() => undefined);
 }
 
-function openKeyDialog() {
-  drawer.value = null;
-  adminKeyDraft.value = settings.adminKey;
-  dataKeyDraft.value = settings.dataKey;
-  queryKeyDraft.value = settings.queryKey;
-  keyDialog.value = true;
-}
-
-function saveKeys() {
-  settings.setKeys(adminKeyDraft.value, dataKeyDraft.value, queryKeyDraft.value);
-  keyDialog.value = false;
-  ElMessage.success("API Key 已保存到本地");
-}
-function clearKeys() {
-  adminKeyDraft.value = "";
-  dataKeyDraft.value = "";
-  queryKeyDraft.value = "";
-  settings.setKeys("", "", "");
-  ElMessage.info("API Key 已清除");
-}
-
 function logout() {
   drawer.value = null;
   auth.logout();
@@ -306,13 +248,12 @@ function onKey(e: KeyboardEvent) {
 
 onMounted(() => {
   instances.load();
+  auth.loadMode();
   document.addEventListener("keydown", onKey);
-  window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
   window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
 });
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKey);
-  window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized as EventListener);
   window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
 });
 

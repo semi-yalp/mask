@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import { call } from "@/api/http";
-import { useSettingsStore } from "@/stores/settings";
+import { call, callRaw } from "@/api/http";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -12,7 +11,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 beforeEach(() => {
   setActivePinia(createPinia());
-  useSettingsStore().setKeys("", "", "");
+  localStorage.clear();
 });
 
 type CapturedInit = { headers?: Record<string, string>; body?: string };
@@ -35,23 +34,12 @@ describe("call()", () => {
     await expect(call("GET", "/api/x")).rejects.toThrow("HTTP 502");
   });
 
-  it("admin 角色注入管理 Key,data 角色注入数据 Key", async () => {
-    const fetchMock = okMock();
-    vi.stubGlobal("fetch", fetchMock);
-    useSettingsStore().setKeys("adm-key", "dat-key", "");
-    await call("GET", "/api/a", undefined, "admin");
-    await call("GET", "/api/b", undefined, "data");
-    const adminInit: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
-    const dataInit: CapturedInit | undefined = fetchMock.mock.calls[1]?.[1];
-    expect(adminInit?.headers?.["X-Api-Key"]).toBe("adm-key");
-    expect(dataInit?.headers?.["X-Api-Key"]).toBe("dat-key");
-  });
-
-  it("Key 为空时不携带 X-Api-Key", async () => {
+  it("未登录时不携带任何认证头(none 模式全开放)", async () => {
     const fetchMock = okMock();
     vi.stubGlobal("fetch", fetchMock);
     await call("GET", "/api/c");
     const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
+    expect(init?.headers?.["Authorization"]).toBeUndefined();
     expect(init?.headers?.["X-Api-Key"]).toBeUndefined();
   });
 
@@ -62,5 +50,15 @@ describe("call()", () => {
     const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
     expect(init?.headers?.["Content-Type"]).toBe("application/json");
     expect(init?.body).toBe(JSON.stringify({ a: 1 }));
+  });
+
+  it("callRaw 以 text/yaml 发送并返回文本", async () => {
+    const fetchMock = okMock();
+    vi.stubGlobal("fetch", fetchMock);
+    const text = await callRaw("POST", "/api/y", { body: "policies: {}" });
+    const init: CapturedInit | undefined = fetchMock.mock.calls[0]?.[1];
+    expect(init?.headers?.["Content-Type"]).toBe("text/yaml");
+    expect(init?.body).toBe("policies: {}");
+    expect(text).toBe("{}");
   });
 });

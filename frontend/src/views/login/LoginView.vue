@@ -11,7 +11,7 @@
 
       <template v-if="modeReady && !ldapEnabled">
         <el-result icon="info" title="本部署未启用 LDAP 登录"
-          sub-title="后端未配置 MASK_AUTH_SECRET / MASK_AUTH_LDAP_URL，控制台以 API Key 模式运行。">
+          sub-title="当前认证模式为 none(无认证):控制台直接开放,可在服务端设置 MASK_AUTH_MODE 开启登录。">
           <template #extra>
             <el-button type="primary" @click="router.push('/')">进入控制台</el-button>
           </template>

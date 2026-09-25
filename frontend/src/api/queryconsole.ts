@@ -36,7 +36,7 @@ export interface QueryResult {
 export const MAX_ROWS_HARD_LIMIT = 10000;
 
 export function runQuery(body: QueryRequestBody): Promise<QueryResult> {
-  return call("POST", "/api/v1/query", body, "query");
+  return call("POST", "/api/v1/query", body);
 }
 
 /** 构造请求体:trim 与空值裁剪(与 vitest 用例对齐)。 */
