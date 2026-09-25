@@ -19,7 +19,7 @@ import java.util.Map;
  * filters, a @timestamp range, newest first, offset paging. Any ES outage
  * surfaces as {@link AuditSearchUnavailableException}.
  */
-public final class AuditSearchClient {
+public final class AuditSearchClient implements AuditSearch {
 
   private final ElasticsearchClient client;
   private final String indexPrefix;
@@ -30,6 +30,7 @@ public final class AuditSearchClient {
     this.indexPrefix = indexPrefix;
   }
 
+  @Override
   public AuditSearchResult search(AuditQuery q) {
     try {
       SearchResponse<JsonNode> response = client.search(s -> {

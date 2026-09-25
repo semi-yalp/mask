@@ -15,7 +15,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * mappings (malformed JSON, unexpected 500) come from the shared
  * {@link BaseApiExceptionHandler}.
  */
-@RestControllerAdvice
+@RestControllerAdvice("io.sqlmask.policyserver")
+@org.springframework.core.annotation.Order(0)
 public class PolicyApiExceptionHandler extends BaseApiExceptionHandler {
 
   @ExceptionHandler(SqlMaskException.class)

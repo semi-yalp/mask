@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * caller.
  */
 @RestControllerAdvice
+@org.springframework.core.annotation.Order(100)
 public class ApiExceptionHandler extends BaseApiExceptionHandler {
 
   private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);

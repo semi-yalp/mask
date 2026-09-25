@@ -17,7 +17,8 @@ import java.util.List;
  * status mapping. Generic mappings come from {@link BaseApiExceptionHandler};
  * the 404 and logged-500 overrides below keep the metadata-specific behaviour.
  */
-@RestControllerAdvice
+@RestControllerAdvice("io.sqlmask.metaserver")
+@org.springframework.core.annotation.Order(0)
 public class MetadataApiExceptionHandler extends BaseApiExceptionHandler {
 
   private static final Logger log = LoggerFactory.getLogger(MetadataApiExceptionHandler.class);

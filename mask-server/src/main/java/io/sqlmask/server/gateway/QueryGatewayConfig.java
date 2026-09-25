@@ -45,7 +45,15 @@ public class QueryGatewayConfig {
   @Bean
   QueryRewriter localQueryRewriter(InstanceRewriteService rewrites) {
     return (instance, sql, user, groups) -> {
-      var response = rewrites.rewrite(instance, sql, user, groups);
+      // 与 HTTP 客户端语义一致:改写域的结构化错误转换成 rewritePhase 的
+      // QueryException,让查询网关的 PASSTHROUGH(放行开关)能识别改写阶段失败
+      io.sqlmask.server.RewriteController.RewriteResponse response;
+      try {
+        response = rewrites.rewrite(instance, sql, user, groups);
+      } catch (io.sqlmask.error.SqlMaskException e) {
+        throw new io.sqlmask.query.error.QueryException(e.getCode().name(), e.getMessage(), e,
+            true);
+      }
       List<StatementView> statements = response.statements().stream()
           .map(s -> new StatementView(s.ordinal(), s.originalSql(), s.rewrittenSql(),
               s.masked(), s.rowFiltered(), s.kind().name()))

@@ -1,7 +1,7 @@
 package io.sqlmask.server;
 
 import io.sqlmask.audit.AuditQuery;
-import io.sqlmask.audit.AuditSearchClient;
+import io.sqlmask.audit.AuditSearch;
 import io.sqlmask.audit.AuditSearchResult;
 import io.sqlmask.audit.AuditSearchUnavailableException;
 import io.sqlmask.error.SqlMaskException;
@@ -28,14 +28,14 @@ public class AuditQueryController {
   private static final int DEFAULT_SIZE = 50;
   private static final int MAX_SIZE = 200;
 
-  private final AuditSearchClient search;
+  private final AuditSearch search;
 
   /**
    * The search client bean is conditional on {@code audit.enabled=true}; an
    * absent client (audit disabled) must not break application startup — the
    * endpoint responds 502 {@code AUDIT_SEARCH_UNAVAILABLE} instead.
    */
-  public AuditQueryController(ObjectProvider<AuditSearchClient> searchProvider) {
+  public AuditQueryController(ObjectProvider<AuditSearch> searchProvider) {
     this.search = searchProvider.getIfAvailable();
   }
 

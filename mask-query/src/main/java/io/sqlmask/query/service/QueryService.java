@@ -177,7 +177,13 @@ public class QueryService {
       break;
     }
     String upper = body.toUpperCase(java.util.Locale.ROOT);
-    return upper.startsWith("SELECT") || upper.startsWith("WITH");
+    if (!upper.startsWith("SELECT") && !upper.startsWith("WITH")) {
+      return false;
+    }
+    // 单语句约束:放行的原 SQL 与改写产物同一护栏——栈叠语句("SELECT 1; SELECT 2")
+    // 以 SELECT 开头却携带多条命令,绝不允许绕过改写阶段直抵引擎
+    String trimmed = body.endsWith(";") ? body.substring(0, body.length() - 1) : body;
+    return trimmed.indexOf(';') < 0;
   }
 
   // —— 并发信号量的测试钩子（生产不调用） ——

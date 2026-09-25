@@ -20,6 +20,7 @@ import java.util.List;
  * (unexpected 500) come from the shared {@link BaseApiExceptionHandler}.
  */
 @RestControllerAdvice("io.sqlmask.query")
+@org.springframework.core.annotation.Order(0)
 public class QueryApiExceptionHandler extends BaseApiExceptionHandler {
 
   @ExceptionHandler(QueryException.class)

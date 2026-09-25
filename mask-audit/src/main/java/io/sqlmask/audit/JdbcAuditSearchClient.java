@@ -12,7 +12,7 @@ import java.util.Map;
  * {@link AuditSearchClient}: fixed filters, time range, newest first,
  * offset/limit paging, payload documents returned as maps.
  */
-public final class JdbcAuditSearchClient {
+public final class JdbcAuditSearchClient implements AuditSearch {
 
   private final JdbcTemplate jdbc;
 
@@ -20,6 +20,7 @@ public final class JdbcAuditSearchClient {
     this.jdbc = jdbc;
   }
 
+  @Override
   public AuditSearchResult search(AuditQuery q) {
     StringBuilder where = new StringBuilder(" WHERE 1=1");
     List<Object> args = new ArrayList<>();

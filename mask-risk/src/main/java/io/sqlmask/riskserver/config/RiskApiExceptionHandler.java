@@ -8,7 +8,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.Map;
 
 /** Uniform {@code {"code","message"}} error body like the other services. */
-@RestControllerAdvice
+@RestControllerAdvice("io.sqlmask.riskserver")
+@org.springframework.core.annotation.Order(0)
 public class RiskApiExceptionHandler {
 
   @ExceptionHandler(IllegalArgumentException.class)

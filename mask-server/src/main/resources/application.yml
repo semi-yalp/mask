@@ -13,7 +13,8 @@ spring:
       # SPA static hosting when the frontend build is bundled into the jar
       # (docker/server.Dockerfile); a bare `java -jar` run without the bundle
       # simply serves the API only.
-      static-locations: classpath:/static/,classpath:/public/
+      # file:./static/ 支持裸 jar 部署时把前端 dist 放在运行目录旁(不打进 jar)
+      static-locations: file:./static/,classpath:/static/,classpath:/public/
   mvc:
     throw-exception-if-no-handler-found: true
 
