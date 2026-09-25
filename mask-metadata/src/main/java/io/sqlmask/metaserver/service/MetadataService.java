@@ -4,6 +4,7 @@ import io.sqlmask.dialect.DialectProfiles;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.metaserver.model.ConnectionInfo;
 import io.sqlmask.metaserver.model.InstanceRow;
+import io.sqlmask.metaserver.model.TableStructure;
 import io.sqlmask.metaserver.store.MetaStore;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -66,6 +67,16 @@ public class MetadataService {
   /** One consistent read of the instance row plus its structure (M7). */
   public MetaStore.InstanceSnapshot snapshot(String name) {
     return store.loadSnapshot(requireName(name));
+  }
+
+  /** Registers a target table structure (e.g. CTAS copy targets) over the whole
+   * existing structure; bumps metadata_version via {@code replaceStructure}. An
+   * unknown instance is a 404, matching every other mutation path (M10). */
+  public InstanceRow registerStructure(String name, List<TableStructure> tables) {
+    String trimmed = requireName(name);
+    get(trimmed);
+    store.replaceStructure(trimmed, tables == null ? List.of() : tables);
+    return get(trimmed);
   }
 
   public InstanceRow updateConnection(String name, ConnectionInfo connection) {

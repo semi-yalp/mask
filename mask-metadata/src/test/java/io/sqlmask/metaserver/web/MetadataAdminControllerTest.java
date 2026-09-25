@@ -221,6 +221,35 @@ class MetadataAdminControllerTest {
   }
 
   @Test
+  void registersStructureForNewTable() throws Exception {
+    createInstance("demo");
+
+    mockMvc.perform(put("/api/meta/instances/demo/structure")
+            .header("X-Api-Key", KEY)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                [{"catalog":"crm","schema":"public","name":"customer_copy",
+                  "columns":[{"name":"phone","type":"varchar"},{"name":"name","type":"varchar"}]}]
+                """))
+        .andExpect(status().isOk());
+    // 随后数据面 GET /api/metadata/instances/demo 应包含 customer_copy
+    mockMvc.perform(get("/api/metadata/instances/demo").header("X-Api-Key", KEY))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tables[0].name").value("customer_copy"))
+        .andExpect(jsonPath("$.tables[0].columns.length()").value(2));
+  }
+
+  @Test
+  void registerStructureUnknownInstanceIs404() throws Exception {
+    mockMvc.perform(put("/api/meta/instances/ghost/structure")
+            .header("X-Api-Key", KEY)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("[]"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("METADATA_INSTANCE_NOT_FOUND"));
+  }
+
+  @Test
   void unknownInstanceIs404OnGetPutAndDelete() throws Exception {
     mockMvc.perform(get("/api/meta/instances/ghost").header("X-Api-Key", KEY))
         .andExpect(status().isNotFound())

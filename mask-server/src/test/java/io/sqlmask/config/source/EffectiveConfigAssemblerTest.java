@@ -2,6 +2,7 @@ package io.sqlmask.config.source;
 import io.sqlmask.common.effective.EffectiveConfigResponse;
 
 import io.sqlmask.config.LoadedConfig;
+import io.sqlmask.config.MaskingConfig;
 import io.sqlmask.error.SqlMaskException;
 import io.sqlmask.rewrite.RewriteEngine;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,22 @@ class EffectiveConfigAssemblerTest {
         .maskFor("CRM", "PUBLIC", "CUSTOMER", "PHONE", io.sqlmask.policy.model.Subject.anonymous());
     assertTrue(instruction.isPresent());
     assertEquals("mask_phone", instruction.orElseThrow().udf());
+  }
+
+  @Test
+  void columnBindingInheritOnCopyIsAssembled() {
+    // columns 含两个 binding,phone 的 inheritOnCopy=true,amount 未声明(默认 false)
+    EffectiveConfigResponse.ConfigPayload config = new EffectiveConfigResponse.ConfigPayload(
+        sample().config().metadata(),
+        List.of(
+            new EffectiveConfigResponse.ColumnBinding(
+                "crm", "public", "customer", "phone", "phone_mask", true),
+            new EffectiveConfigResponse.ColumnBinding(
+                "crm", "public", "customer", "amount", "phone_mask")),
+        sample().config().policies());
+    LoadedConfig loaded = new EffectiveConfigAssembler().assemble(response(config));
+    MaskingConfig.ColumnPolicyBinding binding = loaded.config().columnPolicies().get(0);
+    assertTrue(binding.inheritOnCopy());
   }
 
   @Test

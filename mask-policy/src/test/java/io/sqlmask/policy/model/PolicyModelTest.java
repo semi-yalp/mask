@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -96,5 +97,37 @@ class PolicyModelTest {
             List.of(),
             List.of(new RowFilterItem(EVERYONE, "status <> 'archived'"))));
     assertTrue(withColumn.getMessage().contains("table-level"));
+  }
+
+  @Test
+  void resourceRetainsFourArgConstructorDefaultingInheritOff() {
+    PolicyResource r = new PolicyResource("crm", "public", "customer", "phone");
+    assertFalse(r.inheritOnCopy());
+    PolicyResource r2 = new PolicyResource("crm", "public", "customer", "phone", true);
+    assertTrue(r2.inheritOnCopy());
+    // 表级(列空)资源带 inheritOnCopy 由 Policy 构造器负责拒绝,resource 本身不拦
+  }
+
+  @Test
+  void inheritOnCopyRejectedOnRowFilterResource() {
+    PolicyResource tableResource =
+        new PolicyResource("crm", "public", "customer", null, true);
+    PolicyException e = assertThrows(PolicyException.class, () -> new Policy(
+        "rf", true, 0, PolicyType.ROW_FILTER,
+        List.of(tableResource), List.of(),
+        List.of(new RowFilterItem(new SubjectSelector(Set.of(), Set.of("*")), "id > 0"))));
+    assertTrue(e.getMessage().contains("inheritOnCopy is only allowed on dataMask"));
+  }
+
+  @Test
+  void inheritOnCopyAllowedOnDataMaskResource() {
+    PolicyResource colResource =
+        new PolicyResource("crm", "public", "customer", "phone", true);
+    Policy p = new Policy("dm", true, 0, PolicyType.DATA_MASK,
+        List.of(colResource),
+        List.of(new DataMaskItem(new SubjectSelector(Set.of(), Set.of("*")), "mask_phone",
+            List.of())),
+        List.of());
+    assertTrue(p.resources().get(0).inheritOnCopy());
   }
 }

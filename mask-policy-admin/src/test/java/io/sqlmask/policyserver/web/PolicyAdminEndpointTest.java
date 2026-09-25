@@ -233,6 +233,49 @@ class PolicyAdminEndpointTest {
   }
 
   @Test
+  void resourceInheritColumnsRoundTrips() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY)).andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+
+    String withInheritColumns = """
+        {"name": "phone_mask_analysts", "policyType": "datamask", "isEnabled": true,
+         "resource": {"catalog": "crm", "schema": "public", "table": "customer",
+                      "columns": ["phone"], "inheritColumns": ["phone"]},
+         "subjects": {"users": ["alice"], "groups": []},
+         "udf": "mask_phone", "arguments": [3, 4]}
+        """;
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(withInheritColumns))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resource.inheritColumns[0]").value("phone"));
+    mvc.perform(get("/api/instances/pg_prod/policies/phone_mask_analysts"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resource.inheritColumns[0]").value("phone"));
+  }
+
+  @Test
+  void omittedInheritColumnsDefaultsToEmptyOnRead() throws Exception {
+    mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
+            .content(INSTANCE_BODY)).andExpect(status().isOk());
+    mvc.perform(post("/api/instances/pg_prod/udfs").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"mask_phone\",\"signatures\":"
+                + "[{\"params\":[\"varchar\",\"integer\",\"integer\"],\"returns\":\"varchar\"}]}"))
+        .andExpect(status().isOk());
+
+    // 旧客户端不携带 inheritColumns:DTO 缺省 null,读出时应归一化为空列表
+    mvc.perform(post("/api/instances/pg_prod/policies").contentType(MediaType.APPLICATION_JSON)
+            .content(POLICY_BODY))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/instances/pg_prod/policies/phone_mask_analysts"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resource.inheritColumns.length()").value(0));
+  }
+
+  @Test
   void omittedPriorityDefaultsToZero() throws Exception {
     mvc.perform(post("/api/instances").contentType(MediaType.APPLICATION_JSON)
             .content(INSTANCE_BODY)).andExpect(status().isOk());

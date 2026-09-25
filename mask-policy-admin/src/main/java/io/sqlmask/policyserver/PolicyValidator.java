@@ -98,6 +98,13 @@ public final class PolicyValidator {
                 + "' in table '" + tableKey(policy.resource()) + "'");
           }
         }
+        // inheritColumns ⊆ columns:继承列必须同时是被脱敏的列(否则 CTAS 继承无从生效)
+        for (String inheritColumn : policy.resource().inheritColumns()) {
+          if (!policy.resource().columns().contains(inheritColumn)) {
+            throw error("policy '" + policy.name() + "': inheritColumn '" + inheritColumn
+                + "' is not among resource columns");
+          }
+        }
         String udfError = udfResolutionError(instance, udfs, policy);
         if (udfError != null) {
           throw error(udfError);

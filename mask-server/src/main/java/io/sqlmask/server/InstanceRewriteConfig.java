@@ -22,7 +22,32 @@ public class InstanceRewriteConfig {
 
   @ConfigurationProperties(prefix = "sqlmask")
   public record Upstreams(Service metadataService, Service policyService) {
-    public record Service(String baseUrl, String apiKey) {}
+    /**
+     * One upstream service with its data-plane key ({@code apiKey}) and optional
+     * admin-plane key ({@code adminApiKey}, bound from
+     * {@code sqlmask.*.admin-api-key}). Split-key deployments gate the admin
+     * surface ({@code /api/instances/**}) with a different key than the data
+     * surface; when no admin key is configured (single-key deployment) the
+     * data key is the fallback, so existing configurations keep working.
+     */
+    public record Service(String baseUrl, String apiKey, String adminApiKey) {
+
+      /** Binding constructor: with the legacy 2-arg convenience constructor
+       * present, Spring Boot cannot pick one on its own (multi-constructor
+       * records bind nothing and every property stays null). */
+      @org.springframework.boot.context.properties.bind.ConstructorBinding
+      public Service {
+      }
+
+      public Service(String baseUrl, String apiKey) {
+        this(baseUrl, apiKey, null);
+      }
+
+      /** admin 面 API key;未单独配置(null/blank)时回落 data 面 key。 */
+      public String effectiveAdminApiKey() {
+        return adminApiKey == null || adminApiKey.isBlank() ? apiKey : adminApiKey;
+      }
+    }
   }
 
   /** Null when the service is unconfigured: the instance-scoped endpoint

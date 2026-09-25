@@ -55,8 +55,10 @@ public final class EffectiveConfigCompiler {
         } else {
           for (String column : policy.resource().columns()) {
             if (emittedColumns.add(ColumnKey.normalize(column, "column"))) {
+              boolean inherited = policy.resource().inheritColumns().contains(column);
               bindings.add(new EffectiveConfigResponse.ColumnBinding(
-                  table.catalog(), table.schema(), table.name(), column, policy.name()));
+                  table.catalog(), table.schema(), table.name(), column, policy.name(),
+                  inherited));
             }
           }
         }

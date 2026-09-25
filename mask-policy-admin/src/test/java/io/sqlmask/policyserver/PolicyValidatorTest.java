@@ -418,4 +418,35 @@ class PolicyValidatorTest {
     PolicyEntity legacy = datamask("legacy", "customer", List.of("phone")); // 7 参便捷构造
     assertEquals(Set.of("*"), legacy.subjects().users());
   }
+
+  // ---- 继承列(inheritColumns)校验: inheritColumns ⊆ columns ----
+
+  @Test
+  void acceptsInheritColumnsSubsetOfColumns() {
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone", "email"),
+            List.of("phone")),
+        "mask_phone", List.of(3, 4), null);
+    assertDoesNotThrow(() -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()));
+  }
+
+  @Test
+  void acceptsEmptyInheritColumns() {
+    // 兼容旧策略:未声明继承列即空集合,不额外校验
+    assertDoesNotThrow(() ->
+        validator.validatePolicy(INSTANCE, UDFS, datamask("p", "customer", List.of("phone")), List.of()));
+  }
+
+  @Test
+  void rejectsInheritColumnNotAmongResourceColumns() {
+    // email 在表中存在,但不在策略 columns 列表里 —— 继承列必须 ⊆ columns
+    PolicyEntity p = new PolicyEntity("p", PolicyType.DATAMASK, true,
+        new ResourceSelector("crm", "public", "customer", List.of("phone"),
+            List.of("email")),
+        "mask_phone", List.of(3, 4), null);
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> validator.validatePolicy(INSTANCE, UDFS, p, List.of()));
+    assertTrue(e.getMessage().contains("inheritColumn 'email' is not among resource columns"),
+        () -> e.getMessage());
+  }
 }

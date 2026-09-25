@@ -74,6 +74,9 @@ public final class PolicyYamlWriter {
       if (resource.column() != null) {
         node.put("column", new ArrayList<>(List.of(resource.column())));
       }
+      if (resource.inheritOnCopy()) {
+        node.put("inheritOnCopy", true);
+      }
       resources.add(node);
     }
     return resources;

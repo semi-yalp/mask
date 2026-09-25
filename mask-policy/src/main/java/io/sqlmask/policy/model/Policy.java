@@ -48,5 +48,11 @@ public record Policy(String name, boolean enabled, int priority, PolicyType type
         }
       }
     }
+    for (PolicyResource resource : resources) {
+      if (resource.inheritOnCopy() && type != PolicyType.DATA_MASK) {
+        throw new PolicyException("policy '" + name
+            + "': inheritOnCopy is only allowed on dataMask (column-level) resources");
+      }
+    }
   }
 }

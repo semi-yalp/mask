@@ -65,15 +65,20 @@ audit:
   effective-pull:
     enabled: ${AUDIT_EFFECTIVE_PULL_ENABLED:true}
 
-# Remote-service transports (standalone deployments / CLI runs); blank means
-# the in-process local transports are used.
+# 远程服务传输(独立部署/CLI 用);单体默认自环——继承策略注册器走同一 HTTP
+# 面(注册器 fail-closed:上游不可达/401 即改写失败;认证开启后自环需带凭据,
+# 见 docs/known-issues-v2.md M2)。指向独立服务时按环境变量覆盖。
 sqlmask:
   metadata-service:
-    base-url: ${SQLMASK_METADATA_BASE_URL:}
+    base-url: ${SQLMASK_METADATA_BASE_URL:http://127.0.0.1:${server.port:8080}}
     api-key: ${SQLMASK_METADATA_API_KEY:}
+    # admin 面(继承注册的 /structure 写入等)密钥;缺省回落 api-key(单 key 部署)
+    admin-api-key: ${SQLMASK_METADATA_ADMIN_API_KEY:}
   policy-service:
-    base-url: ${SQLMASK_POLICY_BASE_URL:}
+    base-url: ${SQLMASK_POLICY_BASE_URL:http://127.0.0.1:${server.port:8080}}
     api-key: ${SQLMASK_POLICY_API_KEY:}
+    # admin 面(/api/instances/** 的继承注册读写)密钥;缺省回落 api-key(单 key 部署)
+    admin-api-key: ${SQLMASK_POLICY_ADMIN_API_KEY:}
 
 # Risk domain (embedded): demo data is NOT seeded unless asked for.
 risk:

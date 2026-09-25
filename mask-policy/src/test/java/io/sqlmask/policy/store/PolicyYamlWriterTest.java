@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyYamlWriterTest {
 
@@ -65,5 +67,24 @@ class PolicyYamlWriterTest {
   @Test
   void emptyPolicyListWritesAnEmptyList() {
     assertEquals(List.of(), loader.parse(writer.write(List.of()), "policies.yaml"));
+  }
+
+  @Test
+  void inheritOnCopyKeyWrittenOnlyWhenTrueAfterColumn() {
+    Policy withFlag = new Policy("crm.phone", true, 0, PolicyType.DATA_MASK,
+        List.of(new PolicyResource("crm", "public", "customer", "phone", true)),
+        List.of(new DataMaskItem(
+            new SubjectSelector(Set.of(), Set.of("*")), "mask_phone", List.of())),
+        List.of());
+    String emitted = writer.write(List.of(withFlag));
+    assertTrue(emitted.contains("inheritOnCopy: true"));
+    assertTrue(emitted.indexOf("column:") < emitted.indexOf("inheritOnCopy:"));
+
+    Policy withoutFlag = new Policy("crm.email", true, 0, PolicyType.DATA_MASK,
+        List.of(new PolicyResource("crm", "public", "customer", "email", false)),
+        List.of(new DataMaskItem(
+            new SubjectSelector(Set.of(), Set.of("*")), "mask_email", List.of())),
+        List.of());
+    assertFalse(writer.write(List.of(withoutFlag)).contains("inheritOnCopy:"));
   }
 }

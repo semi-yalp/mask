@@ -51,7 +51,8 @@ public class PolicyAdminController {
   public record SubjectDto(Set<String> users, Set<String> groups) {
   }
 
-  public record ResourceDto(String catalog, String schema, String table, List<String> columns) {
+  public record ResourceDto(String catalog, String schema, String table, List<String> columns,
+      List<String> inheritColumns) {
   }
 
   public record PolicyDto(String name, String policyType, boolean isEnabled, Integer priority,
@@ -98,7 +99,7 @@ public class PolicyAdminController {
     return adminMetrics.record("TABLES", "REPLACE_TABLES", () -> {
       List<TableDef> tables = toTables(request == null ? null : request.tables());
       return audit.adminChange(httpRequest, "REPLACE_TABLES", "TABLES", name, name,
-          () -> Map.of("tableCount", tables.size()),
+          () -> withOriginatingUser(httpRequest, Map.of("tableCount", tables.size())),
           () -> toDto(service.updateInstanceTables(name, tables)));
     });
   }
@@ -120,7 +121,7 @@ public class PolicyAdminController {
     return adminMetrics.record("POLICY", "CREATE", () ->
         audit.adminChange(httpRequest, "CREATE", "POLICY", name,
             request == null ? null : request.name(),
-            () -> policyDetail(request),
+            () -> withOriginatingUser(httpRequest, policyDetail(request)),
             () -> toDto(service.createPolicy(name, toModel(request)))));
   }
 
@@ -180,6 +181,21 @@ public class PolicyAdminController {
     return detail;
   }
 
+  /** Merges the originating user into an audit detail: automated callers (the
+   * rewrite registrar) forward {@code X-Originating-User} so the event records
+   * the end user that actually triggered the mutation; an absent/blank header
+   * adds nothing. */
+  private static Map<String, Object> withOriginatingUser(HttpServletRequest request,
+      Map<String, Object> detail) {
+    String originUser = request.getHeader("X-Originating-User");
+    if (originUser == null || originUser.isBlank()) {
+      return detail;
+    }
+    var merged = new java.util.LinkedHashMap<String, Object>(detail);
+    merged.put("originatingUser", originUser);
+    return merged;
+  }
+
   private static List<TableDef> toTables(List<TableDto> tables) {
     if (tables == null) {
       return List.of();
@@ -210,7 +226,9 @@ public class PolicyAdminController {
         dto.priority(),
         new ResourceSelector(dto.resource().catalog(), dto.resource().schema(),
             dto.resource().table(), dto.resource().columns() == null
-                ? List.of() : dto.resource().columns()),
+                ? List.of() : dto.resource().columns(),
+            dto.resource().inheritColumns() == null
+                ? List.of() : dto.resource().inheritColumns()),
         toSelector(dto.subjects(), dto.name()), dto.udf(), dto.arguments(), dto.filterExpr());
   }
 
@@ -271,7 +289,7 @@ public class PolicyAdminController {
     return new PolicyDto(p.name(), p.policyType().name().toLowerCase(Locale.ROOT),
         p.enabled(), p.priority(),
         new ResourceDto(p.resource().catalog(), p.resource().schema(),
-            p.resource().table(), p.resource().columns()),
+            p.resource().table(), p.resource().columns(), p.resource().inheritColumns()),
         new SubjectDto(p.subjects().users(), p.subjects().groups()),
         p.udf(), p.arguments(), p.filterExpr());
   }

@@ -22,6 +22,11 @@ public record MaskingConfig(
   }
 
   /** A single {@code columns:} entry binding a fully qualified column to a policy name. */
-  public record ColumnPolicyBinding(ColumnKey key, String policyName) {
+  public record ColumnPolicyBinding(ColumnKey key, String policyName, boolean inheritOnCopy) {
+
+    /** 兼容既有调用:未声明继承即 false。 */
+    public ColumnPolicyBinding(ColumnKey key, String policyName) {
+      this(key, policyName, false);
+    }
   }
 }

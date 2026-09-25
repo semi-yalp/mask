@@ -76,6 +76,62 @@ class YamlConfigLoaderTest {
   }
 
   @Test
+  void columnBindingParsesInheritOnCopy() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns: [ {name: phone, type: varchar}, {name: name, type: varchar} ]
+        policies:
+          mask_phone:
+            udf: mask_phone
+        columns:
+          - catalog: crm
+            schema: public
+            table: customer
+            column: phone
+            policy: mask_phone
+            inheritOnCopy: true
+        """;
+    LoadedConfig loaded =
+        new YamlConfigLoader().loadContent(yaml, "metadata.yaml", "postgresql");
+    MaskingConfig.ColumnPolicyBinding binding = loaded.config().columnPolicies().get(0);
+    assertTrue(binding.inheritOnCopy());
+  }
+
+  @Test
+  void rejectsNonBooleanInheritOnCopy() {
+    String yaml = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns:
+                - name: phone
+                  type: varchar
+        policies:
+          mask:
+            udf: mask_generic
+        columns:
+          - catalog: crm
+            schema: public
+            table: customer
+            column: phone
+            policy: mask
+            inheritOnCopy: "yes"
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class,
+        () -> new YamlConfigLoader().loadContent(yaml, "metadata.yaml", "postgresql"));
+    assertEquals(SqlMaskException.Code.CONFIG_ERROR, e.getCode());
+    assertTrue(e.getMessage().contains("columns[0].inheritOnCopy must be boolean"),
+        () -> "diagnostic should be 'columns[0].inheritOnCopy must be boolean' but was: "
+            + e.getMessage());
+  }
+
+  @Test
   void preservesArgumentOrder() {
     LoadedConfig loaded = loader.load(VALID);
     var policy = policyFor(loaded,

@@ -49,6 +49,7 @@ java -jar mask-server/target/sqlmask-server.jar   # http://127.0.0.1:8080
 - **行过滤**：白名单条件注入派生表，覆盖 JOIN/CTE/UNION/写语句源查询。
 - **改写失败放行（可选）**：实例 `onRewriteFailure=PASSTHROUGH` 时纯读语句以原 SQL
   继续，响应/审计/指标全程留痕；写语句绝不放行。
+- **复制表策略继承（inheritOnCopy，可选）**：列级策略声明 `inheritOnCopy: true` 后，该列的 CTAS / INSERT…SELECT / INSERT OVERWRITE 复制不再脱敏写入——目标表得到干净数据，改写服务自动在策略与元数据域注册目标表列策略（带审计与全量冲突检查，任一步失败即改写失败）；inline YAML / CLI 通道无注册能力，遇继承语句显式拒绝。
 - **分类分级**：列名启发式自动识别 + 手工修正，沉淀元数据层。
 - **UDF 中心**：从 PG/MySQL 引擎发现函数导入、内置脱敏模板一键部署、注册表重同步。
 - **统一授权**：主体×资源×权限集中登记，编译 PG/MySQL GRANT DDL（预览/应用），矩阵查询。

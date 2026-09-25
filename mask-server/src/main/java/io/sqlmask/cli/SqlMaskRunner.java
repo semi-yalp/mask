@@ -54,6 +54,13 @@ public final class SqlMaskRunner {
       statements = new RewriteEngine().rewrite(metadataYaml, policyYaml, sqlText,
           options.dialect(), Subject.of(options.user(), options.groups()));
     }
+    // fail-closed:CLI 没有继承策略注册能力,inheritOnCopy 列的复制语句会产出
+    // "干净数据 + 无策略"的 SQL——绝不静默返回,指向实例改写端点
+    if (statements.stream().anyMatch(s -> !s.inheritedColumns().isEmpty())) {
+      throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
+          "inheritOnCopy 策略列出现在复制语句中,但当前改写通道无法自动注册继承策略;"
+              + "请使用实例改写端点 /api/rewrite/instances/{name}");
+    }
     return RewriteEngine.join(statements);
   }
 

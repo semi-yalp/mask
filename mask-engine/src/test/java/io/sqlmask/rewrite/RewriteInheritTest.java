@@ -1,0 +1,228 @@
+package io.sqlmask.rewrite;
+
+import io.sqlmask.error.SqlMaskException;
+import io.sqlmask.policy.model.Subject;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** 复制表语句的脱敏策略继承:继承列不包装、输出 InheritedColumn、冲突/歧义 fail-closed。 */
+class RewriteInheritTest {
+
+  private static final String METADATA = """
+      metadata:
+        tables:
+          - catalog: crm
+            schema: public
+            name: customer
+            columns: [ {name: phone, type: varchar}, {name: name, type: varchar} ]
+      policies: {}
+      """;
+
+  private static final String POLICY = """
+      policies:
+        - name: crm.phone
+          type: dataMask
+          resources:
+            - catalog: crm
+              schema: public
+              table: customer
+              column: phone
+              inheritOnCopy: true
+          dataMaskItems:
+            - groups: ["*"]
+              udf: mask_phone
+        - name: crm.name
+          type: dataMask
+          resources:
+            - catalog: crm
+              schema: public
+              table: customer
+              column: name
+          dataMaskItems:
+            - groups: ["*"]
+              udf: mask_name
+      """;
+
+  @Test
+  void ctasInheritingColumnStaysUnwrappedAndReportsInheritedColumn() {
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(StatementKind.CTAS, st.kind());
+    assertFalse(st.masked(), "继承列不应被脱敏包装");
+    assertEquals(st.originalSql(), st.rewrittenSql(), "纯继承时语句应原样透传");
+    assertEquals(1, st.inheritedColumns().size());
+    InheritedColumn ic = st.inheritedColumns().get(0);
+    assertEquals("crm", ic.targetCatalog());
+    assertEquals("public", ic.targetSchema());
+    assertEquals("customer_copy", ic.targetTable());
+    assertEquals("phone", ic.targetColumn());
+    assertEquals("mask_phone", ic.items().get(0).udf());
+  }
+
+  @Test
+  void inheritedColumnWithRowFilterKeepsFilterInjected() {
+    // 纯继承 + 行过滤:继承列数据干净写入,但源表行过滤条件必须保留在改写里
+    String meta = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns: [ {name: id, type: bigint}, {name: phone, type: varchar} ]
+        policies: {}
+        """;
+    String policy = """
+        policies:
+          - name: crm.phone
+            type: dataMask
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+                inheritOnCopy: true
+            dataMaskItems:
+              - groups: ["*"]
+                udf: mask_phone
+          - name: filter-customer
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+            rowFilterItems:
+              - groups: ["*"]
+                filterExpr: "id > 0"
+        """;
+    RewriteEngine.StatementRewrite st = new RewriteEngine()
+        .rewrite(meta, policy,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone FROM crm.public.customer",
+            "postgresql", Subject.anonymous()).get(0);
+    assertFalse(st.masked(), "纯继承列不包装");
+    assertTrue(st.rowFiltered(), "继承 + 行过滤:rowFiltered 必须为 true");
+    assertTrue(st.rewrittenSql().contains("id > 0"),
+        () -> "改写里应保留行过滤条件,实际: " + st.rewrittenSql());
+    assertFalse(st.inheritedColumns().isEmpty(), "继承条目应输出");
+  }
+
+  @Test
+  void mixedInheritAndMaskedColumnsWrapOnlyTheMaskedColumn() {
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "INSERT INTO crm.public.customer_copy (phone, name) "
+                + "SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(StatementKind.INSERT_SELECT, st.kind());
+    assertTrue(st.masked(), "name 列无继承标志,应被脱敏包装");
+    assertEquals(1, st.inheritedColumns().size());
+    assertTrue(st.rewrittenSql().contains("mask_name"), "改写里应保留非继承列的脱敏调用");
+    assertFalse(st.rewrittenSql().contains("mask_phone"), "继承列不应被包装");
+  }
+
+  @Test
+  void writeWithInheritedColumnsCarriesFullTargetTableStructure() {
+    // 混合复制(继承列 + 脱敏列)后目标表落库的列不止继承列:inheritedTables
+    // 必须携带验证后行类型的**全部**输出列,注册方才能如实登记目标表结构
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(1, st.inheritedTables().size());
+    InheritedTable table = st.inheritedTables().get(0);
+    assertEquals("crm", table.catalog());
+    assertEquals("public", table.schema());
+    assertEquals("customer_copy", table.table());
+    assertEquals(List.of(
+        new InheritedTable.ColumnInfo("phone", "varchar"),
+        new InheritedTable.ColumnInfo("name", "varchar")),
+        table.columns());
+  }
+
+  @Test
+  void renamedTargetColumnListNamesStructureColumnsFromTargetList() {
+    // 重命名目标列清单:inheritedTables 的结构列名必须取目标列清单(mobile/ename,
+    // 与 targetColumn 同源解析),而非源查询输出名(phone/name)——否则注册到
+    // 策略/元数据服务的目标表结构静默损坏
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "INSERT INTO crm.public.customer_copy (mobile, ename) "
+                + "SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous());
+    RewriteEngine.StatementRewrite st = results.get(0);
+    assertEquals(StatementKind.INSERT_SELECT, st.kind());
+    assertEquals(1, st.inheritedColumns().size());
+    assertEquals("mobile", st.inheritedColumns().get(0).targetColumn());
+    assertEquals(1, st.inheritedTables().size());
+    InheritedTable table = st.inheritedTables().get(0);
+    assertEquals("crm", table.catalog());
+    assertEquals("public", table.schema());
+    assertEquals("customer_copy", table.table());
+    assertEquals(List.of(
+        new InheritedTable.ColumnInfo("mobile", "varchar"),
+        new InheritedTable.ColumnInfo("ename", "varchar")),
+        table.columns());
+  }
+
+  @Test
+  void readStatementsCarryNoInheritedTables() {
+    List<RewriteEngine.StatementRewrite> results = new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "SELECT phone FROM crm.public.customer", "postgresql", Subject.anonymous());
+    assertTrue(results.get(0).inheritedTables().isEmpty(), "读语句不应有目标表结构");
+    assertTrue(results.get(0).inheritedColumns().isEmpty());
+  }
+
+  @Test
+  void expressionColumnOverInheritedSourceIsRejected() {
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> new RewriteEngine()
+        .rewrite(METADATA, POLICY,
+            "CREATE TABLE crm.public.customer_copy AS SELECT phone || '-' FROM crm.public.customer",
+            "postgresql", Subject.anonymous()));
+    assertEquals(SqlMaskException.Code.UNSUPPORTED_STATEMENT, e.getCode());
+  }
+
+  @Test
+  void insertIntoTableWithExistingColumnPolicyIsRejected() {
+    // 目标表 customer_copy 已声明 phone 策略的情况下,INSERT 继承被拒
+    String meta = """
+        metadata:
+          tables:
+            - catalog: crm
+              schema: public
+              name: customer
+              columns: [ {name: phone, type: varchar}, {name: name, type: varchar} ]
+            - catalog: crm
+              schema: public
+              name: customer_copy
+              columns: [ {name: phone, type: varchar}, {name: name, type: varchar} ]
+        policies: {}
+        """;
+    String policy = POLICY + """
+        \s\s- name: crm.copy.phone
+        \s\s\s\stype: dataMask
+        \s\s\s\sresources:
+        \s\s\s\s\s\s- catalog: crm
+        \s\s\s\s\s\s\s\sschema: public
+        \s\s\s\s\s\s\s\stable: customer_copy
+        \s\s\s\s\s\s\s\scolumn: phone
+        \s\s\s\sdataMaskItems:
+        \s\s\s\s\s\s- groups: ["*"]
+        \s\s\s\s\s\s\s\sudf: mask_phone
+        """;
+    SqlMaskException e = assertThrows(SqlMaskException.class, () -> new RewriteEngine()
+        .rewrite(meta, policy,
+            "INSERT INTO crm.public.customer_copy SELECT phone, name FROM crm.public.customer",
+            "postgresql", Subject.anonymous()));
+    assertEquals(SqlMaskException.Code.UNSUPPORTED_STATEMENT, e.getCode());
+  }
+}

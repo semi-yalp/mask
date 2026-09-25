@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -121,5 +122,66 @@ class PolicyYamlLoaderTest {
     PolicyException e = assertThrows(PolicyException.class,
         () -> loader.parse("foo: 1", "policies.yaml"));
     assertTrue(e.getMessage().contains("'policies' must be a list"));
+  }
+
+  @Test
+  void inheritsOnCopyRoundTrip() {
+    String yaml = """
+        policies:
+          - name: crm.phone
+            type: dataMask
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+                inheritOnCopy: true
+            dataMaskItems:
+              - groups: ["*"]
+                udf: mask_phone
+        """;
+    List<Policy> parsed = loader.parse(yaml, "policies.yaml");
+    assertTrue(parsed.get(0).resources().get(0).inheritOnCopy());
+    String emitted = new PolicyYamlWriter().write(parsed);
+    assertTrue(emitted.contains("inheritOnCopy: true"));
+    List<Policy> reloaded = loader.parse(emitted, "policies.yaml");
+    assertTrue(reloaded.get(0).resources().get(0).inheritOnCopy());
+  }
+
+  @Test
+  void inheritOnCopyAbsentDefaultsToFalse() {
+    String yaml = """
+        policies:
+          - name: crm.phone
+            type: dataMask
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+            dataMaskItems:
+              - groups: ["*"]
+                udf: mask_phone
+        """;
+    List<Policy> parsed = loader.parse(yaml, "policies.yaml");
+    assertFalse(parsed.get(0).resources().get(0).inheritOnCopy());
+  }
+
+  @Test
+  void nonBooleanInheritOnCopyIsRejected() {
+    PolicyException e = assertThrows(PolicyException.class, () -> loader.parse("""
+        policies:
+          - name: crm.phone
+            resources:
+              - catalog: crm
+                schema: public
+                table: customer
+                column: phone
+                inheritOnCopy: nope
+            dataMaskItems:
+              - groups: ["*"]
+                udf: mask_phone
+        """, "policies.yaml"));
+    assertTrue(e.getMessage().contains(".inheritOnCopy must be boolean"));
   }
 }

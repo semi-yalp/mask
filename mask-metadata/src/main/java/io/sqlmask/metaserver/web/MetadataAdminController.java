@@ -83,6 +83,17 @@ public class MetadataAdminController {
     return detail(instances.get(name));
   }
 
+  @PutMapping("/{name}/structure")
+  public MetadataDtos.InstanceDetailResponse registerStructure(HttpServletRequest httpRequest,
+      @PathVariable("name") String name,
+      @RequestBody List<MetadataDtos.TablePayload> tables) {
+    return adminMetrics.record("METADATA", "REGISTER_STRUCTURE", () ->
+        audit.adminChange(httpRequest, "REGISTER_STRUCTURE", "INSTANCE", name, name,
+            () -> withOriginatingUser(httpRequest,
+                Map.of("tableCount", tables == null ? 0 : tables.size())),
+            () -> detail(instances.registerStructure(name, toStructures(tables)))));
+  }
+
   @PutMapping("/{name}")
   public MetadataDtos.InstanceDetailResponse update(HttpServletRequest httpRequest,
       @PathVariable("name") String name,
@@ -180,6 +191,35 @@ public class MetadataAdminController {
     return request == null ? null : ConnectionInfo.ofNullable(request.host(), request.port(),
         request.database(), request.dbUser(), request.passwordRef(), request.sslmode(),
         request.connectTimeoutSeconds(), request.schemas(), request.includeViews());
+  }
+
+  /** Maps the admin-plane structure payload to the store model; absent body
+   * group means an empty registration, not a wipe-by-null. */
+  static List<TableStructure> toStructures(List<MetadataDtos.TablePayload> payloads) {
+    if (payloads == null) {
+      return List.of();
+    }
+    return payloads.stream()
+        .map(p -> new TableStructure(p.catalog(), p.schema(), p.name(),
+            p.columns().stream()
+                .map(c -> new TableStructure.ColumnStructure(c.name(), c.type()))
+                .toList()))
+        .toList();
+  }
+
+  /** Merges the originating user into an audit detail: automated callers (the
+   * rewrite registrar) forward {@code X-Originating-User} so the event records
+   * the end user that actually triggered the mutation; an absent/blank header
+   * adds nothing. */
+  private static Map<String, Object> withOriginatingUser(HttpServletRequest request,
+      Map<String, Object> detail) {
+    String originUser = request.getHeader("X-Originating-User");
+    if (originUser == null || originUser.isBlank()) {
+      return detail;
+    }
+    var merged = new java.util.LinkedHashMap<String, Object>(detail);
+    merged.put("originatingUser", originUser);
+    return merged;
   }
 
   /** The connection group to apply, or null when the body carries none. */
