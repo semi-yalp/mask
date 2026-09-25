@@ -384,8 +384,17 @@ public final class RewriteEngine {
     for (int i = 0; i < fields.size(); i++) {
       RelDataTypeField field = fields.get(i);
       RelDataType type = field.getType();
-      Integer precision = type.getPrecision() >= 0 ? type.getPrecision() : null;
-      Integer scale = type.getScale() >= 0 ? type.getScale() : null;
+      // 只对合法携带精度/小数位的类型族透传,其余归一为基础类型名 —— Calcite 会给
+      // BIGINT 等补默认 precision(如 bigint(19,0)),策略校验器只认规范声明
+      Integer precision = switch (type.getSqlTypeName()) {
+        case CHAR, VARCHAR, DECIMAL, TIME, TIMESTAMP ->
+            type.getPrecision() >= 0 ? type.getPrecision() : null;
+        default -> null;
+      };
+      Integer scale = switch (type.getSqlTypeName()) {
+        case DECIMAL -> type.getScale() >= 0 ? type.getScale() : null;
+        default -> null;
+      };
       String targetName = i < targetColumnNames.size()
           ? targetColumnNames.get(i)
           : field.getName();

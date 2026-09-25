@@ -65,7 +65,7 @@ class InheritedPolicyRegistrarTest {
       assertTrue(paths.contains("GET /api/metadata/instances/demo"));
       assertTrue(paths.contains("PUT /api/instances/demo/tables"));
       assertTrue(paths.contains("POST /api/instances/demo/policies"));
-      assertTrue(paths.contains("PUT /api/instances/demo/structure"));
+      assertTrue(paths.contains("PUT /api/meta/instances/demo/structure"));
     }
   }
 
@@ -81,7 +81,7 @@ class InheritedPolicyRegistrarTest {
     try (stub) {
       registrar(stub, "k", null).register("demo", "alice", List.of(ctasWithInheritedPhone()));
       JsonNode tables = JSON.readTree(stub.calls.stream()
-          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/instances/demo/structure"))
+          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/meta/instances/demo/structure"))
           .findFirst().orElseThrow().body());
       // 合并而非替换:既有表 crm.public.existing 保留(列原样),目标表 customer_copy 追加
       JsonNode existing = tableByName(tables, "existing");
@@ -252,7 +252,7 @@ class InheritedPolicyRegistrarTest {
       // 完整结构:非继承输出列 name 也进入目标表结构(混合复制场景)
       assertEquals("varchar", columnType(tableByName(policyTables, "customer_copy"), "name"));
       JsonNode structure = JSON.readTree(stub.calls.stream()
-          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/instances/demo/structure"))
+          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/meta/instances/demo/structure"))
           .findFirst().orElseThrow().body());
       JsonNode copy = tableByName(structure, "customer_copy");
       assertEquals("varchar", columnType(copy, "phone"));
@@ -268,7 +268,7 @@ class InheritedPolicyRegistrarTest {
     try (stub) {
       registrar(stub, "k", null).register("demo", "alice", List.of(ctasWithInheritedPhone()));
       JsonNode structure = JSON.readTree(stub.calls.stream()
-          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/instances/demo/structure"))
+          .filter(c -> c.method().equals("PUT") && c.path().equals("/api/meta/instances/demo/structure"))
           .findFirst().orElseThrow().body());
       JsonNode copy = tableByName(structure, "customer_copy");
       assertEquals("varchar", columnType(copy, "phone"));
@@ -291,7 +291,7 @@ class InheritedPolicyRegistrarTest {
       assertEquals("admin-key", apiKeyOf(stub, "GET /api/instances/demo/policies"));
       assertEquals("admin-key", apiKeyOf(stub, "PUT /api/instances/demo/tables"));
       assertEquals("admin-key", apiKeyOf(stub, "POST /api/instances/demo/policies"));
-      assertEquals("admin-key", apiKeyOf(stub, "PUT /api/instances/demo/structure"),
+      assertEquals("admin-key", apiKeyOf(stub, "PUT /api/meta/instances/demo/structure"),
           "admin 写(/structure)必须带 admin key");
     }
   }
@@ -305,7 +305,7 @@ class InheritedPolicyRegistrarTest {
       registrar(stub, "k", null).register("demo", "alice", List.of(ctasWithInheritedPhone()));
       for (String call : List.of("GET /api/instances/demo", "GET /api/instances/demo/policies",
           "PUT /api/instances/demo/tables", "POST /api/instances/demo/policies",
-          "GET /api/metadata/instances/demo", "PUT /api/instances/demo/structure")) {
+          "GET /api/metadata/instances/demo", "PUT /api/meta/instances/demo/structure")) {
         assertEquals("k", apiKeyOf(stub, call), call);
       }
     }

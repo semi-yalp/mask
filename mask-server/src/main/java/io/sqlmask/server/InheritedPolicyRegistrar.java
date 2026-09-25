@@ -57,7 +57,8 @@ import java.util.Set;
 @Component
 public class InheritedPolicyRegistrar {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = new ObjectMapper()
+      .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
   private final InstanceRewriteConfig.Upstreams.Service policyService;
   private final InstanceRewriteConfig.Upstreams.Service metadataService;
@@ -389,7 +390,7 @@ public class InheritedPolicyRegistrar {
   }
 
   private String metadataBase(String instanceName) {
-    return trimSlash(metadataService.baseUrl()) + "/api/instances/" + encode(instanceName);
+    return trimSlash(metadataService.baseUrl()) + "/api/meta/instances/" + encode(instanceName);
   }
 
   /** 数据面只读快照端点(MetadataDataController),与 admin 的 /structure 同一服务基址。 */
