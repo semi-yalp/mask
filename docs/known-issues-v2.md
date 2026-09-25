@@ -6,7 +6,7 @@
 
 | # | 事项 | 说明 |
 |---|---|---|
-| A1 | **主工作区未提交的监控指标代码** | main 工作区有一批未提交的 risk-server metrics 实施(2026-09-24)。arch-v2 已以自己的方式落地 query/risk 指标;原改动未合并,留在 main 工作区,请决定丢弃或 cherry-pick |
+| A1 | **主工作区未提交的监控指标代码** | main 工作区有一批未提交的 risk-server metrics 实施(2026-09-24)。arch-v2 已以自己的方式落地 query/risk 指标;原改动已存 stash@{0}(在 rr 工作区),恢复后建议甄别丢弃。rr(继承策略)已于 2026-09-25 适配新架构合入 main(67402da) |
 | A2 | **旧部署数据迁移** | 旧两库(policy/metadata)表结构与单体同构但物理分离;合并脚本未提供(见 deployment.md §8),存量生产迁移需人工执行 |
 | A3 | **改写失败放行(PASSTHROUGH)的启用策略** | 开关已实现但默认 REJECT;是否允许某些实例放行属业务决策,建议仅在可信分析师场景开启 |
 | A4 | **远程主机验证范围** | 47.100.166.158 真机为旧版部署;本次未重装新架构,重装/迁移时间待定 |
@@ -42,3 +42,10 @@
 - README 与代码不一致的 metadata fail-open 口径问题:API-Key 门禁整体退役,不再存在
 - RewriteMetrics 方言标签白名单缺 hive/sparksql → 已修
 - query/risk 监控盲区 → 单体统一 actuator/prometheus + 新增指标
+
+## 追记(2026-09-25,rr 合并后)
+
+- 复制表策略继承(inheritOnCopy)已随 rr 分支并入单体:注册器在 mask-server,钩子在 InstanceRewriteService(REST 与查询网关同路);本地 H2 全链路 E2E 通过(CTAS→auto.inherit.* 策略注册→结构登记→legacy 通道拒绝)。
+- 继承功能暴露并修复三处适配问题(67402da):inheritedTables 类型声明归一(不再产出 bigint(19,0))、注册器 ObjectMapper 容错、structure PUT 适配 /api/meta 命名空间。
+- B2 口径扩展:继承注册器的元数据/策略上游同样默认自环(可在 yml 覆盖),认证开启后与 BlockService 同样需要凭据或进程内化。
+- 远程 47.100.166.158 sshd 无响应(疑似大 jar 传输诱发小内存主机僵死),需云控制台重启后重跑真机验证;9090 旁路进程部署的仍是合并前 jar。

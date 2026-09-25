@@ -16,7 +16,7 @@
 
 | # | 问题 | 影响 | 建议路径 |
 |---|---|---|---|
-| H1 | **rr 分支（继承策略功能）未适配新架构** | 主工作区所在的 rr 分支含 3 个提交（InheritedPolicyRegistrar、继承语句 fail-closed 等），基于旧微服务布局（mask-core/policy-server 路径）。这些功能不在 main | 以 arch-v2 拓扑重放：InheritedPolicyRegistrar 移入 mask-server；涉及 legacy 改写通道与策略审计 detail 的改动按新包结构重做；合并冲突点已在 abort 时确认（3 个文件位置冲突） |
+| H1 | **【已解决 2026-09-25】rr 分支已适配新架构并合入 main(67402da,见 known-issues 追记)** | 主工作区所在的 rr 分支含 3 个提交（InheritedPolicyRegistrar、继承语句 fail-closed 等），基于旧微服务布局（mask-core/policy-server 路径）。这些功能不在 main | 以 arch-v2 拓扑重放：InheritedPolicyRegistrar 移入 mask-server；涉及 legacy 改写通道与策略审计 detail 的改动按新包结构重做；合并冲突点已在 abort 时确认（3 个文件位置冲突） |
 | H2 | **主工作区 stash 未恢复** | stash@{0} 保存了合并前 rr 工作区的未提交改动（monitoring-metrics 实施等）。其中 risk/query 指标部分 arch-v2 已另行实现，其余（compose metrics 改动等）可能仍有价值 | 在 rr 分支 `git stash pop` 逐文件甄别；指标埋点部分建议对照新实现后丢弃 |
 | H3 | **一键 compose 镜像未实际构建过** | docker/server.Dockerfile 为多阶段构建（node→maven→jre），依赖网络拉包；本机无 docker CLI 未能实测。`mvn package` 产物本身已验证 | 在有 Docker 的机器跑 `docker compose up -d --build`，修正可能的构建期细节（如 frontend build 内存、mvn go-offline 对 fmpp/javacc 生成的兼容） |
 | H4 | **审计默认态与文档口径** | jar 默认 `AUDIT_ENABLED=false`（审计不落库），但进程内风控检测不受此开关影响（有意设计）。裸跑用户可能误以为"审计开=检测开" | deployment.md 已写差异；可在 `/actuator/health` 或启动日志显式打印当前审计/风控姿态 |
