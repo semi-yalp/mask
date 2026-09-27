@@ -1,9 +1,11 @@
 // Package lexer 实现方言感知的 SQL 词法器。
 //
-// 行为规范来自 task-4 简报:关键字不在词法层判定(统一 Ident,判定在
-// parser);引号字符按方言 Profile 取;字符串支持单引号双写转义与 E 前缀;
-// 数字不收裸小数(.5);运算符按 opTable 最长匹配;?/?1 为 Param;
-// -- 行注释与可嵌套 /* */ 块注释不产 token;Pos 行列均 1 起,Tab 记 1 列。
+// 行为规范来自 task-4 简报与 fix round 1 裁定:关键字不在词法层判定
+// (统一 Ident,判定在 parser);引号字符按方言 Profile 取;字符串支持
+// 单引号双写转义与 E'/e' 前缀;数字对齐 JavaCC DECIMAL/APPROX(裸 .5、
+// 1. 等形式均可,无上下文最长匹配);运算符按 opTable 最长匹配;?/?1 为
+// Param;行注释 -- 与 // 及块注释 /* */(不嵌套,第一个 */ 终结)不产
+// token;Pos 行列均 1 起,Tab 按制表位 8 推进(JavaCC SimpleCharStream 语义)。
 // 词法错误统一为 maskerr.PARSE_ERROR,message 含
 // "Lexical error at Line N, Column M"。
 //
@@ -11,6 +13,14 @@
 // SqlMaskParserImplConstants.java 机械提取为 testdata/tokens.json;
 // 运算符匹配表 opTable 为程序内常量,内容与 tokens.json 逐项一致
 // (由测试双向锁定),lexer 不在运行时读文件。
+//
+// 已知口径(差分 watchlist,fix round 1 裁定 Ruling 3/4/5/6/8/11/13):
+// 未闭合字符串、引号标识符内裸换行、BackTick 方言下的双引号、白名单外
+// 字符(~ : ! | 等)在本词法器报词法错,而 Java 版词法层放行、由解析器
+// 报 PARSE_ERROR —— 对外错误码一致,消息与位置可能不同,差分按错误码
+// 比对;N'…'、x'…'、U&'…'、_charset'…'、[方括号标识符] 等 Java 单 token
+// 构造在此拆分为 Ident+String;散落注释外的 */ 为 Op(*)+Op(/)(Java 为
+// COMMENT_END token)。以上均列入 watchlist,差分出现时按本口径归因。
 package lexer
 
 import "strconv"

@@ -43,10 +43,13 @@ func Lex(p *dialect.Profile, src string) ([]Token, error) {
 	}
 }
 
+// tabSize 制表位宽度(JavaCC SimpleCharStream 默认)。
+const tabSize = 8
+
 // scanner 手写扫描器。位置状态与 JavaCC SimpleCharStream 对齐:
 // line/col 为最近读取字符的 1 起位置;换行的行号推进滞后到读取下一
-// 字符时生效(prevLF/prevCR);Tab 记 1 列(简报规定,Java 实际按 8
-// 制表位推进,差分复核项)。EOF token 落在最后一个字符上。
+// 字符时生效(prevLF/prevCR);Tab 按制表位 8 推进(Ruling 12);
+// EOF token 落在最后一个字符上。
 type scanner struct {
 	src     string
 	quote   byte // 引号标识符字符,按方言 '"' 或 '`'
@@ -86,6 +89,11 @@ func (s *scanner) read() (r rune, pos Pos, ok bool) {
 		s.prevCR = true
 	case '\n':
 		s.prevLF = true
+	case '\t':
+		// 制表位 8(fix round 1 Ruling 12,对齐 SimpleCharStream 实测:
+		// SELECT\t1 → 1@1:9):列号推进到下一个 8 的倍数。
+		s.col--
+		s.col += tabSize - s.col%tabSize
 	}
 	s.lastLn, s.lastCol, s.hasLast = s.line, s.col, true
 	return r, Pos{Line: s.line, Column: s.col}, true
@@ -128,13 +136,14 @@ func (s *scanner) errAtEnd(format string, args ...any) error {
 }
 
 // skipTrivia 跳过空白(空格/\t/\n/\r/\f,与 JavaCC WHITESPACE 一致)、
-// -- 行注释与可嵌套 /* */ 块注释(简报规定嵌套;Java 实际不嵌套,见报告)。
+// -- 与 // 行注释(Ruling 2,对齐 SINGLE_LINE_COMMENT)以及 /* */ 块
+// 注释(不嵌套,Ruling 1)。
 func (s *scanner) skipTrivia() error {
 	for s.i < len(s.src) {
 		switch c := s.src[s.i]; {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f':
 			s.read()
-		case c == '-' && s.nextIs('-'):
+		case c == '-' && s.nextIs('-'), c == '/' && s.nextIs('/'):
 			s.skipLineComment()
 		case c == '/' && s.nextIs('*'):
 			if err := s.skipBlockComment(); err != nil {
@@ -147,7 +156,7 @@ func (s *scanner) skipTrivia() error {
 	return nil
 }
 
-// skipLineComment 跳过 -- 至行尾(换行符留给空白跳过)或文件尾。
+// skipLineComment 跳过 -- 或 // 至行尾(换行符留给空白跳过)或文件尾。
 func (s *scanner) skipLineComment() {
 	s.read()
 	s.read()
@@ -159,28 +168,19 @@ func (s *scanner) skipLineComment() {
 	}
 }
 
-// skipBlockComment 跳过可嵌套的块注释。未闭合时报词法错(位置为输入
-// 结尾,与 JavaCC 实测一致)。
+// skipBlockComment 跳过块注释:不嵌套,第一个 */ 终结(fix round 1
+// Ruling 1,对齐 JavaCC 实测)。未闭合时报词法错(位置为输入结尾,
+// 与 JavaCC 实测一致)。
 func (s *scanner) skipBlockComment() error {
 	s.read() // '/'
 	s.read() // '*'
-	depth := 1
 	for s.i < len(s.src) {
-		switch c := s.src[s.i]; {
-		case c == '/' && s.nextIs('*'):
+		if s.src[s.i] == '*' && s.nextIs('/') {
 			s.read()
 			s.read()
-			depth++
-		case c == '*' && s.nextIs('/'):
-			s.read()
-			s.read()
-			depth--
-			if depth == 0 {
-				return nil
-			}
-		default:
-			s.read()
+			return nil
 		}
+		s.read()
 	}
 	return s.errAtEnd("unterminated block comment")
 }
@@ -194,6 +194,9 @@ func (s *scanner) next() (Token, error) {
 		return s.lexEString(pos)
 	case isLetter(r) || isDigit(r) || (r >= 0x80 && r <= 0xFF):
 		return s.lexWordOrNumber(pos, r)
+	case r == '.' && s.peekIsDigit():
+		// . D+ 形式的数字(Ruling 7,对齐 DECIMAL_NUMERIC_LITERAL)。
+		return s.lexWordOrNumber(pos, r)
 	case r == '\'':
 		return s.lexString(pos)
 	case r == rune(s.quote):
@@ -205,20 +208,26 @@ func (s *scanner) next() (Token, error) {
 	}
 }
 
-// lexWordOrNumber 词法化以字母/数字起始的词,在「数字字面量」与「标识符」
-// 两个候选间做与 JavaCC NFA 一致的最长匹配,等长时数字胜出(数值 token
-// 在语法中定义先于 IDENTIFIER)。因此 1e10/1.2E-3 为 Number,而 1e/123abc
-// 为 Ident(JavaCC 实测:标识符可数字开头,见 config.fmpp customIdentifierToken)。
+// lexWordOrNumber 词法化以字母/数字/小数点起始的词,在「数字字面量」与
+// 「标识符」两个候选间做与 JavaCC NFA 一致的最长匹配,等长时数字胜出
+// (数值 token 在语法中定义先于 IDENTIFIER)。因此 1e10/1.2E-3 为 Number,
+// 而 1e/123abc/1$x 为 Ident(JavaCC 实测:标识符可数字开头,见 config.fmpp
+// customIdentifierToken)。
 //
-// 数字规则(简报):D+ [. D+] [E[+-]D+],D 为 ASCII 数字;小数点后必须
-// 有数字,故裸 .5 走运算符分支报词法错(简报规定;Java 的
-// DECIMAL_NUMERIC_LITERAL 另允许 1. 与 .5,差分复核项)。
+// 数字规则(fix round 1 Ruling 7,对齐 DECIMAL_NUMERIC_LITERAL /
+// APPROX_NUMERIC_LITERAL,无上下文最长匹配):整数位为数字时小数点
+// 无条件消费(D+ .? D*,故 1.、1.day 的 1. 是 Number);裸 .5 合法
+// (. D+,故 1.2.3 → 1.2 + .3);指数 e/E 后必须有数字(可带符号),
+// 否则不并入数字(1e → Ident,1.2e → 1.2 + e)。
 func (s *scanner) lexWordOrNumber(pos Pos, first rune) (Token, error) {
 	start := s.i - utf8.RuneLen(first)
-	identEnd := s.scanIdentTail()
+	identEnd := s.i // '.' 开头无标识符候选
+	if first != '.' {
+		identEnd = s.scanIdentTail()
+	}
 	numEnd := -1
-	if first >= '0' && first <= '9' {
-		numEnd = s.scanNumberTail()
+	if (first >= '0' && first <= '9') || first == '.' {
+		numEnd = s.scanNumberTail(first == '.')
 	}
 	end := identEnd
 	kind := Ident
@@ -247,15 +256,18 @@ func (s *scanner) scanIdentTail() int {
 	return j
 }
 
-// scanNumberTail 返回数字候选的终点字节偏移(不含已消费的首位数字):
-// [. D+] [E[+-]D+];小数点后必须有数字,e/E 后必须有数字(可带符号)。
-func (s *scanner) scanNumberTail() int {
+// scanNumberTail 返回数字候选的终点字节偏移(不含已消费的首字符),
+// 对齐 DECIMAL_NUMERIC_LITERAL / APPROX_NUMERIC_LITERAL:
+//   - 首字符为数字:D+ .? D*(小数点无条件消费,允许 1. 形式);
+//   - 首字符为 '.':. D+(分发处已保证后随数字,允许 .5 形式);
+//   - 可选指数:e/E [+-]? D+(指数必须有数字,否则不并入数字)。
+func (s *scanner) scanNumberTail(firstDot bool) int {
 	j := s.i
 	for j < len(s.src) && isASCIIDigit(s.src[j]) {
 		j++
 	}
-	if j+1 < len(s.src) && s.src[j] == '.' && isASCIIDigit(s.src[j+1]) {
-		j += 2
+	if !firstDot && j < len(s.src) && s.src[j] == '.' {
+		j++
 		for j < len(s.src) && isASCIIDigit(s.src[j]) {
 			j++
 		}
@@ -276,8 +288,9 @@ func (s *scanner) scanNumberTail() int {
 }
 
 // lexString 扫描单引号字符串:串内以双写单引号转义、不终结字符串,换行
-// 合法(对齐 QUOTED_STRING)。未闭合时报词法错 —— Java 版此时回退为 QUOTE
-// 单字符 token 由解析器报错,Go 版 TokenKind 无对应种别,记入差分风险。
+// 合法(对齐 QUOTED_STRING)。未闭合时报词法错。已知口径(Ruling 4):
+// Java 词法层此时回退为 QUOTE 单字符 token、解析期报 PARSE_ERROR,
+// 错误码一致,消息与位置不同。
 func (s *scanner) lexString(pos Pos) (Token, error) {
 	start := s.i - 1
 	for {
@@ -300,7 +313,7 @@ func (s *scanner) lexString(pos Pos) (Token, error) {
 
 // lexEString 扫描 E'/e' 前缀的 C 风格转义字符串:反斜杠转义任一字符,
 // 双写单引号亦合法(对齐 C_STYLE_ESCAPED_STRING_LITERAL)。仅当 E/e 与引号
-// 紧邻时生效(next 分支已保证)。未闭合时报词法错(同 lexString 差分风险)。
+// 紧邻时生效(next 分支已保证)。未闭合报词法错,口径同 lexString(Ruling 4)。
 func (s *scanner) lexEString(pos Pos) (Token, error) {
 	start := s.i - 1
 	s.read() // 起始引号
@@ -327,6 +340,9 @@ func (s *scanner) lexEString(pos Pos) (Token, error) {
 // lexQuotedIdent 扫描方言引号标识符:引号字符由 Profile 决定('"' 或
 // '`'),内部以双写引号转义,不允许裸换行(QUOTED_IDENTIFIER /
 // BACK_QUOTED_IDENTIFIER 正则排除 \n\r)。Text 含两端引号原文。
+// 已知口径:未闭合与裸换行时 Java 词法层回退为若干 token、解析期报
+// PARSE_ERROR(错误码一致,消息与位置不同);裸换行报错位置为换行
+// 字符自身(位置模型中换行仍记在原行末,与 EOF 位置的滞后语义一致)。
 func (s *scanner) lexQuotedIdent(pos Pos) (Token, error) {
 	start := s.i - 1
 	for {
@@ -358,7 +374,7 @@ func (s *scanner) lexParam(pos Pos) (Token, error) {
 }
 
 // lexOp 词法化运算符:先试二字符(最长匹配),再试单字符;白名单外的
-// 字符报词法错。裸小数(. 后紧跟数字,无整数位)按简报报词法错。
+// 字符报词法错(已知口径 Ruling 8:Java 为合法 token、解析期报错)。
 func (s *scanner) lexOp(pos Pos, r rune) (Token, error) {
 	if r >= 0x80 {
 		return Token{}, errAt(pos, "unexpected character %q", r)
@@ -369,11 +385,6 @@ func (s *scanner) lexOp(pos Pos, r rune) (Token, error) {
 			s.read()
 			return Token{Kind: Op, Text: two, Pos: pos}, nil
 		}
-	}
-	if b == '.' && s.peekIsDigit() {
-		// 简报 (d):数字不收裸 .5(无整数位)。Java 的
-		// DECIMAL_NUMERIC_LITERAL 接受 .5 与 1.,差分复核项。
-		return Token{}, errAt(pos, "number literal cannot start with '.'")
 	}
 	if oneOp[b] {
 		return Token{Kind: Op, Text: string(b), Pos: pos}, nil

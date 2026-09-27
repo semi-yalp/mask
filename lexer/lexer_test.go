@@ -1,18 +1,20 @@
 package lexer
 
-// 词法器测试 —— 覆盖 task-4 简报 Step 2 的 (a)-(h):
+// 词法器测试 —— 覆盖 task-4 简报 Step 2 的 (a)-(h) 及 fix round 1 裁定:
 // (a) 逐 keyword 词例:未引号 Ident,词法层不区分关键字;
 // (b) 引号字符按方言;
 // (c) 字符串 '' 转义与 E' 前缀;
-// (d) 数字;裸 .5 词法错;
+// (d) 数字(对齐 JavaCC DECIMAL/APPROX:裸 .5、1. 均为 Number);
 // (e) 运算符与 Param;
-// (f) -- 与嵌套块注释不产 token;
-// (g) 位置(1 起,Tab 记 1 列);
+// (f) -- 与 // 行注释、/* */ 块注释(不嵌套)不产 token;
+// (g) 位置(1 起,Tab 按 8 制表位推进);
 // (h) testdata/tokens.json 每个 operator 的 round-trip 断言,
 //     且程序内 opTable 与 tokens.json 完全一致。
 //
 // 另有若干与 JavaCC SqlMaskParserImplTokenManager 实测行为对齐的
 // 固定行为(数字开头标识符、EOF 位置等),注释中逐条标明出处。
+// 构造型分歧(未闭合串、mysql 下双引号、白名单外字符等)的
+// "已知口径"说明见 token.go 包注释与 task-4-report.md。
 
 import (
 	"encoding/json"
@@ -163,8 +165,9 @@ func TestQuotingPerDialect(t *testing.T) {
 		t.Fatalf("mysql backtick ident text = %q", toks[0].Text)
 	}
 
-	// 简报 (b):mysql 下 " 开头 → 词法错(Java 版词法层回退为
-	// DOUBLE_QUOTE 等 token 由解析器报错,Go 版按简报记词法错,见报告)。
+	// 简报 (b):mysql 下 " 开头 → 词法错。已知口径(Ruling 6):Java 词法
+	// 层回退 DOUBLE_QUOTE 等 token、解析期报 PARSE_ERROR,错误码一致,
+	// 消息与位置不同,差分时按错误码比对。
 	mustLexErr(t, mysql, `"a b"`, 1, 1)
 	mustLexErr(t, mysql, `"a""b"`, 1, 1)
 	// pg 下反引号 → 词法错(与 JavaCC DQID 态实测一致)。
@@ -217,14 +220,17 @@ func TestStrings(t *testing.T) {
 
 	// 未闭合字符串:词法错。位置与 JavaCC TokenMgrError 的 EOF 报错位
 	// 一致:无尾换行 → 最后一字符后一列;有尾换行 → (行+1, 0)。
+	// 已知口径(Ruling 4):Java 词法层回退 QUOTE token、解析期报
+	// PARSE_ERROR,错误码一致,消息与位置不同。
 	mustLexErr(t, pg, `'abc`, 1, 5)
 	mustLexErr(t, pg, "'abc\n", 2, 0)
 	mustLexErr(t, pg, `E'a\`, 1, 5)
 }
 
-// (d) 数字:1 1.5 1e10 1.2E-3 均为 Number;裸 .5 词法错。
-// 另对齐 JavaCC 实测:数字开头的连续 LETTER/DIGIT 串是标识符
-// (1e、123abc → Ident),数值与标识符等长时数值胜出(1e10 → Number)。
+// (d) 数字:1 1.5 1e10 1.2E-3 均为 Number。fix round 1 Ruling 7:数字
+// 词法对齐 Java(DECIMAL_NUMERIC_LITERAL / APPROX_NUMERIC_LITERAL,无上下文
+// 最长匹配):裸 .5 与 1. 均为 Number;. D+ 形式可带指数;小数点在整数位
+// 之后无条件消费(1.day → 1. + day);指数规则维持实测语义(1e → Ident)。
 func TestNumbers(t *testing.T) {
 	pg := mustProfile(t, "postgresql")
 
@@ -244,12 +250,34 @@ func TestNumbers(t *testing.T) {
 	toks = mustLex(t, pg, "123")
 	kinds(t, toks, Number, EOF)
 
-	// 简报 (d):裸 .5(无整数位)→ 词法错。
-	mustLexErr(t, pg, ".5", 1, 1)
-	mustLexErr(t, pg, "a.5", 1, 2)
-	mustLexErr(t, pg, "1.2.3", 1, 4)
+	// Ruling 7(逐例与 JavaCC 实测一致):
+	for _, tc := range []struct {
+		src  string
+		text []string
+		kind []TokenKind
+	}{
+		{".5", []string{".5"}, []TokenKind{Number}},
+		{"1.", []string{"1."}, []TokenKind{Number}},
+		{"SELECT .5", []string{"SELECT", ".5"}, []TokenKind{Ident, Number}},
+		{"1.2.3", []string{"1.2", ".3"}, []TokenKind{Number, Number}},
+		{".5e3", []string{".5e3"}, []TokenKind{Number}},
+		{"1.e5", []string{"1.e5"}, []TokenKind{Number}},
+		{"1.day", []string{"1.", "day"}, []TokenKind{Number, Ident}},
+		{"1..2", []string{"1.", ".2"}, []TokenKind{Number, Number}},
+		{".5x", []string{".5", "x"}, []TokenKind{Number, Ident}},
+		{"a.5", []string{"a", ".5"}, []TokenKind{Ident, Number}},
+		{"1.2e", []string{"1.2", "e"}, []TokenKind{Number, Ident}},
+	} {
+		toks := mustLex(t, pg, tc.src)
+		kinds(t, toks, append(tc.kind, EOF)...)
+		for i, w := range tc.text {
+			if toks[i].Text != w {
+				t.Fatalf("Lex(%q)[%d].Text = %q, want %q", tc.src, i, toks[i].Text, w)
+			}
+		}
+	}
 
-	// JavaCC 实测对齐:数字开头标识符(简报未规定,按 Java 行为固定)。
+	// JavaCC 实测对齐:数字开头标识符(config.fmpp customIdentifierToken)。
 	toks = mustLex(t, pg, "1e")
 	kinds(t, toks, Ident, EOF)
 	if toks[0].Text != "1e" {
@@ -285,14 +313,16 @@ func TestOperatorsAndParams(t *testing.T) {
 	toks = mustLex(t, pg, "?42x")
 	kinds(t, toks, Param, Ident, EOF)
 
-	// 白名单外字符 → 词法错(Java 版为合法 token、解析期报错,见报告)。
+	// 白名单外字符 → 词法错。已知口径(Ruling 8):Java 为合法 token、
+	// 解析期报 PARSE_ERROR,错误码一致,消息与位置不同。
 	mustLexErr(t, pg, "~", 1, 1)
 	mustLexErr(t, pg, ":", 1, 1)
 	mustLexErr(t, pg, "!", 1, 1)
 	mustLexErr(t, pg, "|", 1, 1)
 }
 
-// (f) 注释:-- 行注释与嵌套块注释不产 token;未闭合块注释词法错。
+// (f) 注释:-- 与 // 行注释(fix round 1 Ruling 2)、/* */ 块注释
+// (不嵌套,第一个 */ 终结,Ruling 1)均不产 token;未闭合块注释词法错。
 func TestComments(t *testing.T) {
 	pg := mustProfile(t, "postgresql")
 
@@ -305,26 +335,39 @@ func TestComments(t *testing.T) {
 	toks = mustLex(t, pg, "a--b\nc")
 	kinds(t, toks, Ident, Ident, EOF)
 
-	// 嵌套块注释(简报规定;Java 版不嵌套,见报告)。
+	// Ruling 2:// 与 -- 同义(JavaCC SINGLE_LINE_COMMENT 实测一致)。
+	toks = mustLex(t, pg, "1 // x\n2")
+	kinds(t, toks, Number, Number, EOF)
+	toks = mustLex(t, pg, "a/b//c")
+	kinds(t, toks, Ident, Op, Ident, EOF)
+	toks = mustLex(t, pg, "SELECT // c")
+	kinds(t, toks, Ident, EOF)
+
+	// Ruling 1:块注释不嵌套,第一个 */ 终结(JavaCC 实测一致);
+	// 注释外的散落 */ 为 Op(*)+Op(/)(Java 为 COMMENT_END token,
+	// 解析期报错,见 watchlist)。
 	toks = mustLex(t, pg, "/* /* x */ */ 1")
-	kinds(t, toks, Number, EOF)
-	toks = mustLex(t, pg, "/* a /* b /* c */ */ */ 1")
-	kinds(t, toks, Number, EOF)
+	kinds(t, toks, Op, Op, Number, EOF)
+	toks = mustLex(t, pg, "a/* /* x */ */ b")
+	kinds(t, toks, Ident, Op, Op, Ident, EOF)
 	toks = mustLex(t, pg, "a/*x*/b")
 	kinds(t, toks, Ident, Ident, EOF)
 	toks = mustLex(t, pg, "/**/")
 	kinds(t, toks, EOF)
 
-	// -- 至文件尾(无换行)合法。
+	// -- 与 // 至文件尾(无换行)合法。
 	toks = mustLex(t, pg, "SELECT -- c")
+	kinds(t, toks, Ident, EOF)
+	toks = mustLex(t, pg, "SELECT // c")
 	kinds(t, toks, Ident, EOF)
 
 	mustLexErr(t, pg, "SELECT /* abc", 1, 14)
 	mustLexErr(t, pg, "SELECT /* abc\n", 2, 0)
 }
 
-// (g) 位置:1 起;Tab 记 1 列(简报规定;Java SimpleCharStream 实际按
-// 8 制表位推进,差分复核项,见报告);EOF 落在最后一个字符上(Java 实测)。
+// (g) 位置:1 起;Tab 按 8 制表位推进(fix round 1 Ruling 12,对齐
+// JavaCC SimpleCharStream 实测:SELECT\t1 → 1@1:9);EOF 落在最后一个
+// 字符上(Java 实测)。
 func TestPositions(t *testing.T) {
 	pg := mustProfile(t, "postgresql")
 
@@ -336,10 +379,14 @@ func TestPositions(t *testing.T) {
 		t.Fatalf("eof = %v %v, want EOF at {2 3}", toks[2].Kind, toks[2].Pos)
 	}
 
-	// Tab 记 1 列:a 在第 2 行第 2 列。
+	// Ruling 12:Tab 按 8 制表位推进。
+	toks = mustLex(t, pg, "SELECT\t1")
+	if toks[1].Pos != (Pos{1, 9}) {
+		t.Fatalf("after tab pos = %v, want {1 9}", toks[1].Pos)
+	}
 	toks = mustLex(t, pg, "SELECT\n\ta")
-	if toks[1].Pos != (Pos{2, 2}) {
-		t.Fatalf("after tab pos = %v, want {2 2}", toks[1].Pos)
+	if toks[1].Pos != (Pos{2, 9}) {
+		t.Fatalf("after tab pos = %v, want {2 9}", toks[1].Pos)
 	}
 
 	// \r\n 只算一次换行。
