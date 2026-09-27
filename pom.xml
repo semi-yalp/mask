@@ -24,6 +24,7 @@
     <module>mask-policy-server</module>
     <module>mask-auth</module>
     <module>mask-risk-server</module>
+    <module>mask-lite</module>
   </modules>
 
   <properties>
