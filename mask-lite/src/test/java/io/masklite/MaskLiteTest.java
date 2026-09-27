@@ -57,7 +57,8 @@ class MaskLiteTest {
     MaskLite mask = MaskLite.fromYaml(YAML);
     var e = assertThrows(SqlMaskException.class,
         () -> mask.rewriteStatements("INSERT INTO customer SELECT 1, 'x', 'y'"));
-    assertTrue(e.getMessage().contains("only rewrites SELECT/WITH queries"));
+    assertEquals(SqlMaskException.Code.UNSUPPORTED_STATEMENT, e.getCode());
+    assertTrue(e.getMessage().contains("INSERT"));
   }
 
   @Test

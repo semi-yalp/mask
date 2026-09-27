@@ -2,7 +2,6 @@ package io.masklite.rewrite;
 
 import io.masklite.config.LegacyPolicyAdapter;
 import io.masklite.config.LoadedConfig;
-import io.masklite.config.YamlConfigLoader;
 import io.masklite.dialect.DialectAdapter;
 import io.masklite.dialect.DialectRegistry;
 import io.masklite.error.SqlMaskException;
@@ -46,19 +45,6 @@ public final class RewriteEngine {
    */
   public record StatementRewrite(int ordinal, String originalSql, String rewrittenSql,
       boolean masked, boolean rowFiltered) {
-  }
-
-  /**
-   * Rewrites all statements in {@code sqlText} against {@code metadataYaml}.
-   * Policies come from the metadata's own sections, the subject is anonymous.
-   *
-   * @param metadataYaml YAML configuration content (tables, columns, policies)
-   * @param sqlText      one or more SQL statements separated by semicolons
-   */
-  public List<StatementRewrite> rewrite(String metadataYaml, String sqlText) {
-    LoadedConfig loaded =
-        new YamlConfigLoader().loadContent(metadataYaml, "metadata.yaml", DialectRegistry.POSTGRESQL);
-    return rewrite(loaded, sqlText);
   }
 
   /**
@@ -111,9 +97,12 @@ public final class RewriteEngine {
       String statementText, int ordinal) {
     SqlNode parsed = dialect.parse(statementText, ordinal);
     // mask-lite is read-only: plain queries only (SELECT / WITH … SELECT,
-    // optionally with a top-level ORDER BY — the parser wraps those in an
-    // SqlOrderBy node). Everything else is rejected fail-closed.
-    if (parsed.getKind() != SqlKind.SELECT && parsed.getKind() != SqlKind.ORDER_BY) {
+    // optionally with a top-level ORDER BY — the parser wraps those in
+    // SqlOrderBy/SqlWith nodes). Everything else is rejected fail-closed.
+    // WITH only reaches here with a query body — the adapter's classifier
+    // has already rejected WITH wrapping anything else.
+    if (parsed.getKind() != SqlKind.SELECT && parsed.getKind() != SqlKind.ORDER_BY
+        && parsed.getKind() != SqlKind.WITH) {
       throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
           "mask-lite only rewrites SELECT/WITH queries; statement kind '"
               + parsed.getKind().lowerName + "' is not supported");

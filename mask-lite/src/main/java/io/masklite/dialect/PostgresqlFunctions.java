@@ -40,7 +40,8 @@ import java.util.List;
  *       本方言语义的可变参定义（PG 的 {@code concat} 对任意字符串类型成立）。</li>
  *   <li>{@code date ± integer}：PG 以整数天进退日期，Calcite 标准只认
  *       datetime + interval。parse 后把 {@code +} / {@code -} 重绑定到放宽版
- *       操作符（接受 date±integer、其余形态沿用标准检查与返回类型推导）。</li>
+ *       操作符：PLUS 认 {@code date±int} 两侧、MINUS 只认 date 在左，
+ *       整数族止步 int4（PG 口径）；其余形态沿用标准检查与返回类型推导。</li>
  * </ul>
  */
 public final class PostgresqlFunctions {
@@ -88,18 +89,30 @@ public final class PostgresqlFunctions {
   /**
    * {@code date + integer → date}（整数进位天数；{@code integer + date} 同），
    * 其余形态沿用标准 {@code +} 的检查与返回类型推导。
+   *
+   * <p>precedence 必须与 std 的 +/- 一致（40）：校验期 deriveType 会把调用上的
+   * 操作符替换成本操作符，输出 unparse 用它决定加括号——声称比 std 更高的
+   * 优先级会在 {@code (date + n) * m} 一类形状下丢括号。rel 层注记：
+   * {@code StandardConvertletTable} 按操作符<b>实例</b>注册 convertlet，重绑定后
+   * {@code date + interval} 不再走 {@code DATETIME_PLUS} 特判而保持普通 RexCall；
+   * 本模块只消费血缘，不受影响——未来若引入 rel 树消费者须重估此处。
    */
   public static final SqlBinaryOperator PLUS = new SqlBinaryOperator(
-      "+", SqlKind.PLUS, 60, true,
+      "+", SqlKind.PLUS, 40, true,
       binding -> isDateArithmetic(binding)
           ? dateType(binding)
           : SqlStdOperatorTable.PLUS.getReturnTypeInference().inferReturnType(binding),
       InferTypes.FIRST_KNOWN,
       delegateOrDateArithmetic(SqlStdOperatorTable.PLUS));
 
-  /** {@code date - integer → date}，其余形态沿用标准 {@code -}。 */
+  /**
+   * {@code date - integer → date}，其余形态沿用标准 {@code -}。
+   *
+   * <p>PG 的 MINUS 侧没有 {@code integer - date} 操作符（只有
+   * {@code date - date} 与 {@code date - integer}），方向必须收紧。
+   */
   public static final SqlBinaryOperator MINUS = new SqlBinaryOperator(
-      "-", SqlKind.MINUS, 60, true,
+      "-", SqlKind.MINUS, 40, true,
       binding -> isDateArithmetic(binding)
           ? dateType(binding)
           : SqlStdOperatorTable.MINUS.getReturnTypeInference().inferReturnType(binding),
@@ -115,11 +128,18 @@ public final class PostgresqlFunctions {
     return DATE_ARITHMETIC.or(standard.getOperandTypeChecker());
   }
 
-  /** {@code date ± integer}（或 {@code integer + date}）：要么一侧是 date 且另一侧是整数族。 */
+  /**
+   * PG 口径的 date 算术：PLUS 两侧均可（{@code date + integer} 与
+   * {@code integer + date}）；MINUS 只认 date 在左（PG 无
+   * {@code integer - date} 操作符，放行只会把错误推迟到执行期）。
+   */
   private static boolean isDateArithmetic(
       org.apache.calcite.sql.SqlOperatorBinding binding) {
     RelDataType left = binding.getOperandType(0);
     RelDataType right = binding.getOperandType(1);
+    if (binding.getOperator().getKind() == SqlKind.MINUS) {
+      return isDate(left) && isIntegerFamily(right);
+    }
     return isDate(left) && isIntegerFamily(right)
         || isIntegerFamily(left) && isDate(right);
   }
@@ -137,10 +157,13 @@ public final class PostgresqlFunctions {
     return type.getSqlTypeName() == SqlTypeName.DATE;
   }
 
-  /** PG 的 date±integer 只接受整型（numeric/decimal 不行），Calcite 的 family 映射不区分，按类型名判断。 */
+  /**
+   * PG 的 date±integer 只认 int4（及隐式提升到 int4 的 int1/int2）；bigint 对
+   * integer 没有隐式转换，PG 直接报无此操作符——校验期同步拒绝。
+   */
   private static boolean isIntegerFamily(RelDataType type) {
     return switch (type.getSqlTypeName()) {
-      case TINYINT, SMALLINT, INTEGER, BIGINT -> true;
+      case TINYINT, SMALLINT, INTEGER -> true;
       default -> false;
     };
   }
