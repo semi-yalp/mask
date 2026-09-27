@@ -2,6 +2,11 @@
 // 的方言 Profile 注册表。字段值与 Java 版 io.sqlmask.dialect 包
 // (五个 *DialectAdapter、DialectProfiles、DialectCapabilities)逐字段对齐;
 // 后续 lexer/parser/contract 以此为方言差异的唯一来源。
+//
+// Conformance 档位(对齐 Java DialectProfile.validatorConformance 的
+// SqlConformanceEnum 三档)当前被两处消费:parser 的 `!=` 接受边界
+// (Default 档拒绝,M1);M2 校验器(类型推断/函数签名等 conformance 语义)
+// 后续亦消费该字段。
 package dialect
 
 import (
@@ -42,6 +47,20 @@ const (
 	CatalogSchemaAndSchema
 )
 
+// Conformance SQL conformance 档位,对齐 Java
+// DialectProfile.validatorConformance 引用的 SqlConformanceEnum 三档;
+// parser(M1:`!=` 的接受边界)与 M2 校验器(conformance 语义)共同消费。
+type Conformance int
+
+const (
+	// Default 标准档(PostgreSQL/Trino;SqlConformanceEnum.DEFAULT)。
+	Default Conformance = iota
+	// MySQL5 MySQL 5 档(MySQL;SqlConformanceEnum.MYSQL_5)。
+	MySQL5
+	// Lenient 宽松档(Hive/SparkSQL;SqlConformanceEnum.LENIENT)。
+	Lenient
+)
+
 // Profile 一个查询引擎方言的声明式描述;全部引擎差异集中于此,
 // 重写管线保持方言无关。
 type Profile struct {
@@ -52,6 +71,10 @@ type Profile struct {
 	AllowTopN                    bool // 五方言均 false(SqlMaskConformance.of 委托, false, ...)
 	AllowInsertOverwrite         bool // hive/sparksql true(SqlMaskConformance.of ..., true)
 	SchemaPathStyle              SchemaPathStyle
+	// Conformance validator conformance 档位:pg/trino=Default、
+	// mysql=MySQL5、hive/sparksql=Lenient(对齐 Java validatorConformance);
+	// M1 parser 消费于 `!=` 接受边界,M2 校验器继续消费。
+	Conformance Conformance
 	// CanWrapDuplicateOutputNames 与 SupportsDerivedColumnAliasList
 	// 对应 Java DialectCapabilities 两位:pg/trino 为 STRICT(false, true),
 	// mysql/hive/sparksql 为 STRICT_NO_ALIAS_LIST(false, false)。

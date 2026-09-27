@@ -26,6 +26,7 @@ var postgresql = &Profile{
 	AllowTopN:                      false,
 	AllowInsertOverwrite:           false,
 	SchemaPathStyle:                CatalogSchema,
+	Conformance:                    Default,
 	CanWrapDuplicateOutputNames:    false,
 	SupportsDerivedColumnAliasList: true,
 }
@@ -41,6 +42,7 @@ var trino = &Profile{
 	AllowTopN:                      false,
 	AllowInsertOverwrite:           false,
 	SchemaPathStyle:                CatalogSchema,
+	Conformance:                    Default,
 	CanWrapDuplicateOutputNames:    false,
 	SupportsDerivedColumnAliasList: true,
 }
@@ -57,6 +59,7 @@ var mysql = &Profile{
 	AllowTopN:                      false,
 	AllowInsertOverwrite:           false,
 	SchemaPathStyle:                CatalogSchemaAndSchema,
+	Conformance:                    MySQL5,
 	CanWrapDuplicateOutputNames:    false,
 	SupportsDerivedColumnAliasList: false,
 }
@@ -73,6 +76,7 @@ var hive = &Profile{
 	AllowTopN:                      false,
 	AllowInsertOverwrite:           true,
 	SchemaPathStyle:                CatalogSchemaAndSchema,
+	Conformance:                    Lenient,
 	CanWrapDuplicateOutputNames:    false,
 	SupportsDerivedColumnAliasList: false,
 }
@@ -89,6 +93,7 @@ var sparksql = &Profile{
 	AllowTopN:                      false,
 	AllowInsertOverwrite:           true,
 	SchemaPathStyle:                CatalogSchemaAndSchema,
+	Conformance:                    Lenient,
 	CanWrapDuplicateOutputNames:    false,
 	SupportsDerivedColumnAliasList: false,
 }

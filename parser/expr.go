@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"io.sqlmask/go/ast"
+	"io.sqlmask/go/dialect"
 	"io.sqlmask/go/lexer"
 )
 
@@ -92,8 +93,8 @@ func (p *Parser) parseNot() (ast.Expr, error) {
 	return p.parsePred()
 }
 
-// comparisonOps 运算符文本 → BinaryOp(<> 与 != 同为 Ne;!= 的方言放行
-// 差异记 task-6 报告,见 watchlist)。
+// comparisonOps 运算符文本 → BinaryOp(<> 与 != 同为 Ne;!= 仅在
+// Default 档 conformance 下拒绝,见 parsePred)。
 var comparisonOps = map[string]ast.BinaryOp{
 	"=":  ast.Eq,
 	"<>": ast.Ne,
@@ -127,6 +128,13 @@ func (p *Parser) parsePred() (ast.Expr, error) {
 			op, ok := comparisonOps[tok.Text]
 			if !ok {
 				break
+			}
+			// `!=` 的接受边界由 conformance 档位决定(对齐 Java
+			// comp() 的 NE2 分支 isBangEqualAllowed):Default 档
+			// (pg/trino)拒绝;MySQL5/Lenient(mysql/hive/sparksql)
+			// 接受并归一为 ast.Ne。
+			if tok.Text == "!=" && p.profile.Conformance == dialect.Default {
+				return nil, p.errAt(tok.Pos, "Bang equal '!=' is not allowed under the current SQL conformance level")
 			}
 			p.advance()
 			right, err := p.parseAdd()

@@ -521,9 +521,6 @@ func TestPredicates(t *testing.T) {
 		{`a <> b`, &ast.Binary{Op: ast.Ne,
 			Left:  &ast.Identifier{Parts: []ast.IdentPart{{Value: "a"}}},
 			Right: &ast.Identifier{Parts: []ast.IdentPart{{Value: "b"}}}}},
-		{`a != b`, &ast.Binary{Op: ast.Ne,
-			Left:  &ast.Identifier{Parts: []ast.IdentPart{{Value: "a"}}},
-			Right: &ast.Identifier{Parts: []ast.IdentPart{{Value: "b"}}}}},
 		{`a <= b`, &ast.Binary{Op: ast.Le,
 			Left:  &ast.Identifier{Parts: []ast.IdentPart{{Value: "a"}}},
 			Right: &ast.Identifier{Parts: []ast.IdentPart{{Value: "b"}}}}},
@@ -558,6 +555,42 @@ func TestBetweenReduction(t *testing.T) {
 		Right: &ast.Identifier{Parts: []ast.IdentPart{{Value: "d"}}}}
 	if !reflect.DeepEqual(normAST(got), normAST(want)) {
 		t.Fatalf("got %#v", got)
+	}
+}
+
+// TestBangEqualConformance fix round 1:`!=` 按 conformance 档位决定接受
+// 边界(对齐 Java comp() 的 NE2 分支 isBangEqualAllowed,控制者 jar 实测
+// 复核)——Default 档(postgresql/trino)拒绝;MySQL5/Lenient(mysql/
+// hive/sparksql)接受并归一为 Binary{Ne}。`<>` 在五方言均接受。
+func TestBangEqualConformance(t *testing.T) {
+	wantBang := &ast.Binary{Op: ast.Ne,
+		Left:  &ast.Literal{Kind: ast.Int, Text: "1"},
+		Right: &ast.Literal{Kind: ast.Int, Text: "2"}}
+	for _, name := range []string{"mysql", "hive", "sparksql"} {
+		got := mustExpr(t, name, `1 != 2`)
+		if !reflect.DeepEqual(normAST(got), normAST(wantBang)) {
+			t.Fatalf("bang equal %q (dialect %s): got %#v, want %#v", `1 != 2`, name, got, wantBang)
+		}
+	}
+	for _, name := range []string{"postgresql", "trino"} {
+		_, err := newTestParser(t, name).ParseExprStr(`1 != 2`)
+		if err == nil {
+			t.Fatalf("bang equal %q (dialect %s): expected PARSE_ERROR, got nil error", `1 != 2`, name)
+		}
+		var me *maskerr.Error
+		if !errors.As(err, &me) || me.Code != maskerr.ParseError {
+			t.Fatalf("bang equal %q (dialect %s): got %v, want PARSE_ERROR", `1 != 2`, name, err)
+		}
+		if want := "Bang equal '!=' is not allowed under the current SQL conformance level"; me.Message != "Parse error at Line 1, Column 3: "+want {
+			t.Fatalf("bang equal %q (dialect %s): message = %q, want %q", `1 != 2`, name, me.Message, want)
+		}
+	}
+	// <> 不受 conformance 影响,五方言均接受且同为 Binary{Ne}。
+	for _, name := range []string{"postgresql", "trino", "mysql", "hive", "sparksql"} {
+		got := mustExpr(t, name, `1 <> 2`)
+		if !reflect.DeepEqual(normAST(got), normAST(wantBang)) {
+			t.Fatalf("ne %q (dialect %s): got %#v, want %#v", `1 <> 2`, name, got, wantBang)
+		}
 	}
 }
 
