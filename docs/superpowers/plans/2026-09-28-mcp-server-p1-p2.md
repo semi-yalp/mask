@@ -231,7 +231,6 @@ class MainTest {
     };
     Object spec = McpServerFactory.specFor(ping);
     assertNotNull(spec);
-    assertEquals(List.of(), java.util.Collections.emptyList());
   }
 }
 ```
