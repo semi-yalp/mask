@@ -76,3 +76,21 @@ PG 适配器，849 行）、`error`、`lineage`、`metadata`、`rewrite`（引�
   c_customer_id/c_birth_country 与 ca_street_name。
 - 远程 tpcds 库由本特性分支的测试流程搭建：v3.2 DDL + DuckDB 生成的 sf=0.01
   数据 + `deploy/local-e2e/01_udf.sql` 的 mask UDF（tpcds 库内）。
+
+## review 修复轮（2026-09-28，feature/mask-lite-pg-2）
+
+独立代码 review（含对照 Calcite 1.42 源码逐条验证 fail-closed 链）结论：
+**无可构造的受保护数据走私路径**；6 条 Important 与全部 Minor 修复落地：
+
+- 安全底线：对抗性 fail-closed 单测入住本模块（子查询走私/歧义列/两段名/
+  递归 CTE/白名单三连/原子性/EXPR\$N/拆分器 PG 词法边界）；入库默认密码与
+  主机信息移除（IT 无凭据即跳过）。
+- 方言口径：MINUS 只认 date 在左、整数族止步 int4、优先级对齐 std(40)；
+  `WITH…SELECT` 无顶层 ORDER BY 的过拒绝修复（语料 99 条全带 ORDER BY
+  从未暴露）；裸 `INTERVAL '1 day'` 与 `'str'::interval`/`CAST('str' AS
+  INTERVAL)` 解析期规范化为等值限定词形式（拆掉 babel 旗标产出的
+  INTERVAL SECOND 值腐蚀地雷；typmod/字段范围形态保持拒绝）。
+- 清理：写语句死代码/死策略方法/死错误码删除（-336 行），策略层收敛为
+  dataMask 单模型，行过滤单一事实来源（TableMetadata.rowFilter）。
+- 测试强度：离线回归锁定 15 masked / 91 rowFiltered 位图与 wrapper 形状
+  断言；全量 77 单测 + ClassloaderIT 绿；TPC-DS 99/99 与位图不变。
