@@ -707,12 +707,20 @@ func (p *Parser) parseExists() (ast.Expr, error) {
 // parseIdentOrCall 标识符或函数调用的分派:标识符链后随「(」为函数调用
 // (含 COUNT(*)、DISTINCT 聚合、OVER 窗口);同时在此拒绝 M1 不支持的
 // X'..' 二进制字面量(Java 词法器把紧邻的 x'..' 产为单 token,这里按
-// 「同行紧邻」还原判定)与 UNNEST/TABLESAMPLE 表函数(决策 5)。
+// 「同行紧邻」还原判定)、UNNEST/TABLESAMPLE 表函数(决策 5)与保留字
+// ROLLUP/LATERAL(Java 实测:表达式语境 "Incorrect syntax near the
+// keyword 'ROLLUP'"/'LATERAL';CUBE/GROUPING/SETS 单词形式 Java 解析
+// 接受、到校验期才失败,故按普通函数调用放行)。
 func (p *Parser) parseIdentOrCall() (ast.Expr, error) {
 	tok := p.curTok()
-	if tok.Kind == lexer.Ident && strings.EqualFold(tok.Text, "X") {
-		if nxt := p.peekTok(); nxt.Kind == lexer.String && adjacentSameLine(tok, nxt) {
-			return nil, p.errAt(tok.Pos, "binary string literal X%s is not supported", nxt.Text)
+	if tok.Kind == lexer.Ident {
+		if strings.EqualFold(tok.Text, "ROLLUP") || strings.EqualFold(tok.Text, "LATERAL") {
+			return nil, p.errAt(tok.Pos, "Incorrect syntax near the keyword '%s'", strings.ToUpper(tok.Text))
+		}
+		if strings.EqualFold(tok.Text, "X") {
+			if nxt := p.peekTok(); nxt.Kind == lexer.String && adjacentSameLine(tok, nxt) {
+				return nil, p.errAt(tok.Pos, "binary string literal X%s is not supported", nxt.Text)
+			}
 		}
 	}
 	id, err := p.parseIdentifier()
@@ -1027,7 +1035,7 @@ func (p *Parser) parseTypeName() (ast.TypeSpec, error) {
 		return ast.TypeSpec{Pos: tok.Pos, Name: word}, nil
 	case "FLOAT":
 		p.advance()
-		prec, err := p.parsePrecisionParen(false)
+		prec, err := p.parsePrecisionParen()
 		if err != nil {
 			return ast.TypeSpec{}, err
 		}
@@ -1074,14 +1082,14 @@ func (p *Parser) parseTypeName() (ast.TypeSpec, error) {
 			p.advance()
 			name = "VARCHAR"
 		}
-		prec, err := p.parsePrecisionParen(false)
+		prec, err := p.parsePrecisionParen()
 		if err != nil {
 			return ast.TypeSpec{}, err
 		}
 		return ast.TypeSpec{Pos: tok.Pos, Name: name, Precision: prec}, nil
 	case "VARCHAR":
 		p.advance()
-		prec, err := p.parsePrecisionParen(false)
+		prec, err := p.parsePrecisionParen()
 		if err != nil {
 			return ast.TypeSpec{}, err
 		}
@@ -1093,7 +1101,7 @@ func (p *Parser) parseTypeName() (ast.TypeSpec, error) {
 			p.advance()
 			name = "VARBINARY"
 		}
-		prec, err := p.parsePrecisionParen(false)
+		prec, err := p.parsePrecisionParen()
 		if err != nil {
 			return ast.TypeSpec{}, err
 		}
@@ -1103,7 +1111,7 @@ func (p *Parser) parseTypeName() (ast.TypeSpec, error) {
 		return ast.TypeSpec{Pos: tok.Pos, Name: "DATE"}, nil
 	case "TIME", "TIMESTAMP":
 		p.advance()
-		prec, err := p.parsePrecisionParen(false)
+		prec, err := p.parsePrecisionParen()
 		if err != nil {
 			return ast.TypeSpec{}, err
 		}
@@ -1128,9 +1136,9 @@ func (p *Parser) parseTypeName() (ast.TypeSpec, error) {
 	}
 }
 
-// parsePrecisionParen 解析可选的 (n) 精度;allowScale 为真时额外允许
-// (p, s) 二元形态(调用方为 DECIMAL 族自行展开,此处恒 false)。
-func (p *Parser) parsePrecisionParen(allowScale bool) (ast.Expr, error) {
+// parsePrecisionParen 解析可选的 (n) 精度括号;精度/刻度二元形态 (p[,s])
+// 仅 DECIMAL 族允许,由该分支自行展开。
+func (p *Parser) parsePrecisionParen() (ast.Expr, error) {
 	if !p.atOp("(") {
 		return nil, nil
 	}

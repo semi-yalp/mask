@@ -700,7 +700,7 @@ func TestStatementStub(t *testing.T) {
 }
 
 // TestParseExprRejects 本任务不支持的构造遇之即报 PARSE_ERROR,且 message
-// 含 Line/Column 位置(决策 5;LATERAL/GROUP BY 语境的构造在 T7/T8 拒绝)。
+// 含 Line/Column 位置(决策 5;GROUP BY 语境的 ROLLUP/CUBE 构造在 T8 拒绝)。
 func TestParseExprRejects(t *testing.T) {
 	tests := []struct {
 		src string
@@ -713,6 +713,11 @@ func TestParseExprRejects(t *testing.T) {
 		{`TABLESAMPLE(t)`, 1},        // TABLESAMPLE 表函数
 		{`CAST(x AS FOO)`, 11},       // 清单外类型名
 		{`a RLIKE b`, 3},             // RLIKE 不在 M1 谓词面
+		{`a -> b`, 4},                // -> 非 Calcite 标准算子(- 后遇 > 报错)
+		{`ROLLUP (a)`, 1},            // ROLLUP 保留字,表达式语境即拒(fix round 2)
+		{`rollup(a)`, 1},             // 同上,小写同拒
+		{`LATERAL (a)`, 1},           // LATERAL 保留字(决策 5),表达式语境即拒
+		{`GROUPING SETS (a)`, 10},    // 两词形式:GROUPING 成标识符后 SETS 为残片
 		{`1 2`, 3},                   // 表达式后残片
 		{`a b`, 3},                   // 同上
 		{``, 1},                      // 空输入
@@ -721,9 +726,48 @@ func TestParseExprRejects(t *testing.T) {
 	for _, tc := range tests {
 		wantExprError(t, "postgresql", tc.src, tc.col)
 	}
+	// ROLLUP 的错误文案对齐 Java(jar 实测 "Incorrect syntax near the
+	// keyword 'ROLLUP'"),经 errAt 前缀后含位置。
+	_, err := newTestParser(t, "postgresql").ParseExprStr(`ROLLUP (a)`)
+	var me *maskerr.Error
+	if !errors.As(err, &me) || !strings.Contains(me.Message, "Incorrect syntax near the keyword 'ROLLUP'") {
+		t.Fatalf("ROLLUP message = %v, want \"Incorrect syntax near the keyword 'ROLLUP'\"", err)
+	}
 	// X'..' 与普通「标识符 + 字符串」(中间有空白)的区分:后者在表达式
 	// 上下文因残片报错,位置落在字符串上而非标识符上。
 	wantExprError(t, "postgresql", `x 'y'`, 3)
+}
+
+// TestGroupingSetsFamilyExpressionContext fix round 2:Java 实测(jar)边界——
+// CUBE/GROUPING/SETS 单词形式在表达式语境解析接受(校验期才失败),故按
+// 普通函数调用放行;ROLLUP/GROUPING SETS/LATERAL 拒绝见 TestParseExprRejects。
+func TestGroupingSetsFamilyExpressionContext(t *testing.T) {
+	tests := []struct {
+		src  string
+		want ast.Expr
+	}{
+		{`CUBE(x)`, &ast.FunctionCall{
+			Name: ast.Identifier{Parts: []ast.IdentPart{{Value: "cube"}}},
+			Args: []ast.Expr{&ast.Identifier{Parts: []ast.IdentPart{{Value: "x"}}}}}},
+		{`GROUPING(a, b)`, &ast.FunctionCall{
+			Name: ast.Identifier{Parts: []ast.IdentPart{{Value: "grouping"}}},
+			Args: []ast.Expr{
+				&ast.Identifier{Parts: []ast.IdentPart{{Value: "a"}}},
+				&ast.Identifier{Parts: []ast.IdentPart{{Value: "b"}}}}}},
+		{`SETS(1)`, &ast.FunctionCall{
+			Name: ast.Identifier{Parts: []ast.IdentPart{{Value: "sets"}}},
+			Args: []ast.Expr{&ast.Literal{Kind: ast.Int, Text: "1"}}}},
+		{`cube(x) OVER ()`, &ast.FunctionCall{
+			Name: ast.Identifier{Parts: []ast.IdentPart{{Value: "cube"}}},
+			Args: []ast.Expr{&ast.Identifier{Parts: []ast.IdentPart{{Value: "x"}}}},
+			Over: &ast.WindowSpec{}}},
+	}
+	for _, tc := range tests {
+		got := mustExpr(t, "postgresql", tc.src)
+		if !reflect.DeepEqual(normAST(got), normAST(tc.want)) {
+			t.Fatalf("expr %q: got %#v, want %#v", tc.src, got, tc.want)
+		}
+	}
 }
 
 // TestLexErrorViaParseExpr New 内部完成词法分析,词法错误经 ParseExpr 透传。
