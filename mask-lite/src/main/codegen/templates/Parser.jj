@@ -6656,6 +6656,7 @@ SqlNode BuiltinFunctionCall() :
     final SqlLiteral style; // mssql convert 'style' operand
     final SqlFunction f;
     final SqlNode format;
+    org.apache.calcite.sql.SqlIntervalLiteral bareInterval = null;
 }
 {
     //~ FUNCTIONS WITH SPECIAL SYNTAX ---------------------------------------
@@ -6672,10 +6673,27 @@ SqlNode BuiltinFunctionCall() :
         |
             LOOKAHEAD(2)
             <INTERVAL> e = IntervalQualifier() { args.add(e); }
-<#if (parser.includeIntervalWithoutQualifier!default.parser.includeIntervalWithoutQualifier) >
         |
-            <INTERVAL> e = IntervalWithoutQualifier() { args.add(e); }
-</#if>
+            // PG: CAST('<string>' AS INTERVAL) ≡ INTERVAL '<string>'。仅字符串
+            // 字面量解析期规范化（替代 babel 的 IntervalWithoutQualifier 路径——
+            // SECOND 标记形式的 unparse 在 PG 会被字段范围 typmod 丢弃越界
+            // 字段，值不保真）；其余形态 fail-closed。
+            <INTERVAL> {
+                SqlNode castOperand = args.get(0);
+                if (!(castOperand instanceof org.apache.calcite.sql.SqlCharStringLiteral)) {
+                    throw new ParseException(
+                        "CAST(... AS INTERVAL) is only supported on a plain string literal");
+                }
+                String raw = ((org.apache.calcite.sql.SqlCharStringLiteral) castOperand)
+                    .getValueAs(org.apache.calcite.util.NlsString.class).getValue();
+                bareInterval =
+                    io.masklite.sql.PgBareIntervalLiterals.literal(s.end(this), 1, raw);
+                if (bareInterval == null) {
+                    throw new ParseException(
+                        "unsupported interval string in CAST(... AS INTERVAL): '" + raw + "'");
+                }
+            }
+            <RPAREN> { return bareInterval; }
         )
         [ <FORMAT> format = StringLiteral() { args.add(format); } ]
         <RPAREN> {

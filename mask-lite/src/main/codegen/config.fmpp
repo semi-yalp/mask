@@ -592,7 +592,11 @@ data: {
     setOptionParserMethod: "PostgresSqlSetOption"
     includePosixOperators: true
     includeParsingStringLiteralAsArrayLiteral: true
-    includeIntervalWithoutQualifier: true
+    # 偏离 babel 原值（babel 为 true）：该分支产出 SECOND 标记的裸 interval
+    # 类型，unparse 成 INTERVAL SECOND 后 PG 的字段范围 typmod 会丢弃越界
+    # 字段（如年月），值不保真。mask 层以「字符串字面量 → 解析期规范化」
+    # 分支替代（见 BuiltinFunctionCall 的 CAST ... AS INTERVAL 裸分支）。
+    includeIntervalWithoutQualifier: false
     includeStarExclude: true
     includeSelectBy: true
   }

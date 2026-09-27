@@ -8,13 +8,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * PG 裸 INTERVAL 字面量（{@code INTERVAL '1 day'}，无限定词）。break 对应：
- * 裸形式不能解析（原样拒绝），或规范化产物与原值不等（日期算术错值）。
+ * PG 裸 INTERVAL 字面量（{@code INTERVAL '1 day'}，无限定词）与字符串的
+ * interval 转换（{@code '1 day'::interval}、{@code CAST('1 day' AS INTERVAL)}）。
+ * break 对应：裸形式不能解析（原样拒绝），或规范化产物与原值不等（日期
+ * 算术错值）。
  *
  * <p>实现口径：解析期把裸形式规范化为真实 Calcite interval 字面量——
  * 输出为限定词形式，值与原 PG 语义等价（如 {@code '1 day'} →
- * {@code INTERVAL '1' DAY}）。跨族混合（年月 + 日时）、分数月等
- * Calcite 无法表达的形态保持 fail-closed 拒绝。
+ * {@code INTERVAL '1' DAY}）。转换形式仅支持字符串字面量操作数（PG 语义
+ * ≡ 同一字符串的裸 INTERVAL 字面量），其余与带 typmod 的形态保持
+ * fail-closed 拒绝。跨族混合（年月 + 日时）、分数月等 Calcite 无法表达
+ * 的形态同样保持拒绝。
  */
 class PgBareIntervalTest {
 
@@ -142,6 +146,43 @@ class PgBareIntervalTest {
   void pgLegacyDecorationsAreRejected() {
     assertRejected("SELECT d_date + INTERVAL '@ 1 day' FROM date_dim");
     assertRejected("SELECT d_date + INTERVAL '1 day ago' FROM date_dim");
+  }
+
+  /** {@code 'str'::interval} ≡ 同一字符串的裸 INTERVAL 字面量（PG 语义）。 */
+  @Test
+  void infixIntervalCastOnStringLiteralNormalizes() {
+    assertNormalized("SELECT d_date + '1 day'::interval FROM date_dim",
+        "INTERVAL '1' DAY");
+    assertNormalized("SELECT d_date + '2 hours'::interval FROM date_dim",
+        "INTERVAL '0 02:00:00' DAY TO SECOND");
+  }
+
+  /** {@code CAST('str' AS INTERVAL)} 与 ::interval 同语义。 */
+  @Test
+  void castAsIntervalOnStringLiteralNormalizes() {
+    assertNormalized("SELECT d_date + CAST('1 year 2 mons' AS INTERVAL) FROM date_dim",
+        "INTERVAL '1-2' YEAR TO MONTH");
+  }
+
+  /** 非字符串字面量的 interval 转换保持 fail-closed（值语义不可静态确定）。 */
+  @Test
+  void intervalCastOnNonLiteralIsRejected() {
+    assertRejected("SELECT d_date_sk::interval FROM date_dim");
+    assertRejected("SELECT d_date + ('1'||' day')::interval FROM date_dim");
+  }
+
+  /** 带 typmod/字段范围的转换形态不支持（typmod 会丢弃越界字段，值不保真）。 */
+  @Test
+  void decoratedIntervalCastFormsAreRejected() {
+    assertRejected("SELECT d_date + '1 day'::interval(3) FROM date_dim");
+    assertRejected("SELECT d_date + '1 day'::interval day FROM date_dim");
+  }
+
+  /** 不支持的裸串在转换形式下同样拒绝。 */
+  @Test
+  void intervalCastWithUnsupportedStringIsRejected() {
+    assertRejected("SELECT d_date + '1 year 1 day'::interval FROM date_dim");
+    assertRejected("SELECT d_date + 'fortnight'::interval FROM date_dim");
   }
 
   private static void assertNormalized(String sql, String expectedIntervalText) {

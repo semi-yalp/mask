@@ -203,13 +203,51 @@ void InfixCast(List<Object> list, ExprContext exprContext, Span s) :
     <INFIX_CAST> {
         checkNonQueryExpression(exprContext);
     }
-    dt = DataType() {
-        SqlNode leftOperand = SqlParserUtil.toTree(list);
-        list.clear();
-        SqlNode castNode = SqlLibraryOperators.INFIX_CAST.createCall(
-        s.pos(), leftOperand, dt);
-        list.add(castNode);
-    }
+    (
+        // PG: '<string>'::interval ≡ INTERVAL '<string>'。仅字符串字面量走
+        // 解析期规范化；其余形态 fail-closed——typmod/字段范围形式
+        // （::interval(3)、::interval day）在 PG 会丢弃越界字段，值不保真，
+        // 不做映射（否则尾随 unit 会被静默当成列别名，语义分歧）。
+        // DataType 不能以 INTERVAL 开头，无选择冲突。
+        LOOKAHEAD(<INTERVAL>)
+        <INTERVAL> {
+            switch (getToken(1).kind) {
+            case YEAR: case YEARS: case QUARTER: case QUARTERS:
+            case MONTH: case MONTHS: case WEEK: case WEEKS:
+            case DAY: case DAYS: case HOUR: case HOURS:
+            case MINUTE: case MINUTES: case SECOND: case SECONDS:
+            case LPAREN:
+                throw new ParseException(
+                    "'::interval' with a fields/precision modifier is not supported");
+            default:
+                break;
+            }
+            // PG 的 :: 结合在紧邻原子上：只替换平铺操作数表的最后一项
+            // （d_date + '1 day'::interval → d_date + INTERVAL '1' DAY）
+            Object last = list.get(list.size() - 1);
+            if (!(last instanceof org.apache.calcite.sql.SqlCharStringLiteral)) {
+                throw new ParseException(
+                    "'::interval' is only supported on a plain string literal");
+            }
+            String raw = ((org.apache.calcite.sql.SqlCharStringLiteral) last)
+                .getValueAs(org.apache.calcite.util.NlsString.class).getValue();
+            org.apache.calcite.sql.SqlIntervalLiteral bare =
+                io.masklite.sql.PgBareIntervalLiterals.literal(s.end(this), 1, raw);
+            if (bare == null) {
+                throw new ParseException(
+                    "unsupported interval string in '::interval': '" + raw + "'");
+            }
+            list.set(list.size() - 1, bare);
+        }
+    |
+        dt = DataType() {
+            SqlNode leftOperand = SqlParserUtil.toTree(list);
+            list.clear();
+            SqlNode castNode = SqlLibraryOperators.INFIX_CAST.createCall(
+            s.pos(), leftOperand, dt);
+            list.add(castNode);
+        }
+    )
     (   <LBRACKET>
         e = Expression(ExprContext.ACCEPT_SUB_QUERY)
         <RBRACKET> {

@@ -78,8 +78,9 @@ class DialectDateArithmeticTest {
 
   /**
    * 语料从未覆盖 interval：date±interval 走标准委托路径，不能被放宽版误伤。
-   * PG 的裸 {@code INTERVAL '1 day'} 已支持（解析期规范化，见 PgBareIntervalTest）；
-   * {@code ::interval} 转换仍是已知缺口（PARSE_ERROR，fail-closed 过拒绝）。
+   * PG 的裸 {@code INTERVAL '1 day'} 与字符串 interval 转换已支持
+   * （解析期规范化，见 PgBareIntervalTest）；typmod/字段范围形态
+   * （{@code ::interval(3)}）仍保持 fail-closed 拒绝。
    */
   @Test
   void datePlusIntervalRewrites() {
