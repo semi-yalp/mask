@@ -70,33 +70,61 @@ public final class MaskLite {
     return loaded;
   }
 
+  /** Parsed CLI arguments: exactly one of {@code sql} / {@code input} is set. */
+  record CliOptions(Path metadata, String sql, Path input) {
+  }
+
+  /**
+   * Parses CLI arguments; throws {@link IllegalArgumentException} with a
+   * usage-oriented message on unknown options, missing option values,
+   * missing {@code --metadata}, or not exactly one of {@code --sql}/
+   * {@code --input}.
+   */
+  static CliOptions parseArguments(String[] args) {
+    Path metadata = null;
+    String sql = null;
+    Path input = null;
+    for (int i = 0; i < args.length; i++) {
+      String option = args[i];
+      if (i + 1 >= args.length) {
+        throw new IllegalArgumentException("missing value for " + option);
+      }
+      String value = args[++i];
+      switch (option) {
+        case "--metadata" -> metadata = Path.of(value);
+        case "--sql" -> sql = value;
+        case "--input" -> input = Path.of(value);
+        default -> throw new IllegalArgumentException("unknown argument: " + option);
+      }
+    }
+    if (metadata == null) {
+      throw new IllegalArgumentException("--metadata is required");
+    }
+    if ((sql == null) == (input == null)) {
+      throw new IllegalArgumentException("exactly one of --sql / --input is required");
+    }
+    return new CliOptions(metadata, sql, input);
+  }
+
   /**
    * Minimal CLI for smoke checks: {@code java -jar mask-lite.jar --metadata m.yaml
    * --sql 'SELECT ...'} (or {@code --input file}), rewritten SQL to stdout.
    * Exit codes: 0 ok, 1 rewrite failure, 2 usage error.
    */
   public static void main(String[] args) {
-    Path metadata = null;
-    String sql = null;
-    Path input = null;
-    for (int i = 0; i < args.length; i++) {
-      switch (args[i]) {
-        case "--metadata" -> metadata = Path.of(args[++i]);
-        case "--sql" -> sql = args[++i];
-        case "--input" -> input = Path.of(args[++i]);
-        default -> {
-          System.err.println("unknown argument: " + args[i]);
-          System.exit(2);
-        }
-      }
-    }
-    if (metadata == null || (sql == null) == (input == null)) {
-      System.err.println("usage: java -jar mask-lite.jar --metadata <yaml> (--sql <text> | --input <file>)");
+    CliOptions options;
+    try {
+      options = parseArguments(args);
+    } catch (IllegalArgumentException e) {
+      System.err.println(e.getMessage());
+      System.err.println(
+          "usage: java -jar mask-lite.jar --metadata <yaml> (--sql <text> | --input <file>)");
       System.exit(2);
+      return;
     }
     try {
-      MaskLite mask = MaskLite.fromYamlFile(metadata);
-      String text = sql != null ? sql : Files.readString(input);
+      MaskLite mask = MaskLite.fromYamlFile(options.metadata());
+      String text = options.sql() != null ? options.sql() : Files.readString(options.input());
       List<StatementRewrite> statements = mask.rewriteStatements(text);
       for (StatementRewrite statement : statements) {
         System.out.println(statement.rewrittenSql() + ";");
