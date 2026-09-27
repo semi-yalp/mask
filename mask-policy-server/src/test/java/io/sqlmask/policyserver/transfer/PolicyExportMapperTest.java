@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PolicyExportMapperTest {
@@ -54,5 +55,19 @@ class PolicyExportMapperTest {
         new SubjectSelector(Set.of("alice"), Set.of()), "status <> 'archived'")),
         policy.rowFilterItems());
     assertTrue(policy.dataMaskItems().isEmpty());
+  }
+
+  @Test
+  void exportsInheritColumnsAsInheritOnCopyResources() {
+    PolicyEntity entity = new PolicyEntity("mask-phone", io.sqlmask.policyserver.model.PolicyType.DATAMASK,
+        true, 5, new ResourceSelector("crm", "public", "customer",
+            List.of("phone", "email"), List.of("phone")),
+        new SubjectSelector(Set.of(), Set.of("*")), "mask_phone", List.of(3, 4), null);
+
+    Policy policy = mapper.toPolicy(entity);
+
+    assertEquals(2, policy.resources().size());
+    assertTrue(policy.resources().get(0).inheritOnCopy(), "phone 应带继承标志");
+    assertFalse(policy.resources().get(1).inheritOnCopy(), "email 不在 inheritColumns 中");
   }
 }

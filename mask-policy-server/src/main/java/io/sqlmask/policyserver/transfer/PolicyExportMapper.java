@@ -9,6 +9,7 @@ import io.sqlmask.policyserver.model.PolicyEntity;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Export direction of the policies.yaml exchange: one management-plane
@@ -23,9 +24,11 @@ public final class PolicyExportMapper {
   public Policy toPolicy(PolicyEntity entity) {
     List<PolicyResource> resources = new ArrayList<>();
     if (entity.policyType() == io.sqlmask.policyserver.model.PolicyType.DATAMASK) {
+      // 用 Set 做 O(1) 成员判断且忽略重复;inheritColumns 里不在 columns 中的名字自然无害——导出只遍历 columns。
+      Set<String> inherit = Set.copyOf(entity.resource().inheritColumns());
       for (String column : entity.resource().columns()) {
         resources.add(PolicyResource.column(entity.resource().catalog(), entity.resource().schema(),
-            entity.resource().table(), column));
+            entity.resource().table(), column, inherit.contains(column)));
       }
       List<DataMaskItem> items = List.of(new DataMaskItem(
           entity.subjects(), entity.udf(), entity.arguments()));

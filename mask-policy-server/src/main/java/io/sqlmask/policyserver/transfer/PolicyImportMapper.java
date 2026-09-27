@@ -56,13 +56,15 @@ public final class PolicyImportMapper {
         item.filterExpr());
   }
 
-  /** One entity per table: columns are the distinct column-level resource names, in order. */
+  /** One entity per table: columns are the distinct column-level resource names, in order.
+   * inheritColumns 同序收集带 inheritOnCopy 的列;同一列重复声明时首见生效（与 columns 去重口径一致）。 */
   private static ResourceSelector tableResource(Policy policy) {
     String catalog = null;
     String schema = null;
     String table = null;
     Set<String> seen = new LinkedHashSet<>();
     List<String> columns = new ArrayList<>();
+    List<String> inheritColumns = new ArrayList<>();
     for (PolicyResource resource : policy.resources()) {
       if (catalog == null) {
         catalog = resource.catalog();
@@ -76,8 +78,11 @@ public final class PolicyImportMapper {
       }
       if (resource.column() != null && seen.add(resource.column())) {
         columns.add(resource.column());
+        if (resource.inheritOnCopy()) {
+          inheritColumns.add(resource.column());
+        }
       }
     }
-    return new ResourceSelector(catalog, schema, table, columns);
+    return new ResourceSelector(catalog, schema, table, columns, inheritColumns);
   }
 }
