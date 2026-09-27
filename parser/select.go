@@ -7,11 +7,18 @@ import (
 	"io.sqlmask/go/lexer"
 )
 
-// 本文件实现 Task 7 的 SELECT 核心与 FROM 子句(查询层):
+// 本文件实现查询层(Task 7 SELECT 核心与 FROM;Task 8 集合运算与限尾):
 //
-//	ParseQuery        = SELECT [DISTINCT|ALL] item {, item}
+//	ParseQuery        = queryPrimary 集合运算链 [限尾]
+//	queryPrimary      = SELECT [DISTINCT|ALL] [TOP (expr) | TOP n] item {, item}
 //	                    [ FROM 表引用链 [WHERE expr] [GROUP BY 项列表] [HAVING expr] ]
-//	item              = * | t.* | expr [[AS] alias]
+//	                    | ( ParseQuery )                       括号查询(操作数/子查询)
+//	集合运算链        = UNION [ALL|DISTINCT] / EXCEPT 同级左结合;
+//	                    INTERSECT 优先级更高(镜像 Calcite toTree 优先级攀爬)
+//	限尾              = [ORDER BY 项 {, 项}]
+//	                    [ LIMIT n|ALL [OFFSET n [ROW|ROWS]]
+//	                    | OFFSET n [ROW|ROWS] [FETCH FIRST|NEXT n [ROW|ROWS] ONLY]
+//	                    | FETCH FIRST|NEXT n [ROW|ROWS] ONLY ]
 //	表引用链          = 表引用 { (, 表引用 | JOIN 系列 表引用) }   左结合单循环
 //	表引用            = 表名(1–4 段)[[AS] alias [(cols)]]
 //	                    | ( Query ) [[AS] alias [(cols)]]           派生表
@@ -23,11 +30,21 @@ import (
 //     同层、右操作数恒为单个表引用——`FROM a, b JOIN c ON e` 归约为
 //     ((a, b) JOIN c ON e),`FROM a, b, c` 归约为嵌套 Comma Join(简报钉死);
 //   - WHERE/GROUP BY/HAVING 只在 FROM 分支内(fork SqlSelect 产生式,jar 实测
-//     `SELECT 1 WHERE ..`/`SELECT 1 GROUP BY ..`/`SELECT 1 HAVING ..` 均拒)。
+//     `SELECT 1 WHERE ..`/`SELECT 1 GROUP BY ..`/`SELECT 1 HAVING ..` 均拒);
+//   - 集合运算/限尾镜像 fork:集合运算链镜像 QueryOrExpr 的 AddSetOpQuery +
+//     SqlParserUtil.toTree;限尾镜像 OrderedQueryOrExpr 的 OrderByLimitOpt
+//     (SqlOrderBy 包装)——括号查询经由 ExprOrJoinOrOrderedQuery 的
+//     LOOKAHEAD(2) Query+OrderByLimitOpt 分支,限尾同样留在括号内消费;
+//   - 组合面按简报收窄:OFFSET 之后不再接 LIMIT(fork 该分支受
+//     isOffsetLimitAllowed 门控,Go Profile 无对应开关,差异记 T11 watchlist),
+//     LIMIT 与 FETCH 互斥(Calcite 同一 Fetch 产生式的两个分支);
+//   - TOP 镜像 fork SqlSelect 的 SqlMaskTopN 挂点:SELECT [DISTINCT|ALL] 之后
+//     TOP 后随 '(' 或无符号数字字面量才进入挂点,先解析值再做 conformance
+//     检查——五方言 Profile.AllowTopN 均为 false,一律 PARSE_ERROR;门控读
+//     Profile 字段而非硬编码;TOP 不在此形态时仍为决策 4 非保留标识符。
 //
-// Task 8 在 ParseQuery 上扩展集合运算与 ORDER BY/LIMIT 等限尾(本文件不涉及,
-// 这些关键字出现时成为残片、由入口的 EOF 检查拒绝);Task 9 扩展 WITH/VALUES
-// 后,派生表 `( Query )` 经由同一 ParseQuery 入口自动获得相应能力。
+// Task 9 扩展 WITH/VALUES 后,派生表 `( Query )` 经由同一 ParseQuery 入口
+// 自动获得相应能力。
 //
 // 决策 5 查询层落点:
 //   - GROUP BY 语境的 ROLLUP:jar 实测 Java 解析接受(fork GroupingElementList
@@ -41,16 +58,55 @@ import (
 //     (决策 5「LATERAL 先不解析」;jar 实测 Java 解析接受、语料零命中,
 //     差异记 T11 watchlist)。
 
-// ParseQuery 解析裸 SELECT 查询体(不消费查询之后的 token,供子查询/派生表
-// 复用;顶层入口的 EOF 检查由 ParseStatement(T8)承担)。Task 7 覆盖裸
-// SELECT;后续任务在同一入口扩展其他 Query 形态。
+// ParseQuery 解析完整查询体:查询基元 + 集合运算链 + statement 级限尾
+// (ORDER BY/LIMIT/OFFSET/FETCH → ast.OrderBy 包装,镜像 fork OrderByLimitOpt
+// 对 OrderedQueryOrExpr 的挂法;括号内的限尾由括号内的同一入口消费,不越出
+// 括号)。不消费查询之后的 token(供子查询/派生表复用),顶层入口的 EOF
+// 检查由 ParseStatement 承担。Task 7 覆盖裸 SELECT;Task 8 扩展集合运算与
+// 限尾;Task 9 扩展 WITH/VALUES 后在同一入口继续扩展其他 Query 形态。
 func (p *Parser) ParseQuery() (ast.Query, error) {
 	if p.lexErr != nil {
 		return nil, p.lexErr
 	}
-	tok, err := p.expectKw("SELECT")
+	head, topFetch, err := p.parseQueryPrimary()
 	if err != nil {
 		return nil, err
+	}
+	q, err := p.parseSetOpExpr(head)
+	if err != nil {
+		return nil, err
+	}
+	return p.parseOrderAndTail(q, topFetch, q != head)
+}
+
+// parseQueryPrimary 查询基元:括号查询或裸 SELECT 头。括号内交还 ParseQuery
+// (集合运算与限尾留在括号内消费,镜像 fork ExprOrJoinOrOrderedQuery 的
+// LOOKAHEAD(2) Query+OrderByLimitOpt 分支;括号不产生额外包装节点)。第二
+// 返回值为裸 SELECT 头的 TOP fetch(仅 Profile.AllowTopN 开启时非 nil,
+// 五方言均关、M1 不可达;见 parseTopN)。
+func (p *Parser) parseQueryPrimary() (ast.Query, ast.Expr, error) {
+	if p.atOp("(") {
+		p.advance()
+		q, err := p.ParseQuery()
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := p.expectOp(")"); err != nil {
+			return nil, nil, err
+		}
+		return q, nil, nil
+	}
+	return p.parseSelectHead()
+}
+
+// parseSelectHead 解析裸 SELECT 查询体(T7 文法)+ TOP 挂点:
+//
+//	SELECT [DISTINCT|ALL] [TOP (expr) | TOP n] item {, item}
+//	       [ FROM 表引用链 [WHERE expr] [GROUP BY 项列表] [HAVING expr] ]
+func (p *Parser) parseSelectHead() (ast.Query, ast.Expr, error) {
+	tok, err := p.expectKw("SELECT")
+	if err != nil {
+		return nil, nil, err
 	}
 	sel := &ast.Select{Pos: tok.Pos}
 	switch {
@@ -60,10 +116,21 @@ func (p *Parser) ParseQuery() (ast.Query, error) {
 	case p.atKw("ALL"):
 		p.advance() // ALL 量词接受并忽略(与 T6 聚合限定词口径一致)
 	}
+	// TOP 挂点(fork SqlMaskTopN):LOOKAHEAD 限定 TOP 后随 '(' 或无符号数字
+	// 字面量才进入;其余形态 TOP 仍是决策 4 非保留标识符,走普通选择项。
+	var topFetch ast.Expr
+	if p.atKw("TOP") {
+		nxt := p.peekTok()
+		if (nxt.Kind == lexer.Op && nxt.Text == "(") || nxt.Kind == lexer.Number {
+			if topFetch, err = p.parseTopN(); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 	for {
 		item, err := p.parseSelectItem()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sel.Items = append(sel.Items, item)
 		if p.atOp(",") {
@@ -78,25 +145,25 @@ func (p *Parser) ParseQuery() (ast.Query, error) {
 		p.advance()
 		from, err := p.parseFrom()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sel.From = from
 		if p.atKw("WHERE") {
 			p.advance()
 			w, err := p.parseExpr()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			sel.Where = w
 		}
 		if p.atKw("GROUP") {
 			p.advance()
 			if _, err := p.expectKw("BY"); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			gb, err := p.parseGroupByList()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			sel.GroupBy = gb
 		}
@@ -104,12 +171,309 @@ func (p *Parser) ParseQuery() (ast.Query, error) {
 			p.advance()
 			h, err := p.parseExpr()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			sel.Having = h
 		}
 	}
-	return sel, nil
+	return sel, topFetch, nil
+}
+
+// ---------------------------------------------------------------------------
+// TOP 挂点(Task 8)
+// ---------------------------------------------------------------------------
+
+// parseTopN 解析 SELECT [DISTINCT|ALL] 之后的 TOP:TOP ( expr ) 或
+// TOP 无符号数字字面量(fork SqlMaskTopN,Expression(ACCEPT_SUB_QUERY) 支持括号
+// 内任意表达式)。顺序镜像 fork:先解析值,再做 conformance 检查——五方言
+// Profile.AllowTopN 均为 false,一律在此报 PARSE_ERROR(message 含 TOP;
+// 门控读 Profile 字段而非硬编码,未来方言开启时走 PERCENT/WITH TIES 检查,
+// TOP 值由调用方并入 OrderBy.Fetch 承载)。
+func (p *Parser) parseTopN() (ast.Expr, error) {
+	top := p.advance() // TOP
+	var val ast.Expr
+	if p.atOp("(") {
+		p.advance()
+		e, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expectOp(")"); err != nil {
+			return nil, err
+		}
+		val = e
+	} else {
+		t := p.curTok()
+		if t.Kind != lexer.Number {
+			return nil, p.errAt(t.Pos, "expected unsigned numeric literal or '(' after TOP, found %s %q", t.Kind, t.Text)
+		}
+		p.advance()
+		val = &ast.Literal{Pos: t.Pos, Kind: numberLiteralKind(t.Text), Text: t.Text}
+	}
+	if !p.profile.AllowTopN {
+		return nil, p.errAt(top.Pos, "TOP is not enabled for this dialect")
+	}
+	if p.atKw("PERCENT") {
+		t := p.advance()
+		return nil, p.errAt(t.Pos, "TOP ... PERCENT is not supported")
+	}
+	if p.atKw("WITH") && p.peekKw("TIES") {
+		t := p.advance()
+		p.advance()
+		return nil, p.errAt(t.Pos, "TOP ... WITH TIES is not supported")
+	}
+	return val, nil
+}
+
+// attachTopFetch TOP 值在集合运算操作数位置的落点(AllowTopN 开启时才可达;
+// fork 把 fetch 挂在操作数自己的 SqlSelect.fetch,Go AST 的 fetch 唯一落点是
+// OrderBy 包装,故以包装等价承载)。不在此消费限尾,交由外层。
+func attachTopFetch(q ast.Query, top ast.Expr) ast.Query {
+	if top == nil {
+		return q
+	}
+	return &ast.OrderBy{Pos: q.Position(), Query: q, Fetch: top}
+}
+
+// ---------------------------------------------------------------------------
+// 集合运算链(Task 8)
+// ---------------------------------------------------------------------------
+
+// parseSetOpExpr 集合运算链,镜像 fork AddSetOpQuery + SqlParserUtil.toTree 的
+// 优先级攀爬:先归约左起 INTERSECT 链(优先级高),再进入 UNION/EXCEPT 同级
+// 左结合循环。left 为已解析的左操作数。
+func (p *Parser) parseSetOpExpr(left ast.Query) (ast.Query, error) {
+	for p.atKw("INTERSECT") {
+		t := p.advance()
+		all := p.setOpQuantifier()
+		right, top, err := p.parseQueryPrimary()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.SetOp{Pos: t.Pos, Op: ast.Intersect, All: all,
+			Left: left, Right: attachTopFetch(right, top)}
+	}
+	for {
+		var op ast.SetOpKind
+		switch {
+		case p.atKw("UNION"):
+			op = ast.Union
+		case p.atKw("EXCEPT"):
+			op = ast.Except
+		default:
+			return left, nil
+		}
+		t := p.advance()
+		all := p.setOpQuantifier()
+		right, err := p.parseSetOpTerm()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.SetOp{Pos: t.Pos, Op: op, All: all, Left: left, Right: right}
+	}
+}
+
+// parseSetOpTerm UNION/EXCEPT 的右操作数层级:查询基元 + 紧随的 INTERSECT
+// 左结合链(INTERSECT 优先级高于 UNION/EXCEPT,先归约)。
+func (p *Parser) parseSetOpTerm() (ast.Query, error) {
+	left, top, err := p.parseQueryPrimary()
+	if err != nil {
+		return nil, err
+	}
+	left = attachTopFetch(left, top)
+	for p.atKw("INTERSECT") {
+		t := p.advance()
+		all := p.setOpQuantifier()
+		right, rtop, err := p.parseQueryPrimary()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.SetOp{Pos: t.Pos, Op: ast.Intersect, All: all,
+			Left: left, Right: attachTopFetch(right, rtop)}
+	}
+	return left, nil
+}
+
+// setOpQuantifier 消费集合运算量词:ALL → true;DISTINCT → false;缺省 →
+// false(显式 DISTINCT 与缺省同义)。
+func (p *Parser) setOpQuantifier() bool {
+	if p.atKw("ALL") {
+		p.advance()
+		return true
+	}
+	if p.atKw("DISTINCT") {
+		p.advance()
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// statement 级限尾(Task 8)
+// ---------------------------------------------------------------------------
+
+// parseOrderAndTail 解析查询之后的 ORDER BY/LIMIT/OFFSET/FETCH 并包装为
+// ast.OrderBy(镜像 fork OrderByLimitOpt 产出 SqlOrderBy):
+//
+//	[ORDER BY 项 {, 项}]
+//	[ LIMIT n|ALL [OFFSET n [ROW|ROWS]]
+//	| OFFSET n [ROW|ROWS] [FETCH FIRST|NEXT n [ROW|ROWS] ONLY]
+//	| FETCH FIRST|NEXT n [ROW|ROWS] ONLY ]
+//
+// 组合面按简报:LIMIT 后可跟 OFFSET;OFFSET 后可跟 FETCH;LIMIT 与 FETCH 互斥
+// (Calcite 同一 Fetch 产生式的两个分支);OFFSET 之后不接 LIMIT(fork 该分支
+// 受 isOffsetLimitAllowed 门控,Go Profile 无对应开关,差异记 T11 watchlist)。
+// topFetch 非 nil(TOP 挂点,AllowTopN 开启时才可达)时并入包装的 Fetch,与
+// LIMIT/OFFSET/FETCH 同现即冲突(fork OrderByLimitOpt 的 TOP 冲突检查);
+// setOpSeen 表示左操作数已经过集合运算归约——TOP 隶属单个 SELECT 头,与集合
+// 运算组合在 Go 侧不落位,保守拒绝(差异记 T11 watchlist,fork 接受)。
+// 无任何限尾成分时原样返回 q。
+func (p *Parser) parseOrderAndTail(q ast.Query, topFetch ast.Expr, setOpSeen bool) (ast.Query, error) {
+	var (
+		items    []ast.OrderItem
+		orderPos lexer.Pos
+		hasOrder bool
+	)
+	if p.atKw("ORDER") {
+		t := p.advance()
+		orderPos, hasOrder = t.Pos, true
+		if _, err := p.expectKw("BY"); err != nil {
+			return nil, err
+		}
+		for {
+			item, err := p.parseOrderItem()
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+			if p.atOp(",") {
+				p.advance()
+				continue
+			}
+			break
+		}
+	}
+	var (
+		limit, offset, fetch ast.Expr
+		tailPos              lexer.Pos
+		hasTail              bool
+	)
+	switch {
+	case p.atKw("LIMIT"):
+		t := p.advance()
+		tailPos, hasTail = t.Pos, true
+		if p.atKw("ALL") {
+			p.advance()
+			// 镜像 Calcite:LIMIT ALL 归约为精确数值 -1(SqlOrderBy.fetch = -1)。
+			limit = &ast.Literal{Pos: t.Pos, Kind: ast.Int, Text: "-1"}
+		} else {
+			var err error
+			if limit, err = p.parseTailValue(); err != nil {
+				return nil, err
+			}
+		}
+		if p.atKw("OFFSET") {
+			p.advance()
+			var err error
+			if offset, err = p.parseTailValue(); err != nil {
+				return nil, err
+			}
+			p.skipRowOrRows()
+		}
+		if p.atKw("FETCH") {
+			ft := p.curTok()
+			return nil, p.errAt(ft.Pos, "FETCH cannot be combined with LIMIT")
+		}
+	case p.atKw("OFFSET"):
+		t := p.advance()
+		tailPos, hasTail = t.Pos, true
+		var err error
+		if offset, err = p.parseTailValue(); err != nil {
+			return nil, err
+		}
+		p.skipRowOrRows()
+		if p.atKw("FETCH") {
+			p.advance()
+			if fetch, err = p.parseFetchOnly(); err != nil {
+				return nil, err
+			}
+		}
+	case p.atKw("FETCH"):
+		t := p.advance()
+		tailPos, hasTail = t.Pos, true
+		var err error
+		if fetch, err = p.parseFetchOnly(); err != nil {
+			return nil, err
+		}
+	}
+	if topFetch != nil && (limit != nil || offset != nil || fetch != nil) {
+		// fork OrderByLimitOpt:TOP(即 fetch 已置)与 OFFSET/LIMIT/FETCH 冲突。
+		return nil, p.errAt(tailPos, "TOP cannot be combined with OFFSET/LIMIT/FETCH")
+	}
+	if topFetch != nil && setOpSeen {
+		return nil, p.errAt(q.Position(), "TOP cannot be combined with set operators")
+	}
+	if !hasOrder && !hasTail && topFetch == nil {
+		return q, nil
+	}
+	pos := orderPos
+	if !hasOrder {
+		pos = tailPos
+	}
+	if !hasOrder && !hasTail {
+		pos = q.Position()
+	}
+	if fetch == nil {
+		fetch = topFetch
+	}
+	return &ast.OrderBy{Pos: pos, Query: q, Items: items, Limit: limit, Offset: offset, Fetch: fetch}, nil
+}
+
+// parseTailValue 解析 LIMIT/OFFSET/FETCH 的量值:无符号数字字面量或动态参数
+// (镜像 fork UnsignedNumericLiteralOrParam)。
+func (p *Parser) parseTailValue() (ast.Expr, error) {
+	t := p.curTok()
+	switch t.Kind {
+	case lexer.Number:
+		p.advance()
+		return &ast.Literal{Pos: t.Pos, Kind: numberLiteralKind(t.Text), Text: t.Text}, nil
+	case lexer.Param:
+		p.advance()
+		return paramNode(t), nil
+	default:
+		return nil, p.errAt(t.Pos, "expected unsigned numeric literal or parameter, found %s %q", t.Kind, t.Text)
+	}
+}
+
+// skipRowOrRows 消费可选的 ROW|ROWS 计量词(fork OffsetClause 中可选,
+// Postgres 风格 OFFSET 不带计量词)。
+func (p *Parser) skipRowOrRows() {
+	if p.atKw("ROW") || p.atKw("ROWS") {
+		p.advance()
+	}
+}
+
+// parseFetchOnly 解析 FETCH 之后的尾部:FIRST|NEXT n [ROW|ROWS] ONLY
+// (fork FetchClause:计量词 ROW|ROWS 与 ONLY 均必需)。
+func (p *Parser) parseFetchOnly() (ast.Expr, error) {
+	if !p.atKw("FIRST") && !p.atKw("NEXT") {
+		t := p.curTok()
+		return nil, p.errAt(t.Pos, "expected FIRST or NEXT after FETCH, found %s %q", t.Kind, t.Text)
+	}
+	p.advance()
+	v, err := p.parseTailValue()
+	if err != nil {
+		return nil, err
+	}
+	if p.atKw("ROW") || p.atKw("ROWS") {
+		p.advance()
+	} else {
+		t := p.curTok()
+		return nil, p.errAt(t.Pos, "expected ROW or ROWS before ONLY, found %s %q", t.Kind, t.Text)
+	}
+	if _, err := p.expectKw("ONLY"); err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 // ---------------------------------------------------------------------------
