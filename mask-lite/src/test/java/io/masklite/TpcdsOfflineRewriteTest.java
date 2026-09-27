@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -30,9 +31,9 @@ class TpcdsOfflineRewriteTest {
 
   private static int successCount;
   private static final Map<String, String> FAILURES = new TreeMap<>();
-  private static int maskedCount;
-  private static int rowFilteredCount;
-  private static final List<String> MASKED_AND_FILTERED = new ArrayList<>();
+  private static final List<String> MASKED = new ArrayList<>();
+  private static final List<String> ROW_FILTERED = new ArrayList<>();
+  private static final Map<String, String> REWRITTEN_SAMPLE = new TreeMap<>();
 
   @BeforeAll
   static void rewriteCorpus() throws Exception {
@@ -44,27 +45,53 @@ class TpcdsOfflineRewriteTest {
         try {
           List<MaskLite.StatementRewrite> statements = mask.rewriteStatements(sql);
           successCount++;
-          boolean masked = statements.stream().anyMatch(MaskLite.StatementRewrite::masked);
-          boolean filtered = statements.stream().anyMatch(MaskLite.StatementRewrite::rowFiltered);
-          if (masked) {
-            maskedCount++;
+          if (statements.stream().anyMatch(MaskLite.StatementRewrite::masked)) {
+            MASKED.add(name);
           }
-          if (filtered) {
-            rowFilteredCount++;
+          if (statements.stream().anyMatch(MaskLite.StatementRewrite::rowFiltered)) {
+            ROW_FILTERED.add(name);
           }
-          if (masked && filtered) {
-            MASKED_AND_FILTERED.add(name);
-          }
+          statements.stream()
+              .filter(s -> s.masked() || s.rowFiltered())
+              .findFirst()
+              .ifPresent(s -> REWRITTEN_SAMPLE.put(name, s.rewrittenSql()));
         } catch (Exception e) {
           FAILURES.put(name, String.valueOf(e.getMessage()));
         }
       }
     }
     System.out.printf("TPC-DS offline rewrite: %d/99 success, %d masked, %d rowFiltered%n",
-        successCount, maskedCount, rowFilteredCount);
+        successCount, MASKED.size(), ROW_FILTERED.size());
     FAILURES.forEach((name, message) -> System.out.println("  FAIL " + name + ": " + message));
-    System.out.println("  masked+filtered: " + MASKED_AND_FILTERED);
+    System.out.println("  masked: " + MASKED);
+    System.out.println("  rowFiltered: " + ROW_FILTERED);
   }
+
+  /**
+   * 2026-09-28 实测位图（review 后锁定）：脱敏面 = 15 条（7 个绑定列在语料
+   * 投影中的命中），行过滤面 = 91 条（customer/date_dim/customer_address
+   * 三表被引用即注入），二者交集恰为全部 15 条 masked。任何一条查询的
+   * masked/rowFiltered 翻转都意味着策略匹配或注入行为变化。
+   */
+  private static final List<String> EXPECTED_MASKED = List.of(
+      "q01.sql", "q04.sql", "q11.sql", "q23.sql", "q24.sql", "q30.sql", "q34.sql",
+      "q46.sql", "q64.sql", "q68.sql", "q73.sql", "q74.sql", "q79.sql", "q81.sql",
+      "q84.sql");
+
+  private static final List<String> EXPECTED_ROW_FILTERED = List.of(
+      "q01.sql", "q02.sql", "q03.sql", "q04.sql", "q05.sql", "q06.sql", "q07.sql",
+      "q08.sql", "q10.sql", "q11.sql", "q12.sql", "q13.sql", "q14.sql", "q15.sql",
+      "q16.sql", "q17.sql", "q18.sql", "q19.sql", "q20.sql", "q21.sql", "q22.sql",
+      "q23.sql", "q24.sql", "q25.sql", "q26.sql", "q27.sql", "q29.sql", "q30.sql",
+      "q31.sql", "q32.sql", "q33.sql", "q34.sql", "q35.sql", "q36.sql", "q37.sql",
+      "q38.sql", "q39.sql", "q40.sql", "q42.sql", "q43.sql", "q45.sql", "q46.sql",
+      "q47.sql", "q48.sql", "q49.sql", "q50.sql", "q51.sql", "q52.sql", "q53.sql",
+      "q54.sql", "q55.sql", "q56.sql", "q57.sql", "q58.sql", "q59.sql", "q60.sql",
+      "q61.sql", "q62.sql", "q63.sql", "q64.sql", "q65.sql", "q66.sql", "q67.sql",
+      "q68.sql", "q69.sql", "q70.sql", "q71.sql", "q72.sql", "q73.sql", "q74.sql",
+      "q75.sql", "q76.sql", "q77.sql", "q78.sql", "q79.sql", "q80.sql", "q81.sql",
+      "q82.sql", "q83.sql", "q84.sql", "q85.sql", "q86.sql", "q87.sql", "q89.sql",
+      "q91.sql", "q92.sql", "q94.sql", "q95.sql", "q97.sql", "q98.sql", "q99.sql");
 
   @Test
   void allQueriesRewrite() {
@@ -72,11 +99,34 @@ class TpcdsOfflineRewriteTest {
   }
 
   @Test
-  void maskingAndRowFilterBothTakeEffect() {
-    assertTrue(maskedCount > 0, "no statement got a masking wrapper");
-    assertTrue(rowFilteredCount > 0, "no statement got a row-filter injection");
-    assertTrue(MASKED_AND_FILTERED.size() > 0,
-        "no statement combines masking and row filtering");
+  void maskedQueriesAreExactlyTheExpectedSet() {
+    assertEquals(EXPECTED_MASKED, MASKED,
+        "masked set changed: a policy match flipped (policy matching or "
+            + "lineage resolution changed)");
+  }
+
+  @Test
+  void rowFilteredQueriesAreExactlyTheExpectedSet() {
+    assertEquals(EXPECTED_ROW_FILTERED, ROW_FILTERED,
+        "row-filtered set changed: an injection flipped (filter matching or "
+            + "derived-table injection changed)");
+  }
+
+  /** 改写成功不等于改写正确：脱敏查询的产物必须真的带着 UDF 包装。 */
+  @Test
+  void maskedQueryRewriteCarriesTheUdfWrapper() {
+    String q01 = REWRITTEN_SAMPLE.get("q01.sql");
+    assertTrue(q01 != null && q01.contains("mask_"),
+        "q01 is masked, so its rewrite must call a mask_* UDF: " + q01);
+  }
+
+  /** 行过滤查询的产物必须嵌着过滤条件（改写不能丢注入）。 */
+  @Test
+  void rowFilteredQueryRewriteEmbedsTheFilter() {
+    String q02 = REWRITTEN_SAMPLE.get("q02.sql");
+    boolean embeds = q02 != null && (q02.contains("ca_country = 'United States'")
+        || q02.contains("d_year <= 2002") || q02.contains("c_birth_year >= 1930"));
+    assertTrue(embeds, "q02 is row-filtered, so its rewrite must embed a filter: " + q02);
   }
 
   private static Path resourceDir(String name) {
