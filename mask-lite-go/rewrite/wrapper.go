@@ -42,18 +42,12 @@ func ensureWrapperIsSafe(plan []outPlan) error {
 //	<inner>
 //	) AS r[ (别名清单)]
 func buildWrapper(innerSQL string, plan []outPlan) (string, error) {
-	final := make([]string, len(plan))
-	generated := 0
+	final := finalColumnNames(plan)
 	renamed := false
 	for i, o := range plan {
-		name := o.name
-		if syntheticName.MatchString(name) {
-			generated++
-			name = generatedPrefix + strconv.Itoa(generated)
-		}
-		final[i] = name
-		if name != o.name {
+		if final[i] != o.name {
 			renamed = true
+			break
 		}
 	}
 	items := make([]string, 0, len(plan))
@@ -88,6 +82,36 @@ func buildWrapper(innerSQL string, plan []outPlan) (string, error) {
 	return b.String(), nil
 }
 
+// finalColumnNames 计算包装层可引用的最终列名：合成名 EXPR$N 改名为
+// mask_col_N，生成名跳过用户列已占用的位置（大小写不敏感）——派生表
+// 位置别名清单里出现重复名会让 PG 直接报 duplicate column。
+func finalColumnNames(plan []outPlan) []string {
+	names := make([]string, len(plan))
+	taken := map[string]bool{}
+	for i, o := range plan {
+		names[i] = o.name
+		if !syntheticName.MatchString(o.name) {
+			taken[strings.ToLower(o.name)] = true
+		}
+	}
+	generated := 0
+	for i, name := range names {
+		if !syntheticName.MatchString(name) {
+			continue
+		}
+		for {
+			generated++
+			if !taken[generatedPrefix+strconv.Itoa(generated)] {
+				break
+			}
+		}
+		renamed := generatedPrefix + strconv.Itoa(generated)
+		taken[strings.ToLower(renamed)] = true
+		names[i] = renamed
+	}
+	return names
+}
+
 // renderUdfCall 渲染 udf(reference, arg1, …)——参数走字面量渲染，绝不拼接
 // 原始值（防注入，对齐 Java renderLiteral）。
 func renderUdfCall(inst policy.Instruction, reference string) (string, error) {
@@ -100,7 +124,30 @@ func renderUdfCall(inst policy.Instruction, reference string) (string, error) {
 		}
 		args = append(args, s)
 	}
-	return render.Ident(inst.UDF) + "(" + strings.Join(args, ", ") + ")", nil
+	fn, err := renderFunctionName(inst)
+	if err != nil {
+		return "", err
+	}
+	return fn + "(" + strings.Join(args, ", ") + ")", nil
+}
+
+// renderFunctionName UDF 名按 '.' 逐段渲染：public.mask_email 是合法 PG
+// 的 schema 限定调用，整体加引号会变成字面含点的函数名。空段/畸形点分名
+// fail-closed 报 CONFIG_ERROR，不产出坏 SQL。
+func renderFunctionName(inst policy.Instruction) (string, error) {
+	segments := strings.Split(inst.UDF, ".")
+	for _, seg := range segments {
+		if strings.TrimSpace(seg) == "" {
+			return "", maskerr.Errorf(maskerr.ConfigError,
+				"policy '%s' has a malformed udf name '%s': expected a plain or dot-separated identifier list",
+				inst.PolicyName, inst.UDF)
+		}
+	}
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		parts = append(parts, render.Ident(seg))
+	}
+	return strings.Join(parts, "."), nil
 }
 
 // renderScalar 对齐 SqlRewriteService.toLiteral 的类型分派：

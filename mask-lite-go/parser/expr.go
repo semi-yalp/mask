@@ -6,6 +6,7 @@ import (
 
 	"io.masklite/go/ast"
 	"io.masklite/go/lexer"
+	"io.masklite/go/maskerr"
 )
 
 // parseExpr 表达式入口（OR 层）。
@@ -320,7 +321,23 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 	for {
 		switch {
 		case p.atOp("::"):
+			castTok := p.cur()
 			p.next()
+			if p.atKw("interval") {
+				// 'str'::interval：仅字符串字面量走解析期规范化；typmod/
+				// 字段范围形态（::interval(3)、::interval day）拒绝——
+				// 否则尾随 unit 会被静默当成列别名
+				p.next()
+				if p.atOp("(") || p.curIsIntervalUnitToken() {
+					return nil, p.intervalCastError(castTok)
+				}
+				norm, err := p.normalizeStringToInterval(x, castTok)
+				if err != nil {
+					return nil, err
+				}
+				x = norm
+				continue
+			}
 			typ, err := p.parseType()
 			if err != nil {
 				return nil, err
@@ -423,6 +440,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		if err := p.expectOp(")"); err != nil {
 			return nil, err
 		}
+		if typ.Name == "INTERVAL" {
+			// CAST('str' AS INTERVAL)：与 ::interval 同语义，仅字符串字面量
+			norm, err := p.normalizeStringToInterval(x, t)
+			if err != nil {
+				return nil, err
+			}
+			return norm, nil
+		}
 		return &ast.Cast{Pos: posOf(t), X: x, Type: typ}, nil
 	case p.atKw("exists"):
 		p.next()
@@ -457,6 +482,39 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	default:
 		return nil, p.unexpected("an expression")
 	}
+}
+
+// curIsIntervalUnitToken 对齐 Java ::interval 分支的尾随拒绝集：
+// 年/季/月/周/日/时/分/秒单位词（含复数）或精度括号。
+func (p *Parser) curIsIntervalUnitToken() bool {
+	if p.atOp("(") {
+		return true
+	}
+	if p.cur().Kind != lexer.Ident {
+		return false
+	}
+	switch strings.ToLower(p.cur().Text) {
+	case "year", "years", "quarter", "quarters", "month", "months",
+		"week", "weeks", "day", "days", "hour", "hours",
+		"minute", "minutes", "second", "seconds":
+		return true
+	}
+	return false
+}
+
+// normalizeStringToInterval 把字符串字面量操作数规范化为 INTERVAL 字面量；
+// 非字面量或不支持形态 → PARSE_ERROR（fail-closed）。
+func (p *Parser) normalizeStringToInterval(x ast.Expr, pos lexer.Token) (ast.Expr, error) {
+	sl, ok := x.(*ast.Literal)
+	if !ok || sl.Kind != ast.LitString {
+		return nil, p.intervalCastError(pos)
+	}
+	norm, ok := normalizeBareInterval(sl.Text, 1)
+	if !ok {
+		return nil, p.intervalCastError(pos)
+	}
+	return &ast.Literal{Pos: x.At(), Kind: ast.LitInterval,
+		Text: norm.Value, Unit: norm.Unit, UnitTo: norm.UnitTo}, nil
 }
 
 func (p *Parser) peekIsLparen() bool {
@@ -621,24 +679,65 @@ func (p *Parser) parseTrim() (ast.Expr, error) {
 func (p *Parser) parseInterval() (ast.Expr, error) {
 	t := p.cur()
 	p.next() // INTERVAL
+	sign := 1
+	if p.acceptOp("-") {
+		sign = -1
+	} else {
+		p.acceptOp("+")
+	}
 	if p.cur().Kind != lexer.String {
 		return nil, p.unexpected("a string literal")
 	}
 	s := p.next()
 	lit := &ast.Literal{Pos: posOf(t), Kind: ast.LitInterval, Text: s.Text}
-	unit, err := p.expectIdentPart()
-	if err != nil {
-		return nil, err
-	}
-	lit.Unit = strings.ToUpper(unit.Value)
-	if p.acceptKw("to") {
-		u2, err := p.expectIdentPart()
+	// LOOKAHEAD(2)：紧邻单位词 → 限定词形式；否则裸串规范化
+	if p.cur().Kind == lexer.Ident && p.isIntervalUnitWord(p.cur().Text) {
+		unit, err := p.expectIdentPart()
 		if err != nil {
 			return nil, err
 		}
-		lit.UnitTo = strings.ToUpper(u2.Value)
+		lit.Unit = strings.ToUpper(unit.Value)
+		if p.acceptKw("to") {
+			u2, err := p.expectIdentPart()
+			if err != nil {
+				return nil, err
+			}
+			lit.UnitTo = strings.ToUpper(u2.Value)
+		}
+		if sign == -1 {
+			lit.Text = "-" + lit.Text
+		}
+		return lit, nil
 	}
+	// 裸形式：解析期规范化为等值限定词字面量（不支持形态 → PARSE_ERROR）
+	norm, ok := normalizeBareInterval(s.Text, sign)
+	if !ok {
+		return nil, maskerr.Errorf(maskerr.ParseError,
+			"unsupported interval literal '%s' at line %d, column %d", s.Text, t.Pos.Line, t.Pos.Column)
+	}
+	lit.Text = norm.Value
+	lit.Unit = norm.Unit
+	lit.UnitTo = norm.UnitTo
 	return lit, nil
+}
+
+// isIntervalUnitWord 判断是否为 interval 限定词单位（YEAR/MONTH/DAY/HOUR/
+// MINUTE/SECOND 及复数）。
+func (p *Parser) isIntervalUnitWord(word string) bool {
+	switch strings.ToLower(word) {
+	case "year", "years", "month", "months", "day", "days", "hour", "hours",
+		"minute", "minutes", "second", "seconds":
+		return true
+	}
+	return false
+}
+
+// intervalCastError 是 interval 转换/规范化失败的统一 PARSE_ERROR。
+func (p *Parser) intervalCastError(pos lexer.Token) error {
+	return maskerr.Errorf(maskerr.ParseError,
+		"unsupported interval cast at line %d, column %d: only string literals "+
+			"with supported bare interval forms can be cast to INTERVAL",
+		pos.Pos.Line, pos.Pos.Column)
 }
 
 func (p *Parser) parseCase() (ast.Expr, error) {
@@ -868,6 +967,14 @@ func (p *Parser) parseType() (ast.TypeSpec, error) {
 	case "date":
 		spec.Name = "DATE"
 		p.next()
+	case "interval":
+		// 仅支持无 typmod/字段范围的纯 INTERVAL（CAST('str' AS INTERVAL)
+		// 走字符串规范化分支）；精度括号与字段范围形态拒绝
+		spec.Name = "INTERVAL"
+		p.next()
+		if p.curIsIntervalUnitToken() {
+			return ast.TypeSpec{}, p.intervalCastError(t)
+		}
 	case "time":
 		p.next()
 		spec.Name = "TIME"

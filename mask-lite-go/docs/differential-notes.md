@@ -1,12 +1,28 @@
 # mask-lite-go 与 Java mask-lite 差分记录
 
-- 日期：2026-09-27
-- 方法：Java shaded jar（`.worktrees/mask-lite-pg/mask-lite/target/mask-lite-0.1.0-SNAPSHOT.jar`）
-  与 Go CLI 对同一 `tpcds-both.yaml` + 99 条 TPC-DS 查询逐一改写，输出逐文件 diff；
-  另以探针 SQL 逐构造校准渲染排版。
-- 结论：**99/99 文件逐字节一致**（唯一差异是 JVM `println` 的平台行尾 CRLF vs
-  Go 的 LF——平台行为差异，非语义差异）。masked=15 / rowFiltered=91 与 Java
-  打印值一致。
+- 日期：2026-09-27（round 1）/ 2026-09-28（round 2）
+- 方法：Java shaded jar 与 Go CLI 对同一 `tpcds-both.yaml` + 99 条 TPC-DS 查询
+  逐一改写，输出逐文件 diff；另以探针 SQL 逐构造校准渲染排版与错误路径。
+- round 2（对齐 mask-lite-pg 39d48d9..9b95aa6 十个提交后重跑，jar 重建）：
+  **99/99 文件逐字节一致**，8 个行为探针（裸 WITH/INTERVAL 家族/拒绝形态）
+  输出全部一致。masked=15 / rowFiltered=91 位图逐条一致。
+- round 1 结论：99/99 文件逐字节一致（唯一差异是 JVM `println` 的平台行尾
+  CRLF vs Go 的 LF——平台行为差异，非语义差异）。
+
+## round 2 对齐的行为变更（Java 侧 39d48d9..9b95aa6）
+
+| 提交 | 行为 | Go 对齐 |
+|---|---|---|
+| 71288ee | 裸 `WITH…SELECT` 不再误拒（递归 CTE 走内联期专门诊断） | gate 接受 `*ast.With` |
+| 71288ee | date±integer 类型口径（MINUS 仅 date 在左、整数族止步 int4） | Go 不做类型推断，接受面放宽（见已知偏差 §1） |
+| 07125a0 | UDF 名按 '.' 逐段渲染（`public.mask_fn`），空段/畸形点分名 CONFIG_ERROR | `renderFunctionName` 同语义同消息 |
+| 07125a0 | mask_col_N 生成名跳过用户列撞名位（大小写不敏感） | `finalColumnNames` 同算法 |
+| 6ec8e15 | 裸 `INTERVAL '1 day'` 解析期规范化为等值限定词形式 | `parser.normalizeBareInterval`（单位全表/时钟形态/符号累加/周→日/分数秒 6 位补齐） |
+| 0891a58 | `'str'::interval` 与 `CAST('str' AS INTERVAL)`（仅字符串字面量）；typmod/字段范围形态拒绝 | parsePostfix/parseType 同分支 |
+| 9b95aa6 | 前导字段 >2 位拒绝（PG 字面量括号仅允许 SECOND p≤6，真机实证） | `leadFits` |
+| 17b0a5b | CLI 用法错误统一 exit 2（缺值/未知/缺 metadata/二选一，消息+usage 行） | `parseArguments` 重写 |
+| f36ea8d | 策略层收敛 dataMask 单模型（无外部可观察变化） | Go 本就单模型 |
+| d1ad2f8 | 回归锁定 15/91 位图与包装形状；拆分器词法边界单测 | Go 测试同步位图集合断言；拆分器语义本已逐条覆盖 |
 
 ## 语料驱动落定的渲染归一（Calcite unparse 语义）
 

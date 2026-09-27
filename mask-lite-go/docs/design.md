@@ -25,7 +25,7 @@ Java 侧 `mask-lite` 是 PG-only 的"脱敏+行过滤"改写内核最简抽取�
 | 产物 SQL | 语义等价；渲染器按 Calcite PG unparse 风格（子句前换行、零缩进）实现，目标是能与 Java 产物逐文件 diff（差分是开发仪器，不作为验收硬门槛） |
 | 验收 | Java `MaskLiteTest` 5 用例移植全绿；TPC-DS 99 条离线改写回归 `99/99`（对照 Java 打印值 15 masked / 91 rowFiltered） |
 
-## 3. 实证锁定的行为（java -jar 探测，2026-09-27）
+## 3. 实证锁定的行为（java -jar 探测，2026-09-27；round 2 校准于 mask-lite-pg 9b95aa6）
 
 ```
 in: SELECT id, phone FROM customer WHERE id > 10        (customer.phone→mask_phone, rowFilter status='active')
@@ -38,7 +38,17 @@ out: SELECT r.id, mask_phone(r.phone, 3, 4) AS phone FROM (
      ) AS r;
 
 in: WITH x AS (SELECT 1 AS a) SELECT a FROM x
-err: statement 1: mask-lite only rewrites SELECT/WITH queries; statement kind 'with' is not supported   (exit 1)
+out: （round 1 曾实证拒绝 kind 'with'；Java 71288ee 起裸 WITH 接受，Go 已同步——
+      递归 CTE 由 CTE 内联阶段报 LINEAGE_UNKNOWN 专门诊断）
+
+in: SELECT id + INTERVAL '1 day' FROM customer        （6ec8e15/0891a58/9b95aa6 起）
+out: SELECT id + INTERVAL '1' DAY
+     FROM (...注入...) AS customer;
+     裸 INTERVAL/'str'::interval/CAST('str' AS INTERVAL) 解析期规范化为等值
+     限定词形式（'2 hours'→INTERVAL '0 02:30:00' 形态的 DAY TO SECOND、
+     '1 year 2 mons'→'1-2' YEAR TO MONTH、周→日、分数秒补齐 6 位）；
+     跨族混合/分数月/@ago 装饰/前导字段 >2 位/typmod 与字段范围形态
+     （::interval(3)、::interval day）一律 PARSE_ERROR fail-closed。
 
 in: INSERT INTO customer SELECT 1, 'x', 'y'
 err: statement 1: mask-lite only rewrites SELECT/WITH queries; statement kind 'insert' is not supported (exit 1)
@@ -76,9 +86,10 @@ out: SELECT id, status
 管线（逐语句）：split → parse → 只读门 → 行过滤注入（校验/血缘之前）→ 渲染内层 SQL →
 CTE 内联 + 血缘 → 改写计划 → 包装器。
 
-- 只读门：顶层节点 ∈ {SELECT, ORDER BY 包装} 之外一律
+- 只读门：顶层节点 ∈ {SELECT, ORDER BY 包装, WITH} 之外一律
   `UNSUPPORTED_STATEMENT`，消息 `mask-lite only rewrites SELECT/WITH queries; statement kind '<lowerKind>' is not supported`
-  （裸 WITH 的 kind 是 `with`，实证拒绝；INSERT → `'insert'`）。
+  （INSERT → `'insert'`；裸 WITH 在 Java mask-lite-pg 提交 71288ee 后已接受，
+  递归 CTE 由 CTE 内联阶段给出专门诊断）。
 - 方言：仅 `postgresql`；`ByName` 其他名 → `CONFIG_ERROR`
   `unsupported dialect 'x'; mask-lite only supports: postgresql`。
 

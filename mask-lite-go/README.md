@@ -16,8 +16,10 @@ Java `mask-lite` 模块（PG-only 脱敏 + 行过滤改写内核）的 **Go 独�
   操作数/子查询/集合分支/CTE），条件经白名单校验（仅 AND/OR/NOT、比较、
   IS [NOT] [DISTINCT] NULL、常量 IN、算术；禁函数/CAST/子查询/参数）。
 - **只读**：只接受 SELECT / WITH…SELECT（可带顶层 ORDER BY/LIMIT/OFFSET/
-  FETCH）；其余一律 `UNSUPPORTED_STATEMENT`（裸 WITH 的 kind 是 `with`，
-  与 Java 实测一致）。
+  FETCH，裸 WITH 也接受）；其余一律 `UNSUPPORTED_STATEMENT`。
+- **interval**：裸 `INTERVAL '1 day'`、`'str'::interval` 与
+  `CAST('str' AS INTERVAL)` 在解析期规范化为等值限定词形式；跨族混合、
+  分数月、@/ago 装饰、前导字段 >2 位与 typmod/字段范围形态 fail-closed 拒绝。
 - **策略来源**：legacy 元数据 YAML 内嵌策略（`columns` 绑定 / `rowFilter` /
   `policies` UDF 声明），对所有人无条件生效；无主体（Subject）维度。
 

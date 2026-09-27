@@ -171,12 +171,12 @@ func (e *Engine) rewriteOne(stmtText string, ordinal int) (StatementRewrite, err
 }
 
 // gate 只读门与 classify 拒绝（两条消息族与 Java 实测一致）。
+// WITH…SELECT 无顶层 ORDER BY 也接受（适配器已保证 body 是查询），
+// 递归 CTE 由 CTE 内联阶段给出专门诊断。
 func gate(stmt ast.Statement, ordinal int) error {
 	switch s := stmt.(type) {
-	case *ast.Select, *ast.OrderBy:
+	case *ast.Select, *ast.OrderBy, *ast.With:
 		return nil
-	case *ast.With:
-		return gateReject("with")
 	case *ast.Unsupported:
 		if s.Gate {
 			return gateReject(s.KindLowerN)
