@@ -26,7 +26,16 @@ public final class JettyHttpServer {
 
     Server jetty = new Server(port);
     jetty.setHandler(ctx);
-    jetty.start();
+    try {
+      jetty.start();
+    } catch (Throwable t) {
+      try {
+        mcpServer.close();
+      } catch (Exception suppressed) {
+        t.addSuppressed(suppressed);
+      }
+      throw t;
+    }
     return () -> {
       try {
         jetty.stop();
