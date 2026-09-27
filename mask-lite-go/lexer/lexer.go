@@ -23,7 +23,7 @@ func Lex(p *dialect.Profile, src string) ([]Token, error) {
 	if p == nil {
 		return nil, maskerr.New(maskerr.ConfigError, "lexer: nil dialect profile")
 	}
-	s := &scanner{prof: p, src: []rune(src)}
+	s := &scanner{prof: p, src: []rune(src), line: 1, col: 1}
 	return s.run()
 }
 

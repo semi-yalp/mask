@@ -45,6 +45,13 @@ func precedence(e ast.Expr) int {
 		return precUnary
 	case *ast.IsPred, *ast.Between, *ast.InPred, *ast.Like:
 		return precPred
+	case *ast.Call:
+		if n.Over != nil {
+			// 窗口函数作为二元运算的操作数时 Calcite 会加括号
+			// （q12/q98: ... / (SUM(...) OVER (...))）
+			return precAdd
+		}
+		return precPrimary
 	default:
 		return precPrimary
 	}
@@ -245,6 +252,12 @@ var canonicalNames = map[string]string{
 	"exp": "EXP", "sqrt": "SQRT", "char_length": "CHAR_LENGTH",
 	"character_length": "CHARACTER_LENGTH", "octet_length": "OCTET_LENGTH",
 	"cardinality": "CARDINALITY", "convert": "CONVERT", "overlay": "OVERLAY",
+	"round": "ROUND", "stddev_samp": "STDDEV_SAMP", "stddev_pop": "STDDEV_POP",
+	"var_samp": "VAR_SAMP", "var_pop": "VAR_POP", "variance": "VARIANCE",
+	"rank": "RANK", "dense_rank": "DENSE_RANK", "percent_rank": "PERCENT_RANK",
+	"cume_dist": "CUME_DIST", "ntile": "NTILE", "lead": "LEAD", "lag": "LAG",
+	"first_value": "FIRST_VALUE", "last_value": "LAST_VALUE",
+	"grouping": "GROUPING",
 }
 
 func callStr(n *ast.Call) string {
@@ -252,7 +265,7 @@ func callStr(n *ast.Call) string {
 	if canon, ok := canonicalNames[strings.ToLower(name)]; ok {
 		name = canon
 	} else {
-		name = Ident(name)
+		name = IdentPart(n.Name)
 	}
 	s := name + "("
 	if n.Star {
@@ -279,10 +292,7 @@ func windowStr(w *ast.Window) string {
 		items := make([]string, 0, len(w.Order))
 		for _, it := range w.Order {
 			x := Expr(it.Expr)
-			switch it.Dir {
-			case ast.DirAsc:
-				x += " ASC"
-			case ast.DirDesc:
+			if it.Dir == ast.DirDesc {
 				x += " DESC"
 			}
 			switch it.Nulls {
@@ -330,13 +340,21 @@ func caseStr(n *ast.Case) string {
 	var b strings.Builder
 	b.WriteString("CASE")
 	if n.Operand != nil {
-		b.WriteString(" " + Expr(n.Operand))
-	}
-	for _, w := range n.Whens {
-		b.WriteString(" WHEN " + Expr(w.Cond) + " THEN " + Expr(w.Then))
+		// Calcite 把简单 CASE 归一为 searched 形态：CASE op WHEN w THEN →
+		// CASE WHEN op = w THEN
+		for _, w := range n.Whens {
+			b.WriteString(" WHEN " + wrap(n.Operand, precPred, false) + " = " + wrap(w.Cond, precAdd, false) + " THEN " + Expr(w.Then))
+		}
+	} else {
+		for _, w := range n.Whens {
+			b.WriteString(" WHEN " + Expr(w.Cond) + " THEN " + Expr(w.Then))
+		}
 	}
 	if n.Else != nil {
 		b.WriteString(" ELSE " + Expr(n.Else))
+	} else {
+		// Calcite 把缺省 ELSE 归一为 ELSE NULL
+		b.WriteString(" ELSE NULL")
 	}
 	b.WriteString(" END")
 	return b.String()
@@ -392,4 +410,13 @@ func Ident(name string) string {
 		return name
 	}
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// IdentPart 按解析期引号标记渲染：源文带引号的标识符保留引号（对齐
+// Calcite 实测行为），未引号走裸/策略加引号判定。
+func IdentPart(p ast.IdentPart) string {
+	if p.Quoted {
+		return `"` + strings.ReplaceAll(p.Value, `"`, `""`) + `"`
+	}
+	return Ident(p.Value)
 }

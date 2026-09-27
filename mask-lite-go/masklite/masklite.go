@@ -21,7 +21,13 @@ type MaskLite struct {
 
 // FromYaml 加载并校验 YAML 配置内容（sourceName 固定 "metadata.yaml"）。
 func FromYaml(metadataYaml string) (*MaskLite, error) {
-	loaded, err := config.LoadContent(metadataYaml, "metadata.yaml")
+	return FromYamlWithDialect(metadataYaml, "postgresql")
+}
+
+// FromYamlWithDialect 显式方言加载；非 postgresql 拒绝（对齐 Java
+// loadContent(yaml, source, dialect) 的方言拒绝路径）。
+func FromYamlWithDialect(metadataYaml, dialectName string) (*MaskLite, error) {
+	loaded, err := config.LoadContentWithDialect(metadataYaml, "metadata.yaml", dialectName)
 	if err != nil {
 		return nil, err
 	}

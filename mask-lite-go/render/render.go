@@ -77,7 +77,7 @@ func itemStr(it ast.Item) string {
 	}
 	s := Expr(it.Expr)
 	if it.Alias != nil {
-		s += " AS " + Ident(it.Alias.Value)
+		s += " AS " + IdentPart(*it.Alias)
 	}
 	return s
 }
@@ -159,7 +159,7 @@ func tableRefStr(r ast.TableRef) string {
 }
 
 func aliasStr(a *ast.TableAlias) string {
-	s := " AS " + Ident(a.Name.Value)
+	s := " AS " + IdentPart(a.Name)
 	if len(a.Columns) > 0 {
 		s += " (" + identPartListStr(a.Columns) + ")"
 	}
@@ -174,7 +174,7 @@ func withStr(n *ast.With) string {
 	}
 	items := make([]string, 0, len(n.Items))
 	for _, it := range n.Items {
-		s := Ident(it.Name.Value)
+		s := IdentPart(it.Name)
 		if len(it.Columns) > 0 {
 			s += " (" + identPartListStr(it.Columns) + ")"
 		}
@@ -215,10 +215,7 @@ func orderByStr(n *ast.OrderBy) string {
 		items := make([]string, 0, len(n.Items))
 		for _, it := range n.Items {
 			x := Expr(it.Expr)
-			switch it.Dir {
-			case ast.DirAsc:
-				x += " ASC"
-			case ast.DirDesc:
+			if it.Dir == ast.DirDesc {
 				x += " DESC"
 			}
 			switch it.Nulls {
@@ -251,7 +248,7 @@ func exprListStr(es []ast.Expr) string {
 func identPartsStr(ps []ast.IdentPart) string {
 	ss := make([]string, 0, len(ps))
 	for _, p := range ps {
-		ss = append(ss, Ident(p.Value))
+		ss = append(ss, IdentPart(p))
 	}
 	return strings.Join(ss, ".")
 }
@@ -259,7 +256,7 @@ func identPartsStr(ps []ast.IdentPart) string {
 func identPartListStr(ps []ast.IdentPart) string {
 	ss := make([]string, 0, len(ps))
 	for _, p := range ps {
-		ss = append(ss, Ident(p.Value))
+		ss = append(ss, IdentPart(p))
 	}
 	return strings.Join(ss, ", ")
 }

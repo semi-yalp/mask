@@ -56,7 +56,8 @@ func (p *Parser) parseStatementInner() (ast.Statement, error) {
 		return nil, p.unexpected("a statement")
 	}
 	if t.Kind == lexer.Op && t.Text == "(" {
-		q, err := p.parseParenQuery()
+		// 语句级括号查询：内容是完整查询（可继续集合运算/尾子句）
+		q, err := p.parseQuery()
 		if err != nil {
 			return nil, err
 		}
@@ -279,6 +280,10 @@ func (p *Parser) parseTail(q ast.Query) (*ast.OrderBy, bool, error) {
 			limit = e
 		}
 		changed = true
+		if p.atKw("fetch") {
+			return nil, false, maskerr.New(maskerr.ParseError,
+				"FETCH cannot be combined with LIMIT")
+		}
 	}
 	if p.acceptKw("offset") {
 		e, err := p.parseSum()
