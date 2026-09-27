@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.sqlmask</groupId>
+    <artifactId>sql-mask-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>mask-lite</artifactId>
+  <packaging>jar</packaging>
+
+  <name>mask-lite</name>
+  <description>Minimal PG-only extraction of the masking + row-filter rewrite kernel. Standalone io.masklite namespace, zero io.sqlmask module dependencies, loads as a shaded jar via a URLClassLoader.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-core</artifactId>
+      <version>${calcite.version}</version>
+    </dependency>
+    <!-- 语法基底与 mask-sqlparser 同源：codegen 以 calcite-babel 1.42.0 的
+         codegen 数据为基底生成 io.masklite.parser.SqlMaskParserImpl -->
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-babel</artifactId>
+      <version>${calcite.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- 集成测试经 SSH 隧道连接远程 PG 执行改写产物 -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>com.googlecode.fmpp-maven-plugin</groupId>
+        <artifactId>fmpp-maven-plugin</artifactId>
+        <version>1.0</version>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals><goal>generate</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <cfgFile>src/main/codegen/config.fmpp</cfgFile>
+          <templateDirectory>src/main/codegen/templates</templateDirectory>
+          <template>Parser.jj</template>
+          <outputDirectory>target/generated-sources/fmpp</outputDirectory>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>javacc-maven-plugin</artifactId>
+        <version>2.6</version>
+        <dependencies>
+          <!-- 与 mask-sqlparser 同一约束：上游 calcite 1.42 固定 javacc 4.0，
+               插件默认 5.0 会把 babel 产生式的同名局部变量摊平进同一作用域 -->
+          <dependency>
+            <groupId>net.java.dev.javacc</groupId>
+            <artifactId>javacc</artifactId>
+            <version>4.0</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <goals><goal>javacc</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <sourceDirectory>target/generated-sources/fmpp</sourceDirectory>
+          <includes><include>**/Parser.jj</include></includes>
+          <outputDirectory>target/generated-sources/javacc</outputDirectory>
+          <lookAhead>2</lookAhead>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${surefire.version}</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.4.1</version>
+        <executions>
+          <execution>
+            <id>enforce-kernel-purity</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <excludes>
+                    <exclude>org.springframework:*:*:jar:compile</exclude>
+                    <exclude>org.springframework:*:*:jar:runtime</exclude>
+                    <exclude>org.springframework:*:*:jar:provided</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:compile</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:runtime</exclude>
+                    <exclude>org.springframework.boot:*:*:jar:provided</exclude>
+                    <exclude>info.picocli:*:*:jar:compile</exclude>
+                    <exclude>info.picocli:*:*:jar:runtime</exclude>
+                    <exclude>info.picocli:*:*:jar:provided</exclude>
+                  </excludes>
+                  <message>mask-lite is a Spring-free/picocli-free minimal kernel</message>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${surefire.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${shade.version}</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <!-- 自包含单 jar：calcite + snakeyaml + 生成解析器全部内联，
+                   供宿主以 URLClassLoader 方式加载执行 -->
+              <shadedArtifactAttached>false</shadedArtifactAttached>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>io.masklite.MaskLite</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
