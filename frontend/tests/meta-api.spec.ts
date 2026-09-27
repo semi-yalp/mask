@@ -49,4 +49,31 @@ describe("meta api gateway prefix", () => {
     await collectMetaInstance("pg_prod");
     expect(lastCall()).toMatchObject({ method: "POST", url: "/api/meta/instances/pg_prod/collect" });
   });
+
+  it("listMetaInstancesWithConnection aggregates connection from per-instance detail", async () => {
+    const { listMetaInstancesWithConnection } = await import("@/api/meta");
+    fetchMock.mockImplementation(async (input: unknown) => {
+      const url = String(input);
+      if (url === "/api/meta/instances") {
+        return new Response(JSON.stringify([
+          { name: "a", dialect: "postgresql", engine: "postgresql", metadataVersion: 1 },
+          { name: "b", dialect: "mysql", engine: "mysql", metadataVersion: 2 },
+        ]), { status: 200 });
+      }
+      if (url === "/api/meta/instances/a") {
+        return new Response(JSON.stringify({
+          name: "a", dialect: "postgresql", engine: "postgresql", metadataVersion: 1,
+          connection: { host: "db1", port: 5432, database: "crm", dbUser: "u", passwordRef: "SQLMASK_X" },
+          tables: [],
+        }), { status: 200 });
+      }
+      return new Response("boom", { status: 500 }); // 实例 b 的 detail 失败
+    });
+
+    const rows = await listMetaInstancesWithConnection();
+
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.name === "a")?.connection?.host).toBe("db1");
+    expect(rows.find((r) => r.name === "b")?.connection).toBeUndefined();
+  });
 });

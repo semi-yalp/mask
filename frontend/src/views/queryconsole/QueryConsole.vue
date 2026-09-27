@@ -90,7 +90,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { buildQueryBody, runQuery, type QueryResult } from "@/api/queryconsole";
-import { listMetaInstances, type MetaInstanceSummary } from "@/api/meta";
+import { listMetaInstancesWithConnection, type MetaInstanceSummary } from "@/api/meta";
 import { cellText, formatDuration, formatTime } from "@/utils/format";
 import CodeBlock from "@/components/CodeBlock.vue";
 import ErrorAlert from "@/components/ErrorAlert.vue";
@@ -135,8 +135,7 @@ function pushHistory(item: HistoryItem) {
 onMounted(async () => {
   loadingInstances.value = true;
   try {
-    const list = await listMetaInstances();
-    instances.value = list as (MetaInstanceSummary & { connection?: unknown })[];
+    instances.value = await listMetaInstancesWithConnection();
   } catch (e) {
     error.value = "实例列表加载失败(元数据服务):" + (e as Error).message;
   } finally { loadingInstances.value = false; }

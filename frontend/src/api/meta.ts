@@ -75,6 +75,23 @@ export function listMetaInstances(): Promise<MetaInstanceSummary[]> {
   return call("GET", base);
 }
 
+export interface MetaInstanceSummaryWithConnection extends MetaInstanceSummary {
+  connection?: MetaConnection | null;
+}
+
+/**
+ * Summary 列表契约不含 connection 字段,而查询页需要按「是否有连接」禁用实例;
+ * 逐实例拉 detail 聚合(MetadataManager 同款模式)。detail 失败的实例降级为
+ * connection: undefined——宁可禁用也不放行(与后端 fail-closed 口径一致)。
+ */
+export function listMetaInstancesWithConnection(): Promise<MetaInstanceSummaryWithConnection[]> {
+  return listMetaInstances().then((list) =>
+    Promise.all(list.map((s) =>
+      getMetaInstance(s.name)
+        .then((d) => ({ ...s, connection: d.connection }))
+        .catch(() => ({ ...s, connection: undefined })))));
+}
+
 export function getMetaInstance(name: string): Promise<MetaInstanceDetail> {
   return call("GET", base + "/" + encodeURIComponent(name));
 }
