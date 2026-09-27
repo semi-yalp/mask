@@ -25,6 +25,7 @@
     <module>mask-auth</module>
     <module>mask-risk-server</module>
     <module>mask-lite</module>
+    <module>mask-mcp-server</module>
   </modules>
 
   <properties>
