@@ -249,7 +249,7 @@ func (p *Parser) parseInPred(operand ast.Expr, negated bool) (ast.Expr, error) {
 	}
 	pred := &ast.InPred{Pos: operand.Position(), Operand: operand, Negated: negated}
 	if p.atKw("SELECT") {
-		q, err := p.parseQueryMinimal()
+		q, err := p.ParseQuery()
 		if err != nil {
 			return nil, err
 		}
@@ -505,7 +505,7 @@ func paramNode(tok lexer.Token) *ast.Param {
 func (p *Parser) parseParenOrSubquery() (ast.Expr, error) {
 	paren := p.advance() // (
 	if p.atKw("SELECT") {
-		q, err := p.parseQueryMinimal()
+		q, err := p.ParseQuery()
 		if err != nil {
 			return nil, err
 		}
@@ -524,31 +524,8 @@ func (p *Parser) parseParenOrSubquery() (ast.Expr, error) {
 	return e, nil
 }
 
-// parseQueryMinimal 子查询体的最小查询解析:SELECT [DISTINCT|ALL] 表达式
-// 列表(无 FROM/WHERE 等)。Task 7 以完整 ParseQuery 替换本存根。
-func (p *Parser) parseQueryMinimal() (*ast.Select, error) {
-	tok := p.advance() // SELECT
-	sel := &ast.Select{Pos: tok.Pos}
-	switch {
-	case p.atKw("DISTINCT"):
-		p.advance()
-		sel.Distinct = true
-	case p.atKw("ALL"):
-		p.advance()
-	}
-	for {
-		e, err := p.parseExpr()
-		if err != nil {
-			return nil, err
-		}
-		sel.Items = append(sel.Items, ast.SelectItem{Expr: e})
-		if p.atOp(",") {
-			p.advance()
-			continue
-		}
-		return sel, nil
-	}
-}
+// parseQueryMinimal 已由 Task 7 的 ParseQuery(select.go)替换:子查询体
+// (IN/EXISTS/标量子查询)与派生表现在都走完整查询文法。
 
 // parseIntervalLiteral INTERVAL '正文' [单位 [TO 单位]](决策 6;单位必填,
 // 对齐 Java IntervalLiteral 的 IntervalQualifier)。可选前置正负号折入正文。
@@ -694,7 +671,7 @@ func (p *Parser) parseExists() (ast.Expr, error) {
 		t := p.curTok()
 		return nil, p.errAt(t.Pos, "expected SELECT after EXISTS (, found %s %q", t.Kind, t.Text)
 	}
-	q, err := p.parseQueryMinimal()
+	q, err := p.ParseQuery()
 	if err != nil {
 		return nil, err
 	}

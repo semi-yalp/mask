@@ -1,8 +1,10 @@
 // Package parser 实现 M1 的手写递归下降 SQL 解析器。
 //
-// Task 6 交付骨架与完整表达式优先级链;SELECT/FROM(Task 7)、集合运算与
-// 排序限尾(Task 8)、WITH/INSERT/CTAS/INSERT OVERWRITE(Task 9)在本骨架上
-// 扩展,最终由 ParseStatement 统一入口分发。
+// Task 6 交付骨架与完整表达式优先级链;Task 7 交付裸 SELECT 查询文法
+// (ParseQuery:SELECT 项/表引用链/逗号与 JOIN/WHERE/GROUP BY/HAVING,
+// 见 select.go——IN/EXISTS/标量子查询与派生表均经 ParseQuery 获得完整查询
+// 能力);集合运算与排序限尾(Task 8)、WITH/INSERT/CTAS/INSERT OVERWRITE
+// (Task 9)在本骨架上扩展,最终由 ParseStatement 统一入口分发。
 //
 // 结构:Parser 持有方言 Profile 与 lexer.Lex 产出的 token 流及游标;New 在
 // 构造时即完成词法分析,词法错误暂存于 lexErr,首次 Parse 调用时原样返回。
