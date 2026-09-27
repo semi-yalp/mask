@@ -156,4 +156,19 @@ class BlockServiceTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("policy service");
   }
+
+  @Test
+  void blockingRequiresApiKeyNotJustBaseUrl() {
+    io.sqlmask.riskserver.config.RiskProperties.Block cfg =
+        new io.sqlmask.riskserver.config.RiskProperties.Block();
+    cfg.setBaseUrl("http://127.0.0.1:8081");
+    cfg.setApiKey("");           // 修复前:内置 local-admin-key;修复后:默认空
+    cfg.setStatePath("");
+    BlockService noKey = new BlockService(cfg);
+    org.junit.jupiter.api.Assertions.assertFalse(noKey.configured(),
+        "无 api-key 时封禁必须整体停用(fail-closed),不得持内置密钥调管理面");
+
+    cfg.setApiKey("real-key");
+    org.junit.jupiter.api.Assertions.assertTrue(new BlockService(cfg).configured());
+  }
 }

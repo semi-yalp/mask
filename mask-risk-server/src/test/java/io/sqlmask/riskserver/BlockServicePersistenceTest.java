@@ -80,6 +80,7 @@ class BlockServicePersistenceTest {
   private RiskProperties.Block config(String stateFile) {
     RiskProperties.Block config = new RiskProperties.Block();
     config.setBaseUrl(baseUrl);
+    config.setApiKey("test-key");
     config.setDefaultInstance("crm");
     config.setStatePath(stateFile);
     return config;

@@ -63,7 +63,8 @@ public class BlockService {
   }
 
   public boolean configured() {
-    return config.getBaseUrl() != null && !config.getBaseUrl().isBlank();
+    return config.getBaseUrl() != null && !config.getBaseUrl().isBlank()
+        && config.getApiKey() != null && !config.getApiKey().isBlank();
   }
 
   /**
@@ -341,7 +342,8 @@ public class BlockService {
   private void requireConfigured() {
     if (!configured()) {
       throw new IllegalArgumentException(
-          "blocking is not configured: set risk.block.base-url to the policy service");
+          "blocking is not configured: set risk.block.base-url and risk.block.api-key "
+              + "(RISK_BLOCK_POLICY_BASE_URL / RISK_BLOCK_POLICY_API_KEY) for the policy service");
     }
   }
 
