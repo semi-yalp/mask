@@ -6,7 +6,6 @@ import io.masklite.error.SqlMaskException;
 import io.masklite.metadata.ColumnKey;
 import io.masklite.metadata.TableMetadata;
 import org.apache.calcite.schema.SchemaPlus;
-import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlDynamicParam;
 import org.apache.calcite.sql.SqlIdentifier;
@@ -125,12 +124,10 @@ public final class RowFilterRegistry {
       throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
           prefix + " is not a valid condition: " + e.getMessage(), e);
     }
+    // the loader rejects duplicate table declarations, so each key registers
+    // exactly once — AND composition of conditions cannot occur here
     String tableKey = key(table.catalog(), table.schema(), table.name());
-    SqlNode existing = templates.get(tableKey);
-    templates.put(tableKey, existing == null ? condition
-        : new SqlBasicCall(org.apache.calcite.sql.fun.SqlStdOperatorTable.AND,
-            java.util.List.of(existing, condition),
-            org.apache.calcite.sql.parser.SqlParserPos.ZERO));
+    templates.put(tableKey, condition);
   }
 
   private static SqlVisitor<Void> whitelistVisitor(Set<String> columnNames) {

@@ -82,17 +82,30 @@ public final class SqlRewriteService {
    * "column does not exist". Synthetics are renamed to generated
    * {@code mask_col_N} names and the derived table gets an explicit column
    * alias list ({@code FROM (...) AS r (a, b, c)}), keeping the user's inner
-   * SQL byte-for-byte untouched.
+   * SQL byte-for-byte untouched. Generated names skip positions already
+   * taken by user column names — a duplicate in the positional alias list
+   * would make the derived table invalid (duplicate column).
    */
   private List<String> finalColumnNames(RewritePlan plan) {
     List<String> names = new ArrayList<>();
-    int generated = 0;
+    Set<String> taken = new HashSet<>();
     for (OutputRewrite output : plan.outputs()) {
       String name = output.outputName();
-      if (SYNTHETIC_NAME.matcher(name).matches()) {
-        name = GENERATED_PREFIX + ++generated;
+      if (!SYNTHETIC_NAME.matcher(name).matches()) {
+        taken.add(name.toLowerCase(Locale.ROOT));
       }
       names.add(name);
+    }
+    int generated = 0;
+    for (int i = 0; i < names.size(); i++) {
+      if (SYNTHETIC_NAME.matcher(names.get(i)).matches()) {
+        do {
+          generated++;
+        } while (taken.contains(GENERATED_PREFIX + generated));
+        String renamed = GENERATED_PREFIX + generated;
+        taken.add(renamed);
+        names.set(i, renamed);
+      }
     }
     return names;
   }
@@ -136,7 +149,33 @@ public final class SqlRewriteService {
     for (Object argument : policy.arguments()) {
       arguments.add(renderLiteral(argument, policy, sqlDialect));
     }
-    return ids.render(policy.udf()) + "(" + String.join(", ", arguments) + ")";
+    return renderFunctionName(policy, ids) + "(" + String.join(", ", arguments) + ")";
+  }
+
+  /**
+   * Renders the UDF name segment-wise: {@code public.mask_email} is valid PG
+   * (schema-qualified function call), but quoting the dotted whole would
+   * name a function that literally contains dots. Malformed names (empty
+   * segments) are rejected fail-closed instead of producing broken SQL.
+   */
+  private String renderFunctionName(MaskInstruction policy, IdentifierPolicy ids) {
+    String name = policy.udf();
+    String[] segments = name.split("\\.", -1);
+    for (String segment : segments) {
+      if (segment.isBlank()) {
+        throw new SqlMaskException(SqlMaskException.Code.CONFIG_ERROR,
+            "policy '" + policy.policyName() + "' has a malformed udf name '" + name
+                + "': expected a plain or dot-separated identifier list");
+      }
+    }
+    StringBuilder rendered = new StringBuilder();
+    for (String segment : segments) {
+      if (rendered.length() > 0) {
+        rendered.append('.');
+      }
+      rendered.append(ids.render(segment));
+    }
+    return rendered.toString();
   }
 
   /** Renders arguments through Calcite literal nodes, never string concatenation of raw values. */
