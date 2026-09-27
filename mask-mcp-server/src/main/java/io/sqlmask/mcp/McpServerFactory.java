@@ -6,6 +6,7 @@ import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpStreamableServerTransportProvider;
 
 import java.util.List;
 
@@ -29,6 +30,12 @@ public final class McpServerFactory {
             new StdioServerTransportProvider(McpJsonDefaults.getMapper())),
         tools)
         .build();
+  }
+
+  /** Streamable-HTTP server wired to a servlet transport provider (Task 7). */
+  public static McpSyncServer build(McpStreamableServerTransportProvider provider,
+      List<McpTool> tools) {
+    return register(McpServer.sync(provider), tools).build();
   }
 
   private static McpServer.SyncSpecification<?> register(McpServer.SyncSpecification<?> builder,

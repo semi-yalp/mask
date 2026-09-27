@@ -16,7 +16,8 @@ public final class Main {
   public static void main(String[] args) throws Exception {
     Config cfg = parseArgs(args);
     if ("http".equals(cfg.transport())) {
-      throw new UnsupportedOperationException("http transport lands in Task 7");
+      JettyHttpServer.run(cfg.port(), TOOLS);
+      return;
     }
     if (!"stdio".equals(cfg.transport())) {
       throw new IllegalArgumentException("unknown transport: " + cfg.transport());
