@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 
 /**
@@ -29,7 +31,7 @@ public final class ApiKeyFilter implements Filter {
     HttpServletRequest req = (HttpServletRequest) request;
     HttpServletResponse res = (HttpServletResponse) response;
     if (expectedKey == null || expectedKey.isBlank()
-        || !expectedKey.equals(req.getHeader("X-Api-Key"))) {
+        || !keyMatches(expectedKey, req.getHeader("X-Api-Key"))) {
       res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       res.setContentType("application/json");
       res.getWriter().write(McpErrors.json(
@@ -37,5 +39,17 @@ public final class ApiKeyFilter implements Filter {
       return;
     }
     chain.doFilter(request, response);
+  }
+
+  /**
+   * Constant-time comparison so the check does not leak the key byte by byte —
+   * same idiom as mask-common's ApiKeyFilter#keyMatches.
+   */
+  private static boolean keyMatches(String expected, String provided) {
+    if (provided == null) {
+      return false;
+    }
+    return MessageDigest.isEqual(
+        expected.getBytes(StandardCharsets.UTF_8), provided.getBytes(StandardCharsets.UTF_8));
   }
 }

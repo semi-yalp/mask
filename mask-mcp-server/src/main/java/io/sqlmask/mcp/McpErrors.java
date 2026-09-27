@@ -29,7 +29,7 @@ public final class McpErrors {
     if (t instanceof IllegalArgumentException e) {
       return new ApiError("CONFIG_ERROR", e.getMessage(), List.of());
     }
-    return new ApiError("INTERNAL", String.valueOf(t.getMessage()), List.of());
+    return new ApiError("INTERNAL_ERROR", String.valueOf(t.getMessage()), List.of());
   }
 
   public static McpSchema.CallToolResult ok(String json) {
@@ -53,7 +53,7 @@ public final class McpErrors {
     try {
       return MAPPER.writeValueAsString(e);
     } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
-      return "{\"code\":\"INTERNAL\",\"message\":\"unserializable error\",\"details\":[]}";
+      return "{\"code\":\"INTERNAL_ERROR\",\"message\":\"unserializable error\",\"details\":[]}";
     }
   }
 

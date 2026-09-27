@@ -27,7 +27,7 @@ class McpErrorsTest {
 
   @Test
   void anythingElseIsInternal() {
-    assertEquals("INTERNAL", McpErrors.of(new RuntimeException("x")).code());
+    assertEquals("INTERNAL_ERROR", McpErrors.of(new RuntimeException("x")).code());
   }
 
   @Test
