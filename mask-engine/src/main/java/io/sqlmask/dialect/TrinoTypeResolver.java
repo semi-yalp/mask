@@ -27,7 +27,12 @@ public final class TrinoTypeResolver implements TypeResolver {
       case "boolean" -> requireNoParams(raw);
       case "tinyint", "smallint", "integer", "int", "bigint", "real", "double" -> { }
       case "decimal" -> {
-        if (scale != null && precision == null) {
+        // 有 precision 无 scale 的 decimal(10) 会在下游 schema 构建
+        // (YamlCalciteSchemaFactory#createSqlType 拆箱 scale)时 NPE——这里
+        // fail-closed 报支持清单(对齐 Hive I2 修复思路)。bare decimal(双 null)
+        // 走无参 createSqlType 分支无 NPE,且是 TrinoTypeMapper 采集映射的
+        // 既有合法行为,必须继续放行。
+        if (precision != null && scale == null) {
           throw parseError(raw);
         }
       }
