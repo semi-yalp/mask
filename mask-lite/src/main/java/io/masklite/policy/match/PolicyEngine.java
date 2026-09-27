@@ -5,12 +5,8 @@ import io.masklite.policy.model.MaskInstruction;
 import io.masklite.policy.model.Policy;
 import io.masklite.policy.model.PolicyNames;
 import io.masklite.policy.model.PolicyResource;
-import io.masklite.policy.model.RowFilterHit;
-import io.masklite.policy.model.RowFilterItem;
 import io.masklite.policy.model.Subject;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -19,6 +15,10 @@ import java.util.Optional;
  * resource and subject. Request-side names are concrete values; glob patterns
  * (each "*" matches any sequence within one level) appear only on the policy
  * declaration side.
+ *
+ * <p>mask-lite 只做列脱敏决策；行过滤的唯一事实来源是元数据
+ * {@code TableMetadata.rowFilter}（{@code RowFilterRegistry.build} 直读），
+ * 不经过本引擎。
  */
 public final class PolicyEngine {
 
@@ -35,7 +35,7 @@ public final class PolicyEngine {
     String s = PolicyNames.normalize(schema, "schema");
     String t = PolicyNames.normalize(table, "table");
     String col = PolicyNames.normalize(column, "column");
-    for (Policy policy : index.dataMasks()) {
+    for (Policy policy : index.policies()) {
       if (policy.resources().stream().noneMatch(r -> matches(r, c, s, t, col))) {
         continue;
       }
@@ -53,68 +53,6 @@ public final class PolicyEngine {
       }
     }
     return Optional.empty();
-  }
-
-  /**
-   * Row filter decision: all matching hits in decision order; AND composition
-   * is the caller's job (masking uniqueness does not apply to predicates).
-   */
-  public List<RowFilterHit> rowFiltersFor(String catalog, String schema, String table,
-      Subject subject) {
-    String c = PolicyNames.normalize(catalog, "catalog");
-    String s = PolicyNames.normalize(schema, "schema");
-    String t = PolicyNames.normalize(table, "table");
-    List<RowFilterHit> hits = new ArrayList<>();
-    for (Policy policy : index.rowFilters()) {
-      if (policy.resources().stream().noneMatch(r -> matches(r, c, s, t, null))) {
-        continue;
-      }
-      RowFilterItem best = null;
-      int bestLevel = 0;
-      for (RowFilterItem item : policy.rowFilterItems()) {
-        int level = item.selector().matchLevel(subject);
-        if (level > bestLevel) {
-          bestLevel = level;
-          best = item;
-        }
-      }
-      if (best != null) {
-        hits.add(new RowFilterHit(policy.name(), best.filterExpr()));
-      }
-    }
-    return List.copyOf(hits);
-  }
-
-  /** 该列是否命中任一启用 dataMask 策略中声明了复制继承的资源(列级属性,不按 subject)。 */
-  public boolean maskInheritsOnCopy(String catalog, String schema, String table, String column) {
-    String c = PolicyNames.normalize(catalog, "catalog");
-    String s = PolicyNames.normalize(schema, "schema");
-    String t = PolicyNames.normalize(table, "table");
-    String col = PolicyNames.normalize(column, "column");
-    for (Policy policy : index.dataMasks()) {
-      for (PolicyResource resource : policy.resources()) {
-        if (resource.inheritOnCopy() && matches(resource, c, s, t, col)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /** 该列命中的所有启用 dataMask 策略 items(决策顺序:优先级高者在前),用于复制继承注册。 */
-  public List<DataMaskItem> maskItemsFor(String catalog, String schema, String table,
-      String column) {
-    String c = PolicyNames.normalize(catalog, "catalog");
-    String s = PolicyNames.normalize(schema, "schema");
-    String t = PolicyNames.normalize(table, "table");
-    String col = PolicyNames.normalize(column, "column");
-    List<DataMaskItem> items = new ArrayList<>();
-    for (Policy policy : index.dataMasks()) {
-      if (policy.resources().stream().anyMatch(r -> matches(r, c, s, t, col))) {
-        items.addAll(policy.dataMaskItems());
-      }
-    }
-    return List.copyOf(items);
   }
 
   private static boolean matches(PolicyResource r, String c, String s, String t, String column) {

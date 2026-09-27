@@ -6,13 +6,9 @@ import io.masklite.sql.SqlValidatorFactory;
 import io.masklite.sql.ValidatedSql;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.schema.SchemaPlus;
-import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlWith;
-import org.apache.calcite.sql.ddl.SqlCreateTable;
-import org.apache.calcite.sql.babel.TableCollectionType;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 
@@ -23,8 +19,9 @@ import java.util.List;
  * Dialect-agnostic pipeline: parse (with the profile's parser config),
  * snapshot the original text, inline CTEs, validate and convert with the
  * profile's validator settings, and unparse with the profile's SqlDialect.
- * Subclasses declare a {@link DialectProfile} and may hook CREATE TABLE
- * variant checks.
+ * mask-lite is read-only: only SELECT / WITH … SELECT statements survive
+ * classification, so subclasses declare a {@link DialectProfile} and never
+ * see write statements.
  */
 public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
 
@@ -59,7 +56,7 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
 
   private void classify(SqlNode node, int statementOrdinal) {
     switch (node.getKind()) {
-      case SELECT, INSERT -> {
+      case SELECT -> {
         // accepted
       }
       case ORDER_BY -> {
@@ -74,11 +71,8 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
           throw unsupported(body.getKind(), statementOrdinal);
         }
       }
-      case CREATE_TABLE -> {
-        if (((SqlCreateTable) node).query == null) {
-          throw unsupported(node.getKind(), statementOrdinal);
-        }
-      }
+      // mask-lite is read-only: write statements (INSERT, CREATE TABLE AS,
+      // …) never reach the engine — the adapter rejects them right here
       default -> throw unsupported(node.getKind(), statementOrdinal);
     }
   }
@@ -139,132 +133,6 @@ public abstract class AbstractCalciteDialectAdapter implements DialectAdapter {
           "converted query does not match the validated output shape");
     }
     return new ValidatedSql(parsed, originalSql, validated, root, validator);
-  }
-
-  @Override
-  public final SqlNode querySourceOf(SqlNode writeStatement) {
-    switch (writeStatement.getKind()) {
-      case INSERT: {
-        SqlNode source = ((org.apache.calcite.sql.SqlInsert) writeStatement).getSource();
-        return source != null && isQuery(source) ? source : null;
-      }
-      case CREATE_TABLE:
-        return ((SqlCreateTable) writeStatement).query;
-      default:
-        throw unsupported(writeStatement.getKind(), 0);
-    }
-  }
-
-  @Override
-  public final boolean isPassThroughWrite(SqlNode writeStatement) {
-    if (writeStatement.getKind() == SqlKind.INSERT) {
-      SqlNode source = ((org.apache.calcite.sql.SqlInsert) writeStatement).getSource();
-      // plain literal VALUES carry no base columns; but a query hidden inside
-      // VALUES (subquery in an expression) must not slip through unmasked
-      return source != null && source.getKind() == SqlKind.VALUES && !containsQuery(source);
-    }
-    return false;
-  }
-
-  private boolean containsQuery(SqlNode node) {
-    if (node == null) {
-      return false;
-    }
-    if (node.getKind() == SqlKind.SELECT || node.getKind() == SqlKind.WITH) {
-      return true;
-    }
-    if (node instanceof SqlCall call) {
-      for (SqlNode operand : call.getOperandList()) {
-        if (containsQuery(operand)) {
-          return true;
-        }
-      }
-    }
-    if (node instanceof SqlNodeList list) {
-      for (SqlNode item : list) {
-        if (containsQuery(item)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  @Override
-  public final String composeWriteStatement(SqlNode writeStatement, String wrappedQuery) {
-    switch (writeStatement.getKind()) {
-      case INSERT: {
-        org.apache.calcite.sql.SqlInsert insert =
-            (org.apache.calcite.sql.SqlInsert) writeStatement;
-        if (insert.isUpsert()) {
-          // recomposition hardcodes INSERT semantics; UPSERT would silently
-          // downgrade update-or-insert into plain insert, changing write
-          // behavior (M2) — refuse instead
-          throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
-              "UPSERT is not supported: the wrapped query would silently degrade "
-                  + "to a plain INSERT; rewrite the statement as INSERT");
-        }
-        StringBuilder sql = new StringBuilder(
-            insert instanceof io.masklite.parser.SqlInsertOverwrite
-                ? "INSERT OVERWRITE TABLE " : "INSERT INTO ");
-        sql.append(unparse(insert.getTargetTable()));
-        sql.append(renderColumnList(insert.getTargetColumnList()));
-        sql.append(' ').append(wrappedQuery);
-        return sql.toString();
-      }
-      case CREATE_TABLE: {
-        SqlCreateTable create = (SqlCreateTable) writeStatement;
-        checkCreateTableVariant(writeStatement);
-        StringBuilder sql = new StringBuilder("CREATE TABLE ");
-        if (create.ifNotExists) {
-          sql.append("IF NOT EXISTS ");
-        }
-        sql.append(unparse(create.name));
-        sql.append(renderColumnList(create.columnList));
-        sql.append(" AS ").append(wrappedQuery);
-        return sql.toString();
-      }
-      default:
-        throw unsupported(writeStatement.getKind(), 0);
-    }
-  }
-
-  /**
-   * CREATE TABLE variant rejection shared by every dialect (A2): the babel
-   * parse of {@code CREATE TABLE} hides REPLACE / VOLATILE / SET / TEMP
-   * modifiers that the composer cannot reproduce — refuse them here, once,
-   * instead of in five per-dialect copies.
-   */
-  protected void checkCreateTableVariant(SqlNode writeStatement) {
-    if (!(writeStatement instanceof org.apache.calcite.sql.babel.SqlBabelCreateTable babel)) {
-      return;
-    }
-    List<SqlNode> operands = babel.getOperandList();
-    boolean replace = ((org.apache.calcite.sql.SqlLiteral) operands.get(0)).booleanValue();
-    TableCollectionType collectionType =
-        ((org.apache.calcite.sql.SqlLiteral) operands.get(1))
-            .symbolValue(TableCollectionType.class);
-    boolean volatileTable = ((org.apache.calcite.sql.SqlLiteral) operands.get(2)).booleanValue();
-    if (replace || volatileTable
-        || collectionType == TableCollectionType.MULTISET) {
-      throw new SqlMaskException(SqlMaskException.Code.UNSUPPORTED_STATEMENT,
-          "unsupported CREATE TABLE variant (REPLACE / VOLATILE / SET / MULTISET); "
-              + "only plain CREATE TABLE [IF NOT EXISTS] ... AS SELECT is supported ("
-              + profile.name() + ")");
-    }
-  }
-  private String renderColumnList(SqlNodeList columnList) {
-    if (columnList == null || columnList.isEmpty()) {
-      return "";
-    }
-    StringBuilder sql = new StringBuilder(" (");
-    for (int i = 0; i < columnList.size(); i++) {
-      if (i > 0) {
-        sql.append(", ");
-      }
-      sql.append(unparse(columnList.get(i)));
-    }
-    return sql.append(')').toString();
   }
 
   @Override

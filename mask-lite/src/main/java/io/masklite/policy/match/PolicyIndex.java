@@ -1,29 +1,25 @@
 package io.masklite.policy.match;
 
 import io.masklite.policy.model.Policy;
-import io.masklite.policy.model.PolicyType;
 
 import java.util.Comparator;
 import java.util.List;
 
 /**
- * Deterministic decision order over enabled policies: higher priority first,
- * ties keep declaration order (stable sort). Disabled policies are dropped.
+ * Deterministic decision order over enabled (data-mask) policies: higher
+ * priority first, ties keep declaration order (stable sort). Disabled
+ * policies are dropped.
  */
-public record PolicyIndex(List<Policy> dataMasks, List<Policy> rowFilters) {
+public record PolicyIndex(List<Policy> policies) {
 
   public PolicyIndex {
-    dataMasks = List.copyOf(dataMasks);
-    rowFilters = List.copyOf(rowFilters);
+    policies = List.copyOf(policies);
   }
 
   public static PolicyIndex of(List<Policy> policies) {
-    List<Policy> ordered = policies.stream()
+    return new PolicyIndex(policies.stream()
         .filter(Policy::enabled)
         .sorted(Comparator.comparingInt(Policy::priority).reversed())
-        .toList();
-    return new PolicyIndex(
-        ordered.stream().filter(p -> p.type() == PolicyType.DATA_MASK).toList(),
-        ordered.stream().filter(p -> p.type() == PolicyType.ROW_FILTER).toList());
+        .toList());
   }
 }

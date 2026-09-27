@@ -24,27 +24,6 @@ public interface DialectAdapter {
   /** Validates and converts a parsed statement against {@code rootSchema}. */
   ValidatedSql validate(SqlNode parsed, SchemaPlus rootSchema);
 
-  /**
-   * For a write statement ({@code INSERT ... SELECT}, {@code CREATE TABLE AS
-   * SELECT}), returns the query that feeds the rows to be written, or null
-   * when the statement carries no traceable query (e.g. {@code INSERT ...
-   * VALUES} with plain literals).
-   */
-  SqlNode querySourceOf(SqlNode writeStatement);
-
-  /**
-   * True when a write statement can pass through unchanged because it has no
-   * query source whose columns could need masking (and no query hidden
-   * inside, e.g. a scalar subquery inside {@code VALUES}).
-   */
-  boolean isPassThroughWrite(SqlNode writeStatement);
-
-  /**
-   * Renders a write statement around the (already rewritten) source query
-   * text, preserving the original target, column list and keywords.
-   */
-  String composeWriteStatement(SqlNode writeStatement, String wrappedQuery);
-
   /** Renders a statement as SQL text in this dialect (no trailing ';'). */
   String unparse(SqlNode node);
 

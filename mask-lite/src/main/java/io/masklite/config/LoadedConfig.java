@@ -4,7 +4,6 @@ import io.masklite.metadata.ColumnKey;
 import io.masklite.metadata.TableMetadata;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -32,9 +31,5 @@ public record LoadedConfig(MaskingConfig config) {
             && ColumnKey.normalize(t.schema(), "schema").equals(wantedSchema)
             && ColumnKey.normalize(t.name(), "table").equals(wantedTable))
         .findFirst();
-  }
-
-  static String normalizePart(String part) {
-    return part.trim().toLowerCase(Locale.ROOT);
   }
 }

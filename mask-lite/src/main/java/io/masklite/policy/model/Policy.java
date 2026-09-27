@@ -5,53 +5,31 @@ import io.masklite.policy.PolicyException;
 import java.util.List;
 
 /**
- * One Ranger-style policy: resources plus items of exactly one kind
- * (dataMask or rowFilter); the items carry the subject selectors.
+ * One legacy-derived policy: column-level resources plus data-mask items
+ * carrying the subject selectors. mask-lite only models data masks — row
+ * filters live on {@code TableMetadata.rowFilter} and never pass through
+ * here.
  */
-public record Policy(String name, boolean enabled, int priority, PolicyType type,
-    List<PolicyResource> resources, List<DataMaskItem> dataMaskItems,
-    List<RowFilterItem> rowFilterItems) {
+public record Policy(String name, boolean enabled, int priority,
+    List<PolicyResource> resources, List<DataMaskItem> dataMaskItems) {
 
   public Policy {
     if (name == null || name.isBlank()) {
       throw new PolicyException("policy name must not be blank");
     }
-    if (type == null) {
-      throw new PolicyException("policy '" + name + "': type is required");
-    }
     resources = resources == null ? List.of() : List.copyOf(resources);
     dataMaskItems = dataMaskItems == null ? List.of() : List.copyOf(dataMaskItems);
-    rowFilterItems = rowFilterItems == null ? List.of() : List.copyOf(rowFilterItems);
     if (resources.isEmpty()) {
       throw new PolicyException("policy '" + name + "': at least one resource is required");
     }
-    if (type == PolicyType.DATA_MASK) {
-      if (dataMaskItems.isEmpty() || !rowFilterItems.isEmpty()) {
-        throw new PolicyException(
-            "policy '" + name + "': dataMask policies declare dataMaskItems only");
-      }
-      for (PolicyResource resource : resources) {
-        if (resource.column() == null) {
-          throw new PolicyException("policy '" + name
-              + "': dataMask resources must declare a column level (use \"*\" for all columns)");
-        }
-      }
-    } else {
-      if (rowFilterItems.isEmpty() || !dataMaskItems.isEmpty()) {
-        throw new PolicyException(
-            "policy '" + name + "': rowFilter policies declare rowFilterItems only");
-      }
-      for (PolicyResource resource : resources) {
-        if (resource.column() != null) {
-          throw new PolicyException("policy '" + name
-              + "': rowFilter resources are table-level; remove the column level");
-        }
-      }
+    if (dataMaskItems.isEmpty()) {
+      throw new PolicyException(
+          "policy '" + name + "': dataMask policies declare dataMaskItems only");
     }
     for (PolicyResource resource : resources) {
-      if (resource.inheritOnCopy() && type != PolicyType.DATA_MASK) {
+      if (resource.column() == null) {
         throw new PolicyException("policy '" + name
-            + "': inheritOnCopy is only allowed on dataMask (column-level) resources");
+            + "': dataMask resources must declare a column level (use \"*\" for all columns)");
       }
     }
   }
