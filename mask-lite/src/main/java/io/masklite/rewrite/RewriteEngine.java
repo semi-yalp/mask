@@ -79,8 +79,10 @@ public final class RewriteEngine {
     // the legacy path keeps the table-prefixed messages byte-identical
     RowFilterRegistry rowFilters = RowFilterRegistry.build(loaded, dialect, schema);
     RowFilterRewriter rowFilterRewriter = new RowFilterRewriter(dialect);
-    LineageAnalyzer analyzer = new LineageAnalyzer();
     MaskSelector selector = new PdpMaskSelector(engine, Subject.anonymous());
+    // 血缘层用选择器校验标量子查询的安全性（含子查询的表达式元数据拿不到
+    // origins；子查询自身输出命中策略即 fail-closed）
+    LineageAnalyzer analyzer = new LineageAnalyzer(selector);
     SqlRewriteService rewriteService = new SqlRewriteService();
 
     List<String> statements = new SqlStatementSplitter().split(sqlText == null ? "" : sqlText);

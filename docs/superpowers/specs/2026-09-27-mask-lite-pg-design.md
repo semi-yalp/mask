@@ -48,12 +48,20 @@ PG 适配器，849 行）、`error`、`lineage`、`metadata`、`rewrite`（引�
 后反射调用——jar 内含全部 calcite/snakeyaml/生成解析器类，隔离由 `ClassloaderIT`
 断言（MaskLite 与 org.apache.calcite.sql.SqlSelect 均须由该 loader 装载）。
 
-## 验证结果（2026-09-27）
+## 验证结果（2026-09-27，方言补丁后更新）
 
-- 离线改写回归：**95/99** 成功（与旧基准结论一致），15 条带脱敏包装、
-  88 条带行过滤注入；4 条失败为内核固有方言限制：q05/q80（CONCAT(char)），
-  q72（date+integer），q09（CASE 派生列无可追溯血缘，fail-closed）。
-- 远程执行战役：95 条改写产物 **93 条在 PG 16 上执行成功**；q70/q86 的
+- 离线改写回归：**99/99** 成功（15 masked / 91 rowFiltered）。初始结论为
+  95/99（与旧基准一致），随后修复三条方言限制并提升到全量：
+  1. q05/q80：Calcite PG library 自带 CONCAT 与自定义 vararg CONCAT 双候选，
+     UNION 强制推导的严格路径下拒绝 char 参数——从 library 列表剔除，
+     仅保留 vararg 定义；
+  2. q72：PG 的 `date ± integer`（整数进退天数）标准 Calcite 不支持——放宽版
+     `+`/`-` 注册进操作符表首位（deriveType 按名字重新解析并替换调用上的
+     操作符，BINARY 语法取链序第一个候选；numeric 形态委托 std 语义不变）；
+  3. q09：投影含标量子查询时整条 fail-closed——改为逐个递归校验子查询自身
+     输出是否命中脱敏策略：命中仍 fail-closed（防走私受保护列），全部安全则
+     按「子查询位换 NULL 后重取 origins」判定放行。
+- 远程执行战役：99 条改写产物 **97 条在 PG 16 上执行成功**；q70/q86 的
   原始查询在 PG 上同样失败（语料在 ORDER BY 表达式引用输出别名
   lochierarchy，PG 严格禁止、DuckDB 宽松）——IT 以「原始查询同错」
   parity 断言锁定，证明改写未引入任何新的执行失败。

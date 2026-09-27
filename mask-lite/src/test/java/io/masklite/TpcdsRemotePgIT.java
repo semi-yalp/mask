@@ -115,7 +115,7 @@ class TpcdsRemotePgIT {
     REWRITE_FAILURES.forEach((name, message) -> System.out.println("  REWRITE_FAIL " + name + ": " + message));
     EXECUTE_FAILURES.forEach((name, message) -> System.out.println("  EXECUTE_FAIL " + name + ": " + message));
 
-    assertTrue(rewritten >= 95, "expected >= 95/99 rewrites, got " + rewritten);
+    assertTrue(rewritten == 99, "expected 99/99 rewrites, got " + rewritten);
 
     // q70/q86 在 ORDER BY 表达式里引用输出别名（lochierarchy）——PG 严格禁止，
     // DuckDB 宽松。这是语料本身与 PG 的不兼容：原始查询必须报同样的错

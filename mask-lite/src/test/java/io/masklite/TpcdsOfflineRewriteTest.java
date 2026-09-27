@@ -18,9 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 离线全量改写回归：旧仓库基准的 99 条 TPC-DS（vanilla PostgreSQL 方言）+
- * mask+rowfilter 合并策略（25 表、7 个脱敏列、customer_address/date_dim
- * 两个行过滤表）。历史基准结论为 95/99 改写成功——这里以 ≥95 为底线，
- * 失败清单完整输出供排查。
+ * mask+rowfilter 合并策略（25 表、7 个脱敏列、customer/date_dim/
+ * customer_address 三个行过滤表）。历史基准结论为 95/99（q05/q09/q72/q80
+ * 受方言限制失败）；本模块修复 PG 的 concat 可变参语义、date±integer 与
+ * 标量子查询输出的血缘判定后，全量 99/99 改写成功——以 99 为硬性底线。
  */
 class TpcdsOfflineRewriteTest {
 
@@ -66,8 +67,8 @@ class TpcdsOfflineRewriteTest {
   }
 
   @Test
-  void atLeastNinetyFiveQueriesRewrite() {
-    assertTrue(successCount >= 95, "expected >= 95/99 rewrites, got " + successCount);
+  void allQueriesRewrite() {
+    assertTrue(successCount == 99, "expected 99/99 rewrites, got " + successCount);
   }
 
   @Test
