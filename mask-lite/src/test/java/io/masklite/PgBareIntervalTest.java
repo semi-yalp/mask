@@ -118,10 +118,25 @@ class PgBareIntervalTest {
         "INTERVAL '14' DAY");
   }
 
+  /**
+   * 前导字段超过两位（>99 天/年）无法在 Calcite 与 PG 的交集内表达：
+   * Calcite 校验要求精度括号（DAY(3)），而 PG 字面量只允许 SECOND 上的
+   * 括号且 ≤6（2026-09-28 真机实证 DAY(3) 语法错误）——保持 fail-closed
+   * 拒绝，而不是产出 PG 拒收的 SQL。
+   */
   @Test
-  void largeDayCountsGetExplicitLeadPrecision() {
-    assertNormalized("SELECT d_date + INTERVAL '400 days' FROM date_dim",
-        "INTERVAL '400' DAY(3)");
+  void leadFieldsBeyondTwoDigitsAreRejected() {
+    assertRejected("SELECT d_date + INTERVAL '400 days' FROM date_dim");
+    assertRejected("SELECT d_date + INTERVAL '100 days' FROM date_dim");
+    assertRejected("SELECT d_date + INTERVAL '100 years' FROM date_dim");
+    assertRejected("SELECT d_date + INTERVAL '1200 months' FROM date_dim");
+    assertNormalized("SELECT d_date + INTERVAL '99 days' FROM date_dim",
+        "INTERVAL '99' DAY");
+    assertNormalized("SELECT d_date + INTERVAL '99 years' FROM date_dim",
+        "INTERVAL '99' YEAR");
+    // 400 个月可折算为 33-4（前导年 ≤99），可表达
+    assertNormalized("SELECT d_date + INTERVAL '400 months' FROM date_dim",
+        "INTERVAL '33-4' YEAR TO MONTH");
   }
 
   /** 跨族混合：PG 可表达（1 年 1 天），Calcite 类型系统不能——保持 fail-closed。 */

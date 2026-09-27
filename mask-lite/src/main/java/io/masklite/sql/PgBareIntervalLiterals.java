@@ -28,8 +28,9 @@ import java.util.regex.Pattern;
  * <p>Value equivalences rely on PG treating day/time units as absolute
  * (1 day = 86400s, 1 week = 7 days) and year/month as calendar units, matching
  * Calcite's DAY_TO_SECOND / YEAR_TO_MONTH evaluation. Lead fields wider than
- * the default precision (2 digits) get an explicit lead precision, which both
- * Calcite and PG accept ({@code INTERVAL '400' DAY(3)}).
+ * two digits (>99 days/years) are also rejected: Calcite validation would
+ * demand a precision marker that PG's interval literal grammar does not
+ * accept (parentheses are only allowed on SECOND, p ≤ 6 — verified on PG 16).
  */
 public final class PgBareIntervalLiterals {
 
@@ -250,18 +251,17 @@ public final class PgBareIntervalLiterals {
   }
 
   /**
-   * Lead precision for the qualifier: fields within Calcite's default (2
-   * digits) take the unspecified marker so unparse stays plain
-   * ({@code DAY TO SECOND}); wider fields carry an explicit precision
-   * ({@code DAY(3)}); beyond 9 digits is unsupported.
+   * Lead fields are capped at Calcite's default precision (2 digits): wider
+   * values have no common representation — Calcite validation would demand a
+   * precision marker ({@code DAY(3)}), but PG interval literals only accept
+   * parentheses on SECOND with p ≤ 6 (verified on PG 16). Beyond two digits
+   * the caller keeps rejecting fail-closed instead of emitting SQL PG
+   * refuses to parse.
    */
   private static Integer leadPrecision(long value) {
-    int digits = String.valueOf(value).length();
-    if (digits > 9) {
-      return null;
-    }
-    return digits <= 2 ? org.apache.calcite.rel.type.RelDataType.PRECISION_NOT_SPECIFIED
-        : digits;
+    return String.valueOf(value).length() <= 2
+        ? org.apache.calcite.rel.type.RelDataType.PRECISION_NOT_SPECIFIED
+        : null;
   }
 
   private static String two(long value) {

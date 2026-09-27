@@ -106,10 +106,13 @@ try (URLClassLoader loader = new URLClassLoader(new URL[]{jar},
   替换调用上的操作符，且 BINARY 语法取链序第一个候选，因此放宽版必须
   排在 std 之前。PG 的裸 `INTERVAL '1 day'`（无限定词）与字符串的
   interval 转换（`'1 day'::interval`、`CAST('1 day' AS INTERVAL)`）在
-  解析期规范化为等值的限定词形式（`'1 day'` → `INTERVAL '1' DAY`；
-  转换形式仅限字符串字面量——typmod/字段范围形态如 `::interval(3)`、
-  `::interval day` 会丢弃越界字段，值不保真，保持 fail-closed 拒绝；
-  跨族混合如 `'1 year 1 day'` 与分数月同样拒绝）。
+  解析期规范化为等值的限定词形式（`'1 day'` → `INTERVAL '1' DAY`，2026-09-28
+  真机 13 项值等价实证；转换形式仅限字符串字面量——typmod/字段范围形态如
+  `::interval(3)`、`::interval day` 会静默丢弃字段范围右侧的值（如
+  `'2 hours'::interval day` 清零），保持 fail-closed 拒绝；跨族混合如
+  `'1 year 1 day'`、分数月、>99 天/年的前导字段同样拒绝——最后者是
+  Calcite 校验（需精度括号）与 PG 字面量语法（括号仅限 SECOND 且 ≤6，
+  实测 `DAY(3)` 语法错误）没有交集的区间）。
 - **标量子查询输出的血缘判定**：投影含标量子查询时逐个递归校验其自身输出
   是否命中脱敏策略——命中（或无法证明不命中）仍整条 fail-closed，全部安全
   则含子查询的输出按「子查询位换 NULL 后重取 origins」判定（纯子查询列

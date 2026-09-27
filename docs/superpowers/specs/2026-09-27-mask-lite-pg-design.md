@@ -88,8 +88,10 @@ PG 适配器，849 行）、`error`、`lineage`、`metadata`、`rewrite`（引�
 - 方言口径：MINUS 只认 date 在左、整数族止步 int4、优先级对齐 std(40)；
   `WITH…SELECT` 无顶层 ORDER BY 的过拒绝修复（语料 99 条全带 ORDER BY
   从未暴露）；裸 `INTERVAL '1 day'` 与 `'str'::interval`/`CAST('str' AS
-  INTERVAL)` 解析期规范化为等值限定词形式（拆掉 babel 旗标产出的
-  INTERVAL SECOND 值腐蚀地雷；typmod/字段范围形态保持拒绝）。
+  INTERVAL)` 解析期规范化为等值限定词形式，替代 babel 旗标的 SECOND 标记
+  路径（真机实证校准：PG 16 上 SECOND 标记值保真、非腐蚀，但规范化输出
+  更干净且非字面量/typmod 形态可 fail-closed；typmod/字段范围形态保持拒绝
+  ——字段范围右侧的字段会被静默丢弃，如 '2 hours'::interval day 清零）。
 - 清理：写语句死代码/死策略方法/死错误码删除（-336 行），策略层收敛为
   dataMask 单模型，行过滤单一事实来源（TableMetadata.rowFilter）。
 - 测试强度：离线回归锁定 15 masked / 91 rowFiltered 位图与 wrapper 形状
