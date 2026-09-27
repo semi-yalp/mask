@@ -2,11 +2,16 @@ package io.sqlmask.auth;
 
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
+import com.unboundid.ldap.listener.InMemoryListenerConfig;
+import com.unboundid.ldap.listener.SelfSignedCertificateGenerator;
+import com.unboundid.util.ObjectPair;
+import com.unboundid.util.ssl.KeyStoreKeyManager;
 import com.unboundid.util.ssl.SSLUtil;
 import com.unboundid.util.ssl.TrustAllTrustManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +35,24 @@ class LdapAuthenticatorTest {
     InMemoryDirectoryServerConfig config =
         new InMemoryDirectoryServerConfig("dc=example,dc=org");
     config.setSchema(null); // accept plain memberOf / arbitrary objectClasses
+    server = new InMemoryDirectoryServer(config);
+    server.startListening();
+    for (String entry : entries) {
+      server.add(entry.split("\n"));
+    }
+  }
+
+  /** Same as {@link #startServer}, but behind a TLS listener (ldaps). */
+  private void startTlsServer(SSLUtil serverSsl, String... entries) throws Exception {
+    InMemoryDirectoryServerConfig config =
+        new InMemoryDirectoryServerConfig("dc=example,dc=org");
+    config.setSchema(null);
+    // the listener's client factory also trust-all: the server's own
+    // internal connections (adding the seed entries) must complete the
+    // handshake against the self-signed certificate
+    config.setListenerConfigs(InMemoryListenerConfig.createLDAPSConfig(
+        "ldaps", null, 0, serverSsl.createSSLServerSocketFactory(),
+        new SSLUtil(new TrustAllTrustManager()).createSSLSocketFactory()));
     server = new InMemoryDirectoryServer(config);
     server.startListening();
     for (String entry : entries) {
@@ -184,7 +207,36 @@ class LdapAuthenticatorTest {
     LdapAuthenticator authenticator = new LdapAuthenticator(
         config(java.util.Map.of("MASK_AUTH_LDAP_URL",
             "ldaps://127.0.0.1:" + server.getListenPort())),
-        new SSLUtil(new TrustAllTrustManager()).createSSLSocketFactory());
+        new SSLUtil(new TrustAllTrustManager()));
+
+    AuthException e = assertThrows(AuthException.class,
+        () -> authenticator.authenticate("amy", "amy-secret".toCharArray()));
+    assertEquals(AuthException.Code.LDAP_UNAVAILABLE, e.code());
+  }
+
+  @Test
+  void ldapsRejectsCertificateForOtherHostname() throws Exception {
+    // MITM 形态:证书链"可信"(客户端注入 trust-all)但签给别的域名——
+    // 连接的主机名不在证书 SAN 里,必须拒连;只校验链不校验主机名时
+    // amy 会认证成功(把绑定凭据交给了 MITM)。
+    // 注意用 "localhost" 而非 127.0.0.1:HostNameSSLSocketVerifier 按
+    // W3C Secure Contexts 语义豁免回环 IP,数字回环地址测不出主机名校验;
+    // "localhost" 走 dNSName 匹配,而自签证书的 SAN 是本机名/本机 IP。
+    ObjectPair<File, char[]> cert = SelfSignedCertificateGenerator
+        .generateTemporarySelfSignedCertificate("CN=ldap.example.org", "JKS");
+    SSLUtil serverSsl = new SSLUtil(
+        new KeyStoreKeyManager(cert.getFirst(), cert.getSecond()),
+        new TrustAllTrustManager());
+    startTlsServer(serverSsl,
+        "dn: dc=example,dc=org\nobjectClass: domain\ndc: example",
+        "dn: ou=people,dc=example,dc=org\nobjectClass: organizationalUnit\nou: people",
+        "dn: uid=amy,ou=people,dc=example,dc=org\nobjectClass: inetOrgPerson\nuid: amy\n"
+            + "cn: Amy\nsn: Admin\nuserPassword: amy-secret");
+
+    LdapAuthenticator authenticator = new LdapAuthenticator(
+        config(java.util.Map.of("MASK_AUTH_LDAP_URL",
+            "ldaps://localhost:" + server.getListenPort("ldaps"))),
+        new SSLUtil(new TrustAllTrustManager()));
 
     AuthException e = assertThrows(AuthException.class,
         () -> authenticator.authenticate("amy", "amy-secret".toCharArray()));

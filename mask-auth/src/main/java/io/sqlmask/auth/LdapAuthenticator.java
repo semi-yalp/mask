@@ -9,13 +9,13 @@ import com.unboundid.ldap.sdk.ResultCode;
 import com.unboundid.ldap.sdk.SearchResult;
 import com.unboundid.ldap.sdk.SearchResultEntry;
 import com.unboundid.ldap.sdk.SearchScope;
+import com.unboundid.util.ssl.HostNameSSLSocketVerifier;
 import com.unboundid.util.ssl.SSLUtil;
 
 import java.net.URI;
 import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
-import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
@@ -39,24 +39,39 @@ import javax.net.ssl.TrustManagerFactory;
  * <p>Fail closed: unreachable LDAP is {@code LDAP_UNAVAILABLE}, never a
  * fallback. Passwords live in a {@code char[]} and are never logged or put
  * into exceptions.
+ *
+ * <p>ldaps:// connections verify both the certificate chain (the configured
+ * truststore, else the JVM default) and the server hostname: UnboundID does
+ * not check hostnames unless a {@link HostNameSSLSocketVerifier} is installed,
+ * and without one a man-in-the-middle holding any publicly-trusted certificate
+ * could harvest directory bind credentials.
  */
 public final class LdapAuthenticator {
 
+  /**
+   * Shared verifier: hostname (SAN, else CN) must match the host dialled
+   * (IP-literal hosts need an IP SAN). {@code allowWildcards=true} keeps the
+   * standard RFC 6125 wildcard semantics ({@code *.example.com} covers
+   * {@code ldap.example.com}). Stateless and thread-safe.
+   */
+  private static final HostNameSSLSocketVerifier LDAPS_HOSTNAME_VERIFIER =
+      new HostNameSSLSocketVerifier(true);
+
   private final AuthConfig config;
-  private final SSLSocketFactory injectedLdapsFactory;
+  private final SSLUtil injectedLdapsSslUtil;
 
   public LdapAuthenticator(AuthConfig config) {
     this(config, null);
   }
 
-  /** Tests inject a trust-all factory here; production passes null (config/JVM trust). */
-  LdapAuthenticator(AuthConfig config, SSLSocketFactory ldapsFactoryForTests) {
+  /** Tests inject a trust-all SSLUtil here; production passes null (config/JVM trust). */
+  LdapAuthenticator(AuthConfig config, SSLUtil ldapsSslUtilForTests) {
     if (!config.ldapEnabled()) {
       throw new AuthException(AuthException.Code.CONFIG_ERROR,
           "MASK_AUTH_LDAP_URL and MASK_AUTH_LDAP_BASE_DN are required");
     }
     this.config = config;
-    this.injectedLdapsFactory = ldapsFactoryForTests;
+    this.injectedLdapsSslUtil = ldapsSslUtilForTests;
   }
 
   public AuthPrincipal authenticate(String username, char[] password) {
@@ -74,7 +89,7 @@ public final class LdapAuthenticator {
     options.setResponseTimeoutMillis((int) config.responseTimeout().toMillis());
 
     try (LDAPConnection connection = tls
-        ? new LDAPConnection(ldapsFactory(), options, uri.getHost(), port)
+        ? ldapsConnection(uri, port, options)
         : new LDAPConnection(options, uri.getHost(), port)) {
       if (config.ldapBindDn() != null && !config.ldapBindDn().isBlank()) {
         connection.bind(config.ldapBindDn(), config.ldapBindPassword() == null ? "" : config.ldapBindPassword());
@@ -194,13 +209,32 @@ public final class LdapAuthenticator {
     return uri.getPort() == -1 ? (tls ? 636 : 389) : uri.getPort();
   }
 
-  private SSLSocketFactory ldapsFactory() {
-    if (injectedLdapsFactory != null) {
-      return injectedLdapsFactory;
+  /**
+   * One {@link SSLUtil} is the single trust source for the ldaps connection:
+   * it provides the socket factory (chain validation), and the hostname
+   * verifier is installed on the options BEFORE the connection is constructed
+   * (a verifier set after the connect has already happened would never run).
+   */
+  private LDAPConnection ldapsConnection(URI uri, int port, LDAPConnectionOptions options)
+      throws LDAPException {
+    SSLUtil sslUtil = ldapsSslUtil();
+    options.setSSLSocketVerifier(LDAPS_HOSTNAME_VERIFIER);
+    try {
+      return new LDAPConnection(sslUtil.createSSLSocketFactory(), options, uri.getHost(), port);
+    } catch (java.security.GeneralSecurityException e) {
+      throw new AuthException(AuthException.Code.CONFIG_ERROR,
+          "cannot build ldaps socket factory (check MASK_AUTH_LDAP_TRUSTSTORE_PATH): "
+              + e.getMessage());
+    }
+  }
+
+  private SSLUtil ldapsSslUtil() {
+    if (injectedLdapsSslUtil != null) {
+      return injectedLdapsSslUtil;
     }
     try {
       if (config.ldapTruststorePath() == null || config.ldapTruststorePath().isBlank()) {
-        return new SSLUtil().createSSLSocketFactory(); // JVM default trust store
+        return new SSLUtil(); // JVM default trust store
       }
       KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
       char[] pass = config.ldapTruststorePassword() == null
@@ -212,10 +246,10 @@ public final class LdapAuthenticator {
       TrustManagerFactory tmf =
           TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
       tmf.init(trustStore);
-      return new SSLUtil(tmf.getTrustManagers()).createSSLSocketFactory();
+      return new SSLUtil(tmf.getTrustManagers());
     } catch (Exception e) {
       throw new AuthException(AuthException.Code.CONFIG_ERROR,
-          "cannot build ldaps socket factory (check MASK_AUTH_LDAP_TRUSTSTORE_PATH): "
+          "cannot build ldaps SSL context (check MASK_AUTH_LDAP_TRUSTSTORE_PATH): "
               + e.getMessage());
     }
   }
