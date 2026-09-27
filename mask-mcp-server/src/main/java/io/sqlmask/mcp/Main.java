@@ -16,7 +16,8 @@ public final class Main {
   public static void main(String[] args) throws Exception {
     Config cfg = parseArgs(args);
     if ("http".equals(cfg.transport())) {
-      JettyHttpServer.run(cfg.port(), TOOLS);
+      String apiKey = System.getenv("MASK_MCP_API_KEY");
+      JettyHttpServer.run(cfg.port(), TOOLS, apiKey);
       return;
     }
     if (!"stdio".equals(cfg.transport())) {

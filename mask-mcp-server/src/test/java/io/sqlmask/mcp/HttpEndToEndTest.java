@@ -3,12 +3,15 @@ package io.sqlmask.mcp;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpRequest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -38,11 +41,15 @@ class HttpEndToEndTest {
   @Timeout(value = 60, unit = TimeUnit.SECONDS)
   void fullRoundTripOverStreamableHttp() throws Exception {
     int port = freePort();
-    server = JettyHttpServer.start(port, Main.TOOLS);
+    server = JettyHttpServer.start(port, Main.TOOLS, "e2e-key");
 
+    // 门禁后端到端：无 X-Api-Key 会被 401 拒绝，client 须带 key（与 ApiKeyFilterTest 成功路径同款）。
     try (McpSyncClient client = McpClient.sync(
             HttpClientStreamableHttpTransport.builder("http://127.0.0.1:" + port)
                 .endpoint("/mcp")
+                .httpRequestCustomizer(
+                    (HttpRequest.Builder b, String method, URI uri, String body,
+                        McpTransportContext ctx) -> b.header("X-Api-Key", "e2e-key"))
                 .build())
         .requestTimeout(java.time.Duration.ofSeconds(20))
         .build()) {
