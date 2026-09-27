@@ -8,7 +8,7 @@
 
 从 mask-engine 抽出「列脱敏 + 行过滤」的最简版本：只支持 PostgreSQL 方言，
 自包含单 jar，支持以 URLClassLoader 方式加载执行；以旧仓库基准的 99 条
-TPC-DS 语句做全量改写回归，并在远程 PG（47.100.166.158 的 tpcds 库，
+TPC-DS 语句做全量改写回归，并在远程 PG（tpcds 库，
 sf=0.01 数据 + mask UDF）上执行改写产物验证效果。最终合并到特性分支。
 
 ## 决策（经确认）

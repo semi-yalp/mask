@@ -86,22 +86,27 @@ try (URLClassLoader loader = new URLClassLoader(new URL[]{jar},
   vanilla PG 查询 + mask+rowfilter 合并策略 25 表；硬性 99/99（历史 4 条方言限制已修复），失败清单随构建输出）。
 - `mvn verify` 另跑 failsafe 集成测试：
   - `ClassloaderIT`：shaded jar 经 URLClassLoader 反射加载执行；
-  - `TpcdsRemotePgIT`：99 条改写产物在远程 PG（47.100.166.158 tpcds 库，sf=0.01
+  - `TpcdsRemotePgIT`：99 条改写产物在远程 PG（tpcds 库，sf=0.01
     数据 + mask UDF）上逐条执行并点验脱敏效果（改写输出 ≡ 手工调用 mask UDF）
     与行过滤效果（注入行数 ≡ 手工 WHERE 行数）。门控环境变量
-    `MASK_LITE_REMOTE_PG=1`；默认走本机隧道 `ssh -N -L 15432:127.0.0.1:5432
-    root@47.100.166.158`（可用 `MASK_LITE_PG_URL/USER/PASSWORD` 覆盖）。
+    `MASK_LITE_REMOTE_PG=1` 且必须提供 `MASK_LITE_PG_PASSWORD`（凭据不入库，
+    缺失即跳过）；主机地址经本机 SSH 隧道接入默认端口
+    （可用 `MASK_LITE_PG_URL/USER/PASSWORD` 覆盖）。
 
 方言补丁（相对 mask-engine 的增强，TPC-DS 全量语料实证驱动）：
 
 - **`concat` 可变参**：从 PG library 列表剔除其自带 CONCAT（UNION 强制推导的
   严格路径下双候选歧义会拒绝 char 参数），保留本方言语义的可变参定义——
   PG 的 `concat` 对任意字符串类型成立；
-- **`date ± integer`**：PG 以整数天进退日期（`date - integer → date`），
-  Calcite 标准只认 datetime + interval。放宽版 `+`/`-` 注册进操作符表
-  （numeric 形态委托标准检查与返回类型推导，语义不变）——注意 deriveType
-  会按名字重新解析并替换调用上的操作符，且 BINARY 语法取链序第一个候选，
-  因此放宽版必须排在 std 之前；
+- **`date ± integer`**：PG 以整数天进退日期（`date - integer → date`；
+  `integer - date` 无此操作符），Calcite 标准只认 datetime + interval。
+  放宽版 `+`/`-` 注册进操作符表：PLUS 认两侧、MINUS 只认 date 在左，
+  整数族止步 int4（bigint 对 integer 无隐式转换），其余形态委托标准
+  检查与返回类型推导（语义不变）——注意 deriveType 会按名字重新解析并
+  替换调用上的操作符，且 BINARY 语法取链序第一个候选，因此放宽版必须
+  排在 std 之前。已知继承缺口：裸 `INTERVAL '1 day'`（无限定词）与
+  `::interval` 转换在解析器模板（源自 mask-engine）中不支持，报
+  PARSE_ERROR（fail-closed 过拒绝，非走私风险）。
 - **标量子查询输出的血缘判定**：投影含标量子查询时逐个递归校验其自身输出
   是否命中脱敏策略——命中（或无法证明不命中）仍整条 fail-closed，全部安全
   则含子查询的输出按「子查询位换 NULL 后重取 origins」判定（纯子查询列

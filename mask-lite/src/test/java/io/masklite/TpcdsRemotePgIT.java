@@ -21,10 +21,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 远程 PG 集成验证（47.100.166.158 PostgreSQL 16 的 tpcds 库，sf=0.01 数据 +
- * mask UDF；本机经 {@code ssh -N -L 15432:127.0.0.1:5432 root@…} 隧道访问）。
+ * 远程 PG 集成验证（远程 PostgreSQL 16 的 tpcds 库，sf=0.01 数据 +
+ * mask UDF；本机经 SSH 隧道访问）。
  *
- * <p>门控：仅当环境变量 {@code MASK_LITE_REMOTE_PG=1} 时执行，否则跳过。
+ * <p>门控：仅当环境变量 {@code MASK_LITE_REMOTE_PG=1} 且提供了
+ * {@code MASK_LITE_PG_PASSWORD}（凭据不入库）时执行，否则跳过。
  * 流程：99 条 TPC-DS 离线改写 → 改写产物逐条在远程 PG 上执行 → 输出报告；
  * 另有脱敏效果（改写输出 ≡ 手工调用 mask UDF）与行过滤效果
  * （行过滤注入后的行数 = 手工 WHERE 行数）两组点验。
@@ -34,7 +35,7 @@ class TpcdsRemotePgIT {
   private static final String URL = env("MASK_LITE_PG_URL",
       "jdbc:postgresql://127.0.0.1:15432/tpcds");
   private static final String USER = env("MASK_LITE_PG_USER", "postgres");
-  private static final String PASSWORD = env("MASK_LITE_PG_PASSWORD", "PgTest2026");
+  private static final String PASSWORD = System.getenv("MASK_LITE_PG_PASSWORD");
 
   private static final Path QUERIES_DIR = queriesDir();
 
@@ -67,8 +68,9 @@ class TpcdsRemotePgIT {
 
   @BeforeAll
   static void gate() {
-    Assumptions.assumeTrue("1".equals(System.getenv("MASK_LITE_REMOTE_PG")),
-        "remote PG campaign gated behind MASK_LITE_REMOTE_PG=1");
+    Assumptions.assumeTrue("1".equals(System.getenv("MASK_LITE_REMOTE_PG"))
+            && PASSWORD != null && !PASSWORD.isBlank(),
+        "remote PG campaign gated behind MASK_LITE_REMOTE_PG=1 and MASK_LITE_PG_PASSWORD");
   }
 
   @Test

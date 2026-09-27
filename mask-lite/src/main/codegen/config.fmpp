@@ -7,7 +7,8 @@ data: {
     # 本覆盖层的每个键都是整键替换（与上游 Calcite 构建语义一致：
     # 模块 config 键整体覆盖 default_config 键）。因此凡 babel
     # config.fmpp 有原值的键，这里必须放「babel 原值 + mask 新增项」
-    # 的合并结果，见 EXTENSIONS.md「Babel base」一节。
+    # 的合并结果，见同仓 mask-sqlparser 模块的 EXTENSIONS.md「Babel base」一节
+    （模板与该模块同源）。
 
     # List of files in @includes directory.
     # babel 原值（parserImpls.ftl、parserPostgresImpls.ftl）+ mask 新增
@@ -601,7 +602,8 @@ data: {
   # 上游 babel 模块没有自己的 default_config.fmpp（Gradle FmppTask 直接以
   # core 的 default_config.fmpp 作为 default 数据层），故本块仍嵌套 core
   # 的 default_config.fmpp，与 babel 的实际构建语义一致。
-  # 升级 Calcite 时：重新解出 default_config.fmpp 并原样替换本块（见 EXTENSIONS.md）。
+  # 升级 Calcite 时：重新解出 default_config.fmpp 并原样替换本块
+  #（口径说明见同仓 mask-sqlparser/EXTENSIONS.md）。
   default: {
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
