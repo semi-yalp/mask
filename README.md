@@ -51,6 +51,33 @@ TPC-DS 基准资产保留在旧仓库 `semi-yalp/mask` 封存可查）。
 止血可 `POST /admin/cache/refresh`（可带 `{"instance": "..."}`）立即清缓存——管理端点，
 需带 `X-Api-Key: $SQLMASK_ADMIN_API_KEY`（未配置该 Key 时默认拒绝）。
 
+## MCP 接入（mask-mcp-server）
+
+mask-mcp-server 把改写内核以 MCP tools 形式提供给 AI 客户端（Claude Desktop、
+ZCode 等），进程内直调 RewriteEngine，不经 HTTP：
+
+| Tool | 说明 |
+|---|---|
+| `rewrite_sql` | 内联 YAML 改写（对齐 `/api/rewrite`），逐语句返回脱敏结果 |
+| `validate_config` | metadata / policy YAML 干跑校验，逐源报告错误 |
+| `list_dialects` | 枚举五方言（postgresql/trino/mysql/hive/sparksql） |
+
+stdio 模式（本地客户端）构建后直接配置：
+
+```json
+{
+  "mcpServers": {
+    "sql-mask": {
+      "command": "java",
+      "args": ["-jar", "/path/to/mask-mcp-server-0.1.0-SNAPSHOT.jar"]
+    }
+  }
+}
+```
+
+错误契约与 REST 面一致：`{"code","message","details"}`，内核错误码
+（`CONFIG_ERROR`/`PARSE_ERROR`/`REWRITE_ERROR`/`UNSUPPORTED_STATEMENT` 等）原样透传。
+
 ## 元数据采集（--pull-metadata）
 
 `--pull-metadata` 连接一个 PostgreSQL、MySQL 或 Trino 数据库，把库表结构拉取成
