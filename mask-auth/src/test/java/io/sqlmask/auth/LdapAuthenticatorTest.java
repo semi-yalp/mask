@@ -2,9 +2,12 @@ package io.sqlmask.auth;
 
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
+import com.unboundid.util.ssl.SSLUtil;
+import com.unboundid.util.ssl.TrustAllTrustManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -166,6 +169,33 @@ class LdapAuthenticatorTest {
     AuthException e = assertThrows(AuthException.class,
         () -> authenticator.authenticate("*)(objectClass=*", "x".toCharArray()));
     assertEquals(AuthException.Code.INVALID_CREDENTIALS, e.code());
+  }
+
+  @Test
+  void ldapsUrlDialsTlsNotPlaintext() throws Exception {
+    startServer(
+        "dn: dc=example,dc=org\nobjectClass: domain\ndc: example",
+        "dn: ou=people,dc=example,dc=org\nobjectClass: organizationalUnit\nou: people",
+        "dn: uid=amy,ou=people,dc=example,dc=org\nobjectClass: inetOrgPerson\nuid: amy\n"
+            + "cn: Amy\nsn: Admin\nuserPassword: amy-secret");
+
+    // 明文监听器 + ldaps URL:TLS ClientHello 必然失败 ⇒ LDAP_UNAVAILABLE。
+    // (bug 在场时走明文连接、amy 认证成功,断言失败)
+    LdapAuthenticator authenticator = new LdapAuthenticator(
+        config(java.util.Map.of("MASK_AUTH_LDAP_URL",
+            "ldaps://127.0.0.1:" + server.getListenPort())),
+        new SSLUtil(new TrustAllTrustManager()).createSSLSocketFactory());
+
+    AuthException e = assertThrows(AuthException.class,
+        () -> authenticator.authenticate("amy", "amy-secret".toCharArray()));
+    assertEquals(AuthException.Code.LDAP_UNAVAILABLE, e.code());
+  }
+
+  @Test
+  void portOfFallsBackToWellKnownPorts() {
+    assertEquals(636, LdapAuthenticator.portOf(URI.create("ldaps://host")));
+    assertEquals(389, LdapAuthenticator.portOf(URI.create("ldap://host")));
+    assertEquals(1389, LdapAuthenticator.portOf(URI.create("ldap://host:1389")));
   }
 
   @Test

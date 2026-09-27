@@ -9,10 +9,14 @@ import com.unboundid.ldap.sdk.ResultCode;
 import com.unboundid.ldap.sdk.SearchResult;
 import com.unboundid.ldap.sdk.SearchResultEntry;
 import com.unboundid.ldap.sdk.SearchScope;
+import com.unboundid.util.ssl.SSLUtil;
 
 import java.net.URI;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManagerFactory;
 
 /**
  * LDAP username/password authentication over the UnboundID SDK. One fresh
@@ -39,13 +43,20 @@ import java.util.List;
 public final class LdapAuthenticator {
 
   private final AuthConfig config;
+  private final SSLSocketFactory injectedLdapsFactory;
 
   public LdapAuthenticator(AuthConfig config) {
+    this(config, null);
+  }
+
+  /** Tests inject a trust-all factory here; production passes null (config/JVM trust). */
+  LdapAuthenticator(AuthConfig config, SSLSocketFactory ldapsFactoryForTests) {
     if (!config.ldapEnabled()) {
       throw new AuthException(AuthException.Code.CONFIG_ERROR,
           "MASK_AUTH_LDAP_URL and MASK_AUTH_LDAP_BASE_DN are required");
     }
     this.config = config;
+    this.injectedLdapsFactory = ldapsFactoryForTests;
   }
 
   public AuthPrincipal authenticate(String username, char[] password) {
@@ -56,11 +67,15 @@ public final class LdapAuthenticator {
       throw new AuthException(AuthException.Code.INVALID_CREDENTIALS, "invalid username or password");
     }
     URI uri = parseLdapUrl(config.ldapUrl());
+    boolean tls = "ldaps".equals(uri.getScheme().toLowerCase(java.util.Locale.ROOT));
+    int port = portOf(uri);
     LDAPConnectionOptions options = new LDAPConnectionOptions();
     options.setConnectTimeoutMillis((int) config.connectTimeout().toMillis());
     options.setResponseTimeoutMillis((int) config.responseTimeout().toMillis());
 
-    try (LDAPConnection connection = new LDAPConnection(options, uri.getHost(), uri.getPort())) {
+    try (LDAPConnection connection = tls
+        ? new LDAPConnection(ldapsFactory(), options, uri.getHost(), port)
+        : new LDAPConnection(options, uri.getHost(), port)) {
       if (config.ldapBindDn() != null && !config.ldapBindDn().isBlank()) {
         connection.bind(config.ldapBindDn(), config.ldapBindPassword() == null ? "" : config.ldapBindPassword());
       }
@@ -171,6 +186,38 @@ public final class LdapAuthenticator {
       }
     }
     return null;
+  }
+
+  /** ldaps ⇒ 636, ldap ⇒ 389 when the URL carries no explicit port. */
+  static int portOf(URI uri) {
+    boolean tls = "ldaps".equals(uri.getScheme().toLowerCase(java.util.Locale.ROOT));
+    return uri.getPort() == -1 ? (tls ? 636 : 389) : uri.getPort();
+  }
+
+  private SSLSocketFactory ldapsFactory() {
+    if (injectedLdapsFactory != null) {
+      return injectedLdapsFactory;
+    }
+    try {
+      if (config.ldapTruststorePath() == null || config.ldapTruststorePath().isBlank()) {
+        return new SSLUtil().createSSLSocketFactory(); // JVM default trust store
+      }
+      KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+      char[] pass = config.ldapTruststorePassword() == null
+          ? null : config.ldapTruststorePassword().toCharArray();
+      try (java.io.InputStream in = java.nio.file.Files.newInputStream(
+          java.nio.file.Path.of(config.ldapTruststorePath()))) {
+        trustStore.load(in, pass);
+      }
+      TrustManagerFactory tmf =
+          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+      tmf.init(trustStore);
+      return new SSLUtil(tmf.getTrustManagers()).createSSLSocketFactory();
+    } catch (Exception e) {
+      throw new AuthException(AuthException.Code.CONFIG_ERROR,
+          "cannot build ldaps socket factory (check MASK_AUTH_LDAP_TRUSTSTORE_PATH): "
+              + e.getMessage());
+    }
   }
 
   private static URI parseLdapUrl(String url) {

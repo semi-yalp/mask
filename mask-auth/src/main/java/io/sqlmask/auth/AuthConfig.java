@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
  *       comma-separated group names mapping to roles.</li>
  *   <li>{@code MASK_AUTH_LDAP_CONNECT_TIMEOUT} / {@code ..._RESPONSE_TIMEOUT}
  *       — ISO-8601 durations, default PT3S / PT5S.</li>
+ *   <li>{@code MASK_AUTH_LDAP_TRUSTSTORE_PATH} / {@code ..._PASSWORD} —
+ *       trust store for self-signed ldaps CAs (optional; unset ⇒ JVM default).</li>
  * </ul>
  */
 public final class AuthConfig {
@@ -55,6 +57,8 @@ public final class AuthConfig {
   private final Set<String> auditorGroups;
   private final Duration connectTimeout;
   private final Duration responseTimeout;
+  private final String ldapTruststorePath;
+  private final String ldapTruststorePassword;
 
   private AuthConfig(Builder builder) {
     this.secret = builder.secret;
@@ -71,6 +75,8 @@ public final class AuthConfig {
     this.auditorGroups = builder.auditorGroups;
     this.connectTimeout = builder.connectTimeout;
     this.responseTimeout = builder.responseTimeout;
+    this.ldapTruststorePath = builder.ldapTruststorePath;
+    this.ldapTruststorePassword = builder.ldapTruststorePassword;
   }
 
   public static AuthConfig fromEnv() {
@@ -96,6 +102,8 @@ public final class AuthConfig {
         "MASK_AUTH_LDAP_CONNECT_TIMEOUT");
     b.responseTimeout = duration(env.get("MASK_AUTH_LDAP_RESPONSE_TIMEOUT"), Duration.ofSeconds(5),
         "MASK_AUTH_LDAP_RESPONSE_TIMEOUT");
+    b.ldapTruststorePath = env.get("MASK_AUTH_LDAP_TRUSTSTORE_PATH");
+    b.ldapTruststorePassword = env.get("MASK_AUTH_LDAP_TRUSTSTORE_PASSWORD");
     return new AuthConfig(b);
   }
 
@@ -198,6 +206,16 @@ public final class AuthConfig {
     return responseTimeout;
   }
 
+  /** Optional path to a JKS/PKCS12 trust store for ldaps (self-signed AD CAs); null ⇒ JVM default. */
+  public String ldapTruststorePath() {
+    return ldapTruststorePath;
+  }
+
+  /** Password for the trust store at {@link #ldapTruststorePath()}; null ⇒ none. */
+  public String ldapTruststorePassword() {
+    return ldapTruststorePassword;
+  }
+
   Role mapRole(java.util.Collection<String> groups) {
     for (String group : groups) {
       if (adminGroups.contains(group.toLowerCase(Locale.ROOT))) {
@@ -227,5 +245,7 @@ public final class AuthConfig {
     Set<String> auditorGroups = new HashSet<>();
     Duration connectTimeout;
     Duration responseTimeout;
+    String ldapTruststorePath;
+    String ldapTruststorePassword;
   }
 }
