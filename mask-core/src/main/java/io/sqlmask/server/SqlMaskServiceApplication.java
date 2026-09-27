@@ -131,6 +131,29 @@ public class SqlMaskServiceApplication {
     return registration;
   }
 
+  /**
+   * Admin gate for the metadata pull: the endpoint dials out to an
+   * operator-supplied host with operator-supplied credentials, so it is a
+   * management action and fails closed exactly like the cache-refresh
+   * endpoint (the bundled UI already sends X-Api-Key with the admin key).
+   */
+  @Bean
+  org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter>
+      metadataPullApiKeyFilter(org.springframework.core.env.Environment env) {
+    String adminKey = env.getProperty("SQLMASK_ADMIN_API_KEY", "");
+    if (adminKey.isBlank()) {
+      org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).warn(
+          "SQLMASK_ADMIN_API_KEY is not configured: POST /api/metadata/pull is "
+              + "REJECTED until the key is set (send it as X-Api-Key)");
+    }
+    org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.common.web.ApiKeyFilter> registration =
+        new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+            io.sqlmask.common.web.ApiKeyFilter.failClosed(adminKey));
+    registration.addUrlPatterns("/api/metadata/pull");
+    registration.setOrder(4);
+    return registration;
+  }
+
   // ---- console-user (LDAP) authentication & authorization ----
 
   @Bean
