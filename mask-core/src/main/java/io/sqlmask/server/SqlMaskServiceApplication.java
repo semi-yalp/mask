@@ -172,7 +172,11 @@ public class SqlMaskServiceApplication {
   /**
    * Bearer gate ahead of the API-key filters. Console rules here: audit
    * search for auditors and above, both rewrite surfaces for any logged-in
-   * user (the instance rewrite's policy subject then comes from the token).
+   * user (the instance rewrite's policy subject then comes from the token),
+   * and the metadata pull for admins only — a verified token already
+   * satisfies the admin-key gate on that endpoint, so the rule set alone
+   * keeps a plain USER from dialing out to arbitrary hosts with operator
+   * credentials.
    */
   @Bean
   org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter>
@@ -191,6 +195,7 @@ public class SqlMaskServiceApplication {
     }
     java.util.List<io.sqlmask.auth.AuthRule> rules = new io.sqlmask.auth.AuthRule.Builder()
         .prefix("/api/audit", io.sqlmask.auth.Role.AUDITOR)
+        .prefix("/api/metadata", io.sqlmask.auth.Role.ADMIN)
         .prefix("/api/rewrite", io.sqlmask.auth.Role.USER)
         .build();
     org.springframework.boot.web.servlet.FilterRegistrationBean<io.sqlmask.auth.BearerAuthFilter>
@@ -201,7 +206,7 @@ public class SqlMaskServiceApplication {
     registration.setOrder(0);
     org.slf4j.LoggerFactory.getLogger(SqlMaskServiceApplication.class).info(
         "MASK_AUTH_SECRET is configured: LDAP bearer-token auth is armed "
-            + "(rules: /api/audit=AUDITOR, /api/rewrite*=USER)");
+            + "(rules: /api/audit=AUDITOR, /api/metadata*=ADMIN, /api/rewrite*=USER)");
     return registration;
   }
 }
