@@ -5410,10 +5410,25 @@ SqlLiteral IntervalLiteral() :
         <PLUS> { sign = 1; }
     ]
     p = SimpleStringLiteral()
-    intervalQualifier = IntervalQualifier() {
-        return SqlParserUtil.parseIntervalLiteral(s.end(intervalQualifier),
-            sign, p, intervalQualifier);
-    }
+    (
+        LOOKAHEAD(2)
+        intervalQualifier = IntervalQualifier() {
+            return SqlParserUtil.parseIntervalLiteral(s.end(intervalQualifier),
+                sign, p, intervalQualifier);
+        }
+    |
+        // PostgreSQL bare interval literal (INTERVAL '1 day'): normalized to a
+        // real qualified literal; unsupported forms fail closed (parse error)
+        {
+            org.apache.calcite.sql.SqlIntervalLiteral bare =
+                io.masklite.sql.PgBareIntervalLiterals.literal(s.end(this), sign, p);
+            if (bare == null) {
+                throw new ParseException(
+                    "unsupported bare INTERVAL literal '" + p + "'");
+            }
+            return bare;
+        }
+    )
 }
 
 /** Parses an interval literal (e.g. {@code INTERVAL '2:3' HOUR TO MINUTE})
@@ -5437,10 +5452,25 @@ SqlNode IntervalLiteralOrExpression() :
     (
         // literal (with quoted string)
         p = SimpleStringLiteral()
-        intervalQualifier = IntervalQualifier() {
-            return SqlParserUtil.parseIntervalLiteral(s.end(intervalQualifier),
-                sign, p, intervalQualifier);
-        }
+        (
+            LOOKAHEAD(2)
+            intervalQualifier = IntervalQualifier() {
+                return SqlParserUtil.parseIntervalLiteral(s.end(intervalQualifier),
+                    sign, p, intervalQualifier);
+            }
+        |
+            // PostgreSQL bare interval literal (INTERVAL '1 day'): normalized
+            // to a real qualified literal; unsupported forms fail closed
+            {
+                org.apache.calcite.sql.SqlIntervalLiteral bare =
+                    io.masklite.sql.PgBareIntervalLiterals.literal(s.end(this), sign, p);
+                if (bare == null) {
+                    throw new ParseException(
+                        "unsupported bare INTERVAL literal '" + p + "'");
+                }
+                return bare;
+            }
+        )
     |
         // To keep parsing simple, any expressions besides numeric literal and
         // identifiers must be enclosed in parentheses.

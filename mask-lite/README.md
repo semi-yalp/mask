@@ -104,9 +104,10 @@ try (URLClassLoader loader = new URLClassLoader(new URL[]{jar},
   整数族止步 int4（bigint 对 integer 无隐式转换），其余形态委托标准
   检查与返回类型推导（语义不变）——注意 deriveType 会按名字重新解析并
   替换调用上的操作符，且 BINARY 语法取链序第一个候选，因此放宽版必须
-  排在 std 之前。已知继承缺口：裸 `INTERVAL '1 day'`（无限定词）与
-  `::interval` 转换在解析器模板（源自 mask-engine）中不支持，报
-  PARSE_ERROR（fail-closed 过拒绝，非走私风险）。
+  排在 std 之前。PG 的裸 `INTERVAL '1 day'`（无限定词）在解析期规范化为
+  等值的限定词形式（`'1 day'` → `INTERVAL '1' DAY`，跨族混合如
+  `'1 year 1 day'` 与分数月保持拒绝）；`::interval` 转换仍是已知缺口，
+  报 PARSE_ERROR（fail-closed 过拒绝，非走私风险）。
 - **标量子查询输出的血缘判定**：投影含标量子查询时逐个递归校验其自身输出
   是否命中脱敏策略——命中（或无法证明不命中）仍整条 fail-closed，全部安全
   则含子查询的输出按「子查询位换 NULL 后重取 origins」判定（纯子查询列

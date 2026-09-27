@@ -78,9 +78,8 @@ class DialectDateArithmeticTest {
 
   /**
    * 语料从未覆盖 interval：date±interval 走标准委托路径，不能被放宽版误伤。
-   * 注：解析器（继承 mask-engine 的 codegen 模板）只认带限定词的
-   * {@code INTERVAL '1' DAY}；PG 的裸 {@code INTERVAL '1 day'} 与
-   * {@code ::interval} 转换是继承的已知缺口（PARSE_ERROR，fail-closed 过拒绝）。
+   * PG 的裸 {@code INTERVAL '1 day'} 已支持（解析期规范化，见 PgBareIntervalTest）；
+   * {@code ::interval} 转换仍是已知缺口（PARSE_ERROR，fail-closed 过拒绝）。
    */
   @Test
   void datePlusIntervalRewrites() {
