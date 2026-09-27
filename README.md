@@ -78,6 +78,25 @@ stdio 模式（本地客户端）构建后直接配置：
 错误契约与 REST 面一致：`{"code","message","details"}`，内核错误码
 （`CONFIG_ERROR`/`PARSE_ERROR`/`REWRITE_ERROR`/`UNSUPPORTED_STATEMENT` 等）原样透传。
 
+Streamable HTTP 模式（团队共享）：
+
+```bash
+mvn -pl mask-mcp-server -am package -DskipTests
+MASK_MCP_API_KEY=local-dev-mcp-key \
+  java -jar mask-mcp-server/target/mask-mcp-server-0.1.0-SNAPSHOT.jar \
+  --transport http --port 8084
+```
+
+客户端接入 URL 为 `http://<host>:8084/mcp`，请求头带 `X-Api-Key`。
+**未配置 `MASK_MCP_API_KEY` 时服务拒绝一切请求**（默认 fail-closed，与
+`/admin/cache/refresh` 同原则）。Docker 部署见 `docker-compose.mcp.yml`。
+
+| 环境变量 | 作用 |
+|---|---|
+| `MASK_MCP_API_KEY` | HTTP 模式鉴权（必配，否则全拒绝） |
+
+stdio 模式无鉴权面（本地进程，信任桌面用户），无环境变量要求。
+
 ## 元数据采集（--pull-metadata）
 
 `--pull-metadata` 连接一个 PostgreSQL、MySQL 或 Trino 数据库，把库表结构拉取成

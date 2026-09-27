@@ -1,0 +1,12 @@
+# mask-mcp-server（MCP Streamable HTTP 面）：改写内核的 MCP tools 接入。
+#   docker compose -f docker-compose.mcp.yml up
+# 鉴权：MASK_MCP_API_KEY 未配置时服务默认拒绝所有请求（与 admin 端点同原则）。
+services:
+  mask-mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    environment:
+      MASK_MCP_API_KEY: ${MASK_MCP_API_KEY:?set MASK_MCP_API_KEY before up}
+    ports:
+      - "8084:8084"
