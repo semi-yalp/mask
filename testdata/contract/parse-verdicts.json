@@ -1,0 +1,569 @@
+[
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_atomic_fail.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_atomic_fail.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "INSERT INTO customer (c_customer_sk) VALUES (1)",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_atomic_fail.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_last_name FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TPC-DS 场景补充用例：常见 SQL 形态（全部应成功改写或透传）\r\n-- 每条标注 [Cn] 与期望；配合 tpcds/metadata.yaml 运行\r\n\r\n-- [C1] 单表直查脱敏列：期望 c_email_address -\u003e mask_email(r.c_email_address)\r\nSELECT c_email_address\r\nFROM customer\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C2] 全限定三段名：期望 mask_hash(r.c_customer_id, 'sha256') AS c_customer_id\r\nSELECT tpcds.public.customer.c_customer_id\r\nFROM tpcds.public.customer\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C3] 双引号标识符（小写与声明一致）：期望 mask_email(r.c_email_address)\r\nSELECT \"c_email_address\"\r\nFROM customer\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C4] SELECT * 且表含脱敏列：期望展开后 c_email_address/c_phone/c_last_name/c_customer_id\r\n--      各自包对应 UDF，其余列原样，输出顺序与表声明一致\r\nSELECT *\r\nFROM customer\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C5] WHERE 引用脱敏列：期望 WHERE 保持明文在内层；外层仅 c_email_address 脱敏\r\nSELECT c_email_address, c_birth_year\r\nFROM customer\r\nWHERE c_email_address LIKE '%@example.com'\r\n  AND c_birth_year \u003e= 1980\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#5@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C6] 单来源派生列：期望 LOWER(c_email_address) 血缘命中 c_email_address -\u003e mask_email(r.low_email)\r\nSELECT LOWER(c_email_address) AS low_email, c_first_name\r\nFROM customer\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#6@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C7] 多来源派生列：c_email_address || c_phone -\u003e 按 ColumnKey 字典序\r\n--      c_email_address \u003c c_phone，期望选择 mask_email\r\nSELECT c_email_address || ' / ' || c_phone AS contact\r\nFROM customer\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#7@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C8] 聚合引用脱敏列：按设计（§3.2）对外层聚合结果整体套 UDF，\r\n--      期望 mask_email(r.email_cnt) AS email_cnt\r\nSELECT COUNT(c_email_address) AS email_cnt\r\nFROM store_sales, customer\r\nWHERE ss_customer_sk = c_customer_sk",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#8@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C9] GROUP BY + HAVING + ORDER BY：期望 c_email_address 脱敏、cnt 原样、HAVING 留在内层\r\nSELECT c_email_address, COUNT(*) AS cnt\r\nFROM customer\r\nGROUP BY c_email_address\r\nHAVING COUNT(*) \u003e 0\r\nORDER BY cnt DESC\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#9@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C10] DISTINCT：期望 mask_name(r.c_last_name) AS c_last_name\r\nSELECT DISTINCT c_last_name\r\nFROM customer\r\nWHERE c_birth_year = 1990\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#10@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C11] IN (SELECT ...) 子查询：期望子查询保持明文在内层，\r\n--       外层 c_email_address 脱敏\r\nSELECT c_email_address, c_first_name\r\nFROM customer\r\nWHERE c_customer_sk IN (\r\n    SELECT ss_customer_sk\r\n    FROM store_sales, date_dim\r\n    WHERE ss_sold_date_sk = d_date_sk AND d_year = 2002 AND ss_net_paid \u003e 100\r\n)\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#11@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C12] 自连接两个别名：期望两个输出列都命中 customer.c_email_address -\u003e 各包一次 mask_email\r\nSELECT c1.c_email_address AS email_1, c2.c_email_address AS email_2\r\nFROM customer AS c1\r\nJOIN customer AS c2 ON c1.c_customer_sk = c2.c_customer_sk\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#12@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C13] 多层 CTE 链（q2 风格，big_buyers 引用 store_buyers）：\r\n--       期望 c_email_address -\u003e mask_email、c_last_name -\u003e mask_name、paid 原样\r\nWITH store_buyers AS (\r\n    SELECT ss_customer_sk, SUM(ss_net_paid) AS paid\r\n    FROM store_sales, date_dim\r\n    WHERE ss_sold_date_sk = d_date_sk AND d_year = 2002\r\n    GROUP BY ss_customer_sk\r\n), big_buyers AS (\r\n    SELECT b.ss_customer_sk AS cust_sk, b.paid AS paid\r\n    FROM store_buyers AS b\r\n    WHERE b.paid \u003e 100\r\n)\r\nSELECT c.c_email_address, c.c_last_name, x.paid\r\nFROM big_buyers AS x, customer AS c\r\nWHERE x.cust_sk = c.c_customer_sk\r\nORDER BY x.paid DESC\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#13@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C14] 常量列与脱敏列混排：期望 r.flag 原样（无来源）、c_email_address 脱敏\r\nSELECT 1 AS flag, c_email_address\r\nFROM customer\r\nLIMIT 3",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_common_cases.sql#14@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [C15] customer_address 的 mask_text 策略：期望 ca_street_name -\u003e mask_text(r.ca_street_name)\r\nSELECT ca_city, ca_street_name\r\nFROM customer_address\r\nWHERE ca_state = 'CA'\r\nORDER BY ca_city\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_crlf.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_crlf.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_phone FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TPC-DS 第三轮：深层结构用例（每条标注 [Dn] 与期望）\r\n\r\n-- [D1] 三层嵌套派生表，脱敏列穿过三层重命名：期望 mask_email(r.email_address)\r\nSELECT innermost.email_address, innermost.first_name\r\nFROM (\r\n    SELECT mid.email_address, mid.first_name\r\n    FROM (\r\n        SELECT c_email_address AS email_address, c_first_name AS first_name\r\n        FROM customer\r\n        WHERE c_birth_year \u003e= 1970\r\n    ) AS mid\r\n    WHERE mid.first_name IS NOT NULL\r\n) AS innermost\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D3] CASE WHEN：phone 分支来源 c_phone -\u003e 整列套 mask_phone；\r\n--      纯字面量 CASE 无来源 -\u003e 原样；email 直接列 -\u003e mask_email\r\nSELECT CASE WHEN c_phone IS NULL THEN 'unknown' ELSE c_phone END AS phone_or_none,\r\n       CASE WHEN c_birth_year \u003c 1980 THEN 'older' ELSE 'younger' END AS cohort,\r\n       c_email_address\r\nFROM customer\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D5] CTE 带列名列表 (x, y)：期望 x -\u003e mask_email、y -\u003e mask_phone（血缘穿过重命名）\r\nWITH contact(x, y) AS (\r\n    SELECT c_email_address, c_phone\r\n    FROM customer\r\n    WHERE c_birth_year BETWEEN 1980 AND 1990\r\n)\r\nSELECT x, y\r\nFROM contact\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D6] FROM 子查询内带 WITH：期望 mask_email(r.e) AS e，内层 WITH 完整保留\r\nSELECT x.e\r\nFROM (\r\n    WITH t AS (SELECT c_email_address AS e FROM customer WHERE c_birth_year = 1990)\r\n    SELECT e FROM t\r\n) AS x\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D7] USING 自连接：期望 e1 -\u003e mask_email、p2 -\u003e mask_phone，各包一次\r\nSELECT c1.c_email_address AS e1, c2.c_phone AS p2\r\nFROM customer AS c1\r\nJOIN customer AS c2 USING (c_customer_sk)\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#5@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D8] LEFT JOIN：期望 mask_email(r.c_email_address)、r.ca_city 原样\r\nSELECT c.c_email_address, ca.ca_city\r\nFROM customer AS c\r\nLEFT JOIN customer_address AS ca ON c.c_current_addr_sk = ca.ca_address_sk\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#6@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D9] GROUP BY ROLLUP 含脱敏列：期望 mask_email(r.c_email_address)、r.cnt 原样\r\nSELECT c_email_address, COUNT(*) AS cnt\r\nFROM customer\r\nGROUP BY ROLLUP (c_email_address)\r\nORDER BY c_email_address NULLS LAST\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#7@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D10] 引擎侧未知函数 mask_custom：工具不校验 UDF 有效性，\r\n--       期望输出列按来源 c_email_address 套 mask_email\r\nSELECT mask_custom(c_email_address) AS custom_masked\r\nFROM customer\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#8@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D11] ORDER BY 别名 + OFFSET + FETCH：期望 mask_email(r.e) AS e，内层子句完整保留\r\nSELECT LOWER(c_email_address) AS e, c_birth_year\r\nFROM customer\r\nORDER BY e, c_birth_year\r\nOFFSET 2 ROWS FETCH NEXT 5 ROWS ONLY",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_deep_cases.sql#9@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D12] 全引号限定名（小写与声明一致）：期望 mask_email(r.c_email_address)\r\nSELECT \"customer\".c_email_address\r\nFROM tpcds.\"public\".\"customer\"\r\nLIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TPC-DS 边界与错误场景用例（整体运行会因多语句原子性在首条失败处中止，\r\n-- 须逐条用 --sql 运行；每条应非零退出并给出对应错误码的清晰诊断）\r\n\r\n-- [E1] 重复输出别名：期望 REWRITE_ERROR \"cannot wrap a query whose output\r\n--      contains duplicate column name 'v'\"，不生成可能引用错列的 SQL\r\nSELECT c_phone AS v, c_email_address AS v\r\nFROM customer",
+    "verdict": [
+      "later",
+      "REWRITE_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E2] 未声明表：期望 VALIDATION_ERROR \"Object 'nosuch_table' not found\"\r\nSELECT c_email_address\r\nFROM nosuch_table",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E3] 未声明列：期望 VALIDATION_ERROR \"Column 'c_nosuch' not found in any table\"\r\nSELECT c_nosuch\r\nFROM customer",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E4] 歧义列引用（customer 与 store_sales 均有 c_customer_sk）：\r\n--      期望 VALIDATION_ERROR 提示列歧义\r\nSELECT c_customer_sk\r\nFROM customer, store_sales",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E5] INSERT：期望 UNSUPPORTED_STATEMENT\r\nINSERT INTO customer (c_customer_sk, c_email_address) VALUES (1, 'a@b.com')",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#5@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E6] UPDATE：期望 UNSUPPORTED_STATEMENT\r\nUPDATE customer SET c_email_address = 'a@b.com' WHERE c_customer_sk = 1",
+    "verdict": [
+      "classify",
+      "UNSUPPORTED_STATEMENT"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_edge_cases.sql#6@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [E7] DELETE：期望 UNSUPPORTED_STATEMENT\r\nDELETE FROM customer",
+    "verdict": [
+      "classify",
+      "UNSUPPORTED_STATEMENT"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_masking_test.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TPC-DS SQL 脱敏改写测试用例\r\n-- 每条语句标注来源：真实 TPC-DS 查询（q79/q4/q10/q21/q38）或 TPC-DS 风格变体\r\n-- 期望行为见 tpcds/EXPECTED.md\r\n\r\n-- [S1] TPC-DS q79（适配版）：多层 JOIN + 派生子查询 + 内层 GROUP BY + ORDER BY + LIMIT\r\n-- 期望：c_last_name -\u003e mask_name(r.c_last_name)；其余列原样引用；WHERE/GROUP BY 留在内层\r\nSELECT c_last_name, c_first_name, SUBSTRING(s_city, 1, 30) AS city, ss_ticket_number, amt, profit\r\nFROM (\r\n    SELECT ss_ticket_number, ss_customer_sk, s.s_city AS s_city,\r\n           SUM(ss_coupon_amt) AS amt, SUM(ss_net_profit) AS profit\r\n    FROM store_sales, date_dim, store AS s, household_demographics\r\n    WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk\r\n      AND store_sales.ss_store_sk = s.s_store_sk\r\n      AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk\r\n      AND (date_dim.d_dom BETWEEN 1 AND 15 OR date_dim.d_moy BETWEEN 1 AND 3)\r\n      AND date_dim.d_year IN (2000, 2001, 2002)\r\n      AND s.s_state IN ('SD', 'TN')\r\n      AND household_demographics.hd_dep_count = 4\r\n    GROUP BY ss_ticket_number, ss_customer_sk, s.s_city\r\n) AS dj, customer\r\nWHERE dj.ss_customer_sk = customer.c_customer_sk\r\nORDER BY c_last_name, c_first_name, city, ss_ticket_number\r\nLIMIT 100",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_masking_test.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [S2] TPC-DS q4（原结构）：CTE + UNION ALL + CTE 自连接 + 外层 CASE WHEN\r\n-- 期望：customer_id -\u003e mask_hash(r.customer_id, 'sha256')；last_name -\u003e mask_name(r.last_name)；\r\n--       first_name/preferred_cust_flag 原样；CTE 两个分支血缘均落到 customer 基础列\r\nWITH year_total AS (\r\n    SELECT c_customer_id AS customer_id, c_first_name AS first_name, c_last_name AS last_name,\r\n           c_preferred_cust_flag AS preferred_cust_flag, c_birth_country AS birth_country,\r\n           c_login AS login, c_email_address AS email_address, date_dim.d_year AS dyear,\r\n           SUM(ss_ext_list_price - ss_ext_discount_amt) AS year_total, 's' AS sale_type\r\n    FROM customer, store_sales, date_dim\r\n    WHERE c_customer_sk = ss_customer_sk\r\n      AND ss_sold_date_sk = d_date_sk\r\n    GROUP BY c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag,\r\n             c_birth_country, c_login, c_email_address, date_dim.d_year\r\n    UNION ALL\r\n    SELECT c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country,\r\n           c_login, c_email_address, date_dim.d_year,\r\n           SUM(ws_ext_list_price - ws_ext_discount_amt) AS year_total, 'w' AS sale_type\r\n    FROM customer, web_sales, date_dim\r\n    WHERE c_customer_sk = ws_bill_customer_sk\r\n      AND ws_sold_date_sk = d_date_sk\r\n    GROUP BY c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag,\r\n             c_birth_country, c_login, c_email_address, date_dim.d_year\r\n)\r\nSELECT t_s_secyear.customer_id, t_s_secyear.first_name, t_s_secyear.last_name,\r\n       t_s_secyear.preferred_cust_flag\r\nFROM year_total AS t_s_firstyear, year_total AS t_s_secyear,\r\n     year_total AS t_w_firstyear, year_total AS t_w_secyear\r\nWHERE t_s_secyear.customer_id = t_s_firstyear.customer_id\r\n  AND t_s_firstyear.customer_id = t_w_secyear.customer_id\r\n  AND t_s_firstyear.customer_id = t_w_firstyear.customer_id\r\n  AND t_s_firstyear.sale_type = 's'\r\n  AND t_w_firstyear.sale_type = 'w'\r\n  AND t_s_secyear.sale_type = 's'\r\n  AND t_w_secyear.sale_type = 'w'\r\n  AND t_s_firstyear.dyear = 2001\r\n  AND t_s_secyear.dyear = 2002\r\n  AND t_w_firstyear.dyear = 2001\r\n  AND t_w_secyear.dyear = 2002\r\n  AND t_s_firstyear.year_total \u003e 0\r\n  AND t_w_firstyear.year_total \u003e 0\r\n  AND CASE WHEN t_w_firstyear.year_total \u003e 0\r\n           THEN t_w_secyear.year_total / t_w_firstyear.year_total\r\n           ELSE NULL END\r\n      \u003e CASE WHEN t_s_firstyear.year_total \u003e 0\r\n             THEN t_s_secyear.year_total / t_s_firstyear.year_total\r\n             ELSE NULL END\r\nORDER BY t_s_secyear.customer_id, t_s_secyear.first_name, t_s_secyear.last_name,\r\n         t_s_secyear.preferred_cust_flag\r\nLIMIT 100",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_masking_test.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [S3] TPC-DS q10（原结构）：EXISTS 子查询 + GROUP BY + LIMIT\r\n-- 期望：输出列均未配置策略 -\u003e 整条语句原样透传，不加外层包装\r\nSELECT cd_gender, cd_marital_status, cd_education_status, COUNT(*) AS cnt,\r\n       cd_dep_count, cd_dep_employed_count, cd_dep_college_count\r\nFROM customer AS c, customer_address AS ca, customer_demographics AS cd\r\nWHERE c.c_current_addr_sk = ca.ca_address_sk\r\n  AND ca.ca_county IN ('Rush County', 'Toole County', 'Jefferson County',\r\n                       'Dona Ana County', 'Daviess County')\r\n  AND cd.cd_demo_sk = c.c_current_cdemo_sk\r\n  AND EXISTS (\r\n      SELECT 1\r\n      FROM store_sales, date_dim\r\n      WHERE c.c_customer_sk = ss_customer_sk\r\n        AND ss_sold_date_sk = d_date_sk\r\n        AND d_year = 2001\r\n        AND d_moy BETWEEN 4 AND 7)\r\nGROUP BY cd_gender, cd_marital_status, cd_education_status,\r\n         cd_dep_count, cd_dep_employed_count, cd_dep_college_count\r\nORDER BY cd_gender, cd_marital_status, cd_education_status,\r\n         cd_dep_count, cd_dep_employed_count, cd_dep_college_count\r\nLIMIT 100",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_masking_test.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [S4] TPC-DS q21（原结构）：聚合上开窗函数 + 外层 CASE 过滤 + SELECT *\r\n-- 期望：输出列均未配置策略 -\u003e 原样透传\r\nSELECT * FROM (\r\n    SELECT i_manufact_id,\r\n           SUM(ss_sales_price) AS sum_sales,\r\n           AVG(SUM(ss_sales_price)) OVER (PARTITION BY i_manufact_id) AS avg_quarterly_sales\r\n    FROM item, store_sales, date_dim, store\r\n    WHERE ss_item_sk = i_item_sk\r\n      AND ss_sold_date_sk = d_date_sk\r\n      AND ss_store_sk = s_store_sk\r\n      AND d_month_seq IN (1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211)\r\n      AND ((i_category IN ('Books', 'Electronics') AND i_class IN ('computers', 'stereo'))\r\n           OR (i_category IN ('Men') AND i_class IN ('shirts')))\r\n    GROUP BY i_manufact_id, d_qoy\r\n) AS tmp1\r\nWHERE CASE WHEN avg_quarterly_sales \u003e 0\r\n           THEN ABS(sum_sales - avg_quarterly_sales) / avg_quarterly_sales\r\n           ELSE NULL END \u003e 0.1\r\nORDER BY avg_quarterly_sales, sum_sales, i_manufact_id\r\nLIMIT 100",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_masking_test.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [S6] TPC-DS q79 风格变体：输出 email/phone，GROUP BY 含被脱敏列\r\n-- 期望：c_email_address -\u003e mask_email(...)；c_phone -\u003e mask_phone(..., 3, 4)；\r\n--       COUNT(*) 无来源原样；order_cnt 别名保留\r\nSELECT c_email_address, c_phone, c_first_name, COUNT(*) AS order_cnt\r\nFROM store_sales, date_dim, customer\r\nWHERE ss_customer_sk = c_customer_sk\r\n  AND ss_sold_date_sk = d_date_sk\r\n  AND d_year = 2002\r\n  AND c_birth_year BETWEEN 1970 AND 1980\r\nGROUP BY c_email_address, c_phone, c_first_name\r\nORDER BY order_cnt DESC\r\nLIMIT 20",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_oneline.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [R4] 单行多语句\r\nSELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_oneline.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_last_name FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_open_cases.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TPC-DS 第三轮：行为待分类用例（先逐条运行观察，再归入成功或预期失败）\r\n\r\n-- [D2] SELECT 列表中的相关标量子查询：\r\n--       血缘可能为 UNKNOWN（应清晰失败）或可解析（应正常处理），记录实际行为\r\nSELECT c.c_email_address,\r\n       (SELECT COUNT(*) FROM store_sales WHERE ss_customer_sk = c.c_customer_sk) AS order_cnt\r\nFROM customer AS c\r\nLIMIT 10",
+    "verdict": [
+      "later",
+      "LINEAGE_UNKNOWN"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_open_cases.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [D4] 窗口函数：RN 按无策略列排序；RNK 按 c_email_address 分区，\r\n--       记录窗口输出列的血缘与脱敏行为\r\nSELECT c_email_address,\r\n       ROW_NUMBER() OVER (ORDER BY c_birth_year) AS rn,\r\n       RANK() OVER (PARTITION BY c_email_address ORDER BY c_birth_year) AS rnk\r\nFROM customer\r\nLIMIT 10",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_robustness.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [R1] 混合多语句：包装/透传/CTE 顺序保持\r\nSELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_robustness.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_first_name FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_robustness.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "WITH w AS (SELECT c_phone FROM customer WHERE c_birth_year = 1990) SELECT c_phone FROM w LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_robustness.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT c_last_name, COUNT(*) AS n FROM customer GROUP BY c_last_name",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_robustness.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [R2] 注释：语句间与语句内注释\r\n-- leading comment\r\nSELECT /* inline block\r\n   spans lines */ c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_unsupported.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- 预期失败用例：TPC-DS q14 属于 WITH RECURSIVE，第一版明确不支持\r\n-- 期望：整次命令非零退出，stderr 给出清晰的递归 CTE 诊断，不输出部分结果\r\nWITH RECURSIVE cust_total AS (\r\n    SELECT c_customer_sk, SUM(ss_net_paid) AS ctr_total_return\r\n    FROM store_sales\r\n    GROUP BY c_customer_sk\r\n    UNION ALL\r\n    SELECT c_customer_sk, ctr_total_return\r\n    FROM cust_total\r\n)\r\nSELECT ctr_customer_sk\r\nFROM cust_total\r\nWHERE ctr_total_return \u003e 100\r\nLIMIT 10",
+    "verdict": [
+      "later",
+      "LINEAGE_UNKNOWN"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_unsupported_setops.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- 预期失败用例：根级 INTERSECT / EXCEPT 集合操作，第一版范围外\r\n-- 期望：每条语句返回清晰的 UNSUPPORTED 诊断，不生成部分结果\r\n-- S5 为 TPC-DS q38 变体（根级 INTERSECT），S7 为 TPC-DS 风格变体（根级 EXCEPT）\r\n\r\n-- [S5] TPC-DS q38（变体：根级 INTERSECT，去掉外层 count 包裹）\r\nSELECT DISTINCT c_last_name, c_first_name\r\nFROM store_sales, date_dim, customer\r\nWHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk\r\n  AND store_sales.ss_customer_sk = customer.c_customer_sk\r\n  AND date_dim.d_month_seq BETWEEN 1193 AND 1204\r\n  AND customer.c_birth_month BETWEEN 1 AND 3\r\nINTERSECT\r\nSELECT DISTINCT c_last_name, c_first_name\r\nFROM store_sales, date_dim, customer\r\nWHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk\r\n  AND store_sales.ss_customer_sk = customer.c_customer_sk\r\n  AND date_dim.d_month_seq BETWEEN 1205 AND 1216\r\n  AND customer.c_birth_year BETWEEN 1972 AND 1973\r\nLIMIT 100",
+    "verdict": [
+      "classify",
+      "UNSUPPORTED_STATEMENT"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_unsupported_setops.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [S7] TPC-DS 风格变体：根级 EXCEPT，输出 email\r\nSELECT DISTINCT c_email_address\r\nFROM customer, store_sales, date_dim\r\nWHERE ss_customer_sk = c_customer_sk\r\n  AND ss_sold_date_sk = d_date_sk\r\n  AND d_year = 2001\r\nEXCEPT\r\nSELECT DISTINCT c_email_address\r\nFROM customer, store_sales, date_dim\r\nWHERE ss_customer_sk = c_customer_sk\r\n  AND ss_sold_date_sk = d_date_sk\r\n  AND d_year = 2002",
+    "verdict": [
+      "classify",
+      "UNSUPPORTED_STATEMENT"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_write_cases.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [W1] INSERT INTO + 列名列表 + SELECT：期望源查询按血缘包装后重组成 INSERT INTO ... SELECT mask_email(r.c_email_address) ...\r\nINSERT INTO customer (c_customer_sk, c_email_address, c_birth_year)\r\nSELECT ss_customer_sk, c_email_address, c_birth_year\r\nFROM store_sales, customer\r\nWHERE ss_customer_sk = c_customer_sk AND d_year IS NULL\r\n  AND ss_sold_date_sk IS NULL\r\nLIMIT 5",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_write_cases.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [W2] INSERT INTO 不带列名列表 + SELECT *：期望按 customer 列序展开并各自脱敏\r\nINSERT INTO customer\r\nSELECT * FROM customer WHERE c_birth_year = 1990 LIMIT 3",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_write_cases.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [W3] INSERT 纯字面量 VALUES：无基础列来源，期望原样透传\r\nINSERT INTO customer (c_customer_sk, c_email_address) VALUES (1, 'a@b.com')",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_write_cases.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [W5] CREATE TABLE AS SELECT 含脱敏列：期望 CREATE TABLE ... AS SELECT mask_email(...) FROM (\u003corig\u003e) AS r\r\nCREATE TABLE contact_backup AS\r\nSELECT c_email_address, c_last_name, c_birth_year\r\nFROM customer WHERE c_birth_year \u003e= 1990 LIMIT 20",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/tpcds/queries/tpcds_write_cases.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- [W6] CREATE TABLE IF NOT EXISTS AS SELECT：期望同 W5 且保留 IF NOT EXISTS\r\nCREATE TABLE IF NOT EXISTS contact_backup2 AS\r\nSELECT c_email_address FROM customer LIMIT 5",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "mask-engine/src/test/resources/golden/write-statements.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "INSERT INTO archive SELECT r.id, mask_phone(r.phone, 3, 4) AS phone FROM (\r\nSELECT id, phone\r\nFROM customer\r\nWHERE status = 'ACTIVE'\r\n) AS r",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/src/test/resources/golden/write-statements.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "CREATE TABLE masked_customer AS SELECT r.id, mask_phone(r.phone, 3, 4) AS phone FROM (\r\nSELECT id, phone\r\nFROM customer\r\n) AS r",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/src/test/resources/golden/write-statements.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "CREATE TABLE IF NOT EXISTS t3 AS SELECT mask_phone(r.phone, 3, 4) AS phone FROM (\r\nSELECT phone\r\nFROM customer\r\n) AS r",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "mask-engine/src/test/resources/golden/write-statements.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT id, name\r\nFROM customer\r\nORDER BY id\r\nFETCH NEXT 10 ROWS ONLY",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  }
+]
