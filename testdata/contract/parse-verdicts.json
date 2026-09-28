@@ -565,5 +565,77 @@
       "later",
       "VALIDATION_ERROR"
     ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#0@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- T11 parse-reject 语料:Java(postgresql)在解析期拒绝的形态集合。\n-- 每条均为 jar 实测 [PARSE_ERROR];契约中 verdict=parse,守护 Go 词法/解析面。\n\n-- 残片:事务控制词带非法伴随(jar: Encountered \"x\")\nCOMMIT x",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#1@postgresql",
+    "dialect": "postgresql",
+    "sql": "BEGIN FOO",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#2@postgresql",
+    "dialect": "postgresql",
+    "sql": "DISCARD x",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#3@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- OFFSET..LIMIT 与 LIMIT start,count 在 Default 档拒绝(jar: '...' is not\n-- allowed under the current SQL conformance level)\nSELECT 1 OFFSET 1 LIMIT 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#4@postgresql",
+    "dialect": "postgresql",
+    "sql": "SELECT 1 LIMIT 1, 2",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#5@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- != 在 Default 档拒绝(jar: Bang equal '!=' is not allowed...)\nSELECT 1 != 2",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#6@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- TOP(n) 五方言均关(jar: TOP 相关解析错)\nSELECT TOP (5) 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/parse-rejects.sql#7@postgresql",
+    "dialect": "postgresql",
+    "sql": "-- 空分组集(jar: Incorrect syntax near the keyword 'GROUP')\nSELECT 1 GROUP BY ()",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
   }
 ]

@@ -224,6 +224,10 @@ func (s *scanner) lexWordOrNumber(pos Pos, first rune) (Token, error) {
 	identEnd := s.i // '.' 开头无标识符候选
 	if first != '.' {
 		identEnd = s.scanIdentTail()
+		// 前缀字符串字面量(T11 jar 实测对齐,见 lexPrefixedString)。
+		if tok, ok, err := s.lexPrefixedString(pos, start, identEnd); ok || err != nil {
+			return tok, err
+		}
 	}
 	numEnd := -1
 	if (first >= '0' && first <= '9') || first == '.' {
@@ -239,6 +243,117 @@ func (s *scanner) lexWordOrNumber(pos Pos, first rune) (Token, error) {
 		s.read()
 	}
 	return Token{Kind: kind, Text: s.src[start:end], Pos: pos}, nil
+}
+
+// lexPrefixedString 判定并词法化前缀字符串字面量(T11 jar 实测对齐:Java
+// 对以下形态均产单 token 且解析接受——`SELECT N'x'`/`x'ff'`/`U&'x'`/
+// `_latin1'x'` 逐条 exit 0,unparse 折算前缀;Go 此前拆 Ident+String 落到
+// 别名位报 PARSE_ERROR,构成接受面差异):
+//
+//	N'…'      NATIONAL 串(前缀大小写不敏感,jar 实测 n'x' 同效);
+//	X'…'      二进制串:内容仅十六进制位(jar 实测 x'zz' 解析期拒绝
+//	          "Binary literal string must contain only characters…",Go 在
+//	          词法层校验,错误码同为 PARSE_ERROR;空内容 x'' jar 亦接受);
+//	U&'…'     UNICODE 串(& 为前缀一部分);
+//	_char'…'  字符集前缀串:下划线开头且至少一个 charset 字符(jar 实测
+//	          `_'x'` 空前缀不构成该 token,走 Ident+String;_x'y' 等未知
+//	          charset Java 解析期拒、Go 不校验 charset 名——接受窗口记
+//	          watchlist)。
+//
+// ok=false 表示不构成前缀串,调用方继续普通词/数字路径。Text 含前缀与
+// 引号原文(Java unparse 会重写前缀,如 N'x' → _ISO-8859-1'x',M3 需要
+// 原文)。未闭合与既有字符串口径一致报词法错(Java 此时为解析期
+// PARSE_ERROR,错误码一致)。
+func (s *scanner) lexPrefixedString(pos Pos, start, identEnd int) (Token, bool, error) {
+	word := s.src[start:identEnd]
+	nx := byte(0)
+	if identEnd < len(s.src) {
+		nx = s.src[identEnd]
+	}
+	n2 := byte(0)
+	if identEnd+1 < len(s.src) {
+		n2 = s.src[identEnd+1]
+	}
+	var bodyOpen int // 字符串体开引号的字节偏移
+	switch {
+	case len(word) == 1 && (word[0] == 'N' || word[0] == 'n') && nx == '\'':
+		bodyOpen = identEnd
+	case len(word) == 1 && (word[0] == 'X' || word[0] == 'x') && nx == '\'':
+		end, hexOK := scanBinaryBodyEnd(s.src, identEnd)
+		if end < 0 {
+			return Token{}, true, s.unterminatedPrefixed(start, identEnd)
+		}
+		if !hexOK {
+			return Token{}, true, errAt(pos,
+				"Binary literal string must contain only characters '0'-'9', 'a'-'f' and 'A'-'F'")
+		}
+		return s.consumePrefixed(pos, start, end), true, nil
+	case len(word) == 1 && (word[0] == 'U' || word[0] == 'u') && nx == '&' && n2 == '\'':
+		bodyOpen = identEnd + 1
+	case len(word) >= 2 && word[0] == '_' && nx == '\'':
+		bodyOpen = identEnd
+	default:
+		return Token{}, false, nil
+	}
+	end := scanStringBodyEnd(s.src, bodyOpen)
+	if end < 0 {
+		return Token{}, true, s.unterminatedPrefixed(start, bodyOpen)
+	}
+	return s.consumePrefixed(pos, start, end), true, nil
+}
+
+// unterminatedPrefixed 前缀串未闭合:消费到前缀与开引号后按未闭合字符串
+// 报词法错(位置口径与 lexString 一致)。
+func (s *scanner) unterminatedPrefixed(start, open int) error {
+	for s.i <= open {
+		s.read()
+	}
+	return s.errAtEnd("unterminated string literal")
+}
+
+// consumePrefixed 消费 [start, end) 字节并构造前缀串 token。
+func (s *scanner) consumePrefixed(pos Pos, start, end int) Token {
+	for s.i < end {
+		s.read()
+	}
+	return Token{Kind: String, Text: s.src[start:end], Pos: pos}
+}
+
+// scanStringBodyEnd 从开引号字节偏移 open 起扫描单引号字符串体,返回终结
+// 引号之后的终点偏移;未闭合返回 -1。双写 '' 仅在之后仍存在可收尾的引号
+// 时按转义消费(与 lexString 的最长完全匹配语义一致)。
+func scanStringBodyEnd(src string, open int) int {
+	j := open + 1
+	for j < len(src) {
+		if src[j] == '\'' {
+			if j+1 < len(src) && src[j+1] == '\'' && hasByteAfter(src, j+2, '\'') {
+				j += 2
+				continue
+			}
+			return j + 1
+		}
+		j++
+	}
+	return -1
+}
+
+// scanBinaryBodyEnd 二进制串体:无转义,首个终结引号为止(对齐 JavaCC
+// BINARY_STRING_LITERAL 的十六进制位定义,'' 不作转义)。返回终点偏移与
+// 内容是否全为十六进制位;未闭合终点为 -1。
+func scanBinaryBodyEnd(src string, open int) (end int, hexOK bool) {
+	j := open + 1
+	for j < len(src) {
+		if src[j] == '\'' {
+			for _, c := range []byte(src[open+1 : j]) {
+				if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+					return j + 1, false
+				}
+			}
+			return j + 1, true
+		}
+		j++
+	}
+	return -1, false
 }
 
 // scanIdentTail 返回标识符候选的终点字节偏移(不含已消费的首字符):
@@ -373,13 +488,21 @@ func (s *scanner) lexParam(pos Pos) (Token, error) {
 	return Token{Kind: Param, Text: s.src[start:s.i], Pos: pos}, nil
 }
 
-// lexOp 词法化运算符:先试二字符(最长匹配),再试单字符;白名单外的
-// 字符报词法错(已知口径 Ruling 8:Java 为合法 token、解析期报错)。
+// lexOp 词法化运算符:三字符 → 二字符 → 单字符(最长匹配);白名单外的
+// 字符报词法错(已知口径 Ruling 8:Java 为合法 token、解析期报错;<=>/
+// &/^/~ 已于 T11 实测补进 opTable)。
 func (s *scanner) lexOp(pos Pos, r rune) (Token, error) {
 	if r >= 0x80 {
 		return Token{}, errAt(pos, "unexpected character %q", r)
 	}
 	b := byte(r)
+	if s.i+1 < len(s.src) {
+		if three := s.src[s.i-1 : s.i+2]; threeOp[three] {
+			s.read()
+			s.read()
+			return Token{Kind: Op, Text: three, Pos: pos}, nil
+		}
+	}
 	if s.i < len(s.src) {
 		if two := s.src[s.i-1 : s.i+1]; twoOp[two] {
 			s.read()

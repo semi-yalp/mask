@@ -127,11 +127,18 @@ const (
 	Mul
 	Div
 	Mod
+	// T11 追加(jar 实测 fork 解析接受的运算符;追加在枚举尾部,不扰动
+	// 既有序):NullSafeEq 对应 <=>,BitAnd/BitXor/Tilde 对应 & ^ ~。
+	NullSafeEq
+	BitAnd
+	BitXor
+	Tilde
 )
 
 var binaryOpNames = [...]string{
 	"Or", "And", "Eq", "Ne", "Lt", "Le", "Gt", "Ge",
 	"Add", "Sub", "Concat", "Mul", "Div", "Mod",
+	"NullSafeEq", "BitAnd", "BitXor", "Tilde",
 }
 
 // String 返回种别名,用于测试失败信息与报错可读。

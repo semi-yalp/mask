@@ -701,20 +701,20 @@ func TestParseExprRejects(t *testing.T) {
 	}{
 		{`a::b`, 2},                  // :: 强转
 		{`f(x) FILTER (WHERE y)`, 6}, // FILTER (WHERE ...)
-		{`X'ff'`, 1},                 // 二进制字面量(紧邻 Ident X + String)
-		{`UNNEST(a)`, 1},             // UNNEST 表函数
-		{`TABLESAMPLE(t)`, 1},        // TABLESAMPLE 表函数
-		{`CAST(x AS FOO)`, 11},       // 清单外类型名
-		{`a RLIKE b`, 3},             // RLIKE 不在 M1 谓词面
-		{`a -> b`, 4},                // -> 非 Calcite 标准算子(- 后遇 > 报错)
-		{`ROLLUP (a)`, 1},            // ROLLUP 保留字,表达式语境即拒(fix round 2)
-		{`rollup(a)`, 1},             // 同上,小写同拒
-		{`LATERAL (a)`, 1},           // LATERAL 保留字(决策 5),表达式语境即拒
-		{`GROUPING SETS (a)`, 10},    // 两词形式:GROUPING 成标识符后 SETS 为残片
-		{`1 2`, 3},                   // 表达式后残片
-		{`a b`, 3},                   // 同上
-		{``, 1},                      // 空输入
-		{`ROWS 1`, 6},                // 窗口帧语法裸露在表达式外(ROWS 仅是普通词)
+		// X'..' 已在 T11 按 jar 实测翻转为接受(见 TestPrefixedStringLiterals)。
+		{`UNNEST(a)`, 1},          // UNNEST 表函数
+		{`TABLESAMPLE(t)`, 1},     // TABLESAMPLE 表函数
+		{`CAST(x AS FOO)`, 11},    // 清单外类型名
+		{`a RLIKE b`, 3},          // RLIKE 不在 M1 谓词面
+		{`a -> b`, 4},             // -> 非 Calcite 标准算子(- 后遇 > 报错)
+		{`ROLLUP (a)`, 1},         // ROLLUP 保留字,表达式语境即拒(fix round 2)
+		{`rollup(a)`, 1},          // 同上,小写同拒
+		{`LATERAL (a)`, 1},        // LATERAL 保留字(决策 5),表达式语境即拒
+		{`GROUPING SETS (a)`, 10}, // 两词形式:GROUPING 成标识符后 SETS 为残片
+		{`1 2`, 3},                // 表达式后残片
+		{`a b`, 3},                // 同上
+		{``, 1},                   // 空输入
+		{`ROWS 1`, 6},             // 窗口帧语法裸露在表达式外(ROWS 仅是普通词)
 	}
 	for _, tc := range tests {
 		wantExprError(t, "postgresql", tc.src, tc.col)
@@ -773,5 +773,66 @@ func TestLexErrorViaParseExpr(t *testing.T) {
 	var me *maskerr.Error
 	if !errors.As(err, &me) || me.Code != maskerr.ParseError || !strings.Contains(err.Error(), "Lexical error") {
 		t.Fatalf("ParseExpr with lexical error: got %v", err)
+	}
+}
+
+// TestPrefixedStringLiterals T11 jar 实测对齐:N'…'/X'…'/U&'…'/_charset'…'
+// 在 Java 均为单 token 且解析接受(X'…' 内容限十六进制位,x” 亦接受);
+// Go 词法层产单 String token,Literal.Text 含前缀与引号原文(M3 unparse
+// 需要原文重写前缀)。
+func TestPrefixedStringLiterals(t *testing.T) {
+	cases := map[string]string{
+		`N'x'`:          "N'x'",
+		`n'x'`:          "n'x'",
+		`x'ff'`:         "x'ff'",
+		`x''`:           "x''",
+		`X'AbCdEf01'`:   "X'AbCdEf01'",
+		`U&'x'`:         "U&'x'",
+		`_latin1'x'`:    "_latin1'x'",
+		`_ISO_8859_1''`: "_ISO_8859_1''",
+	}
+	for src, text := range cases {
+		got, err := newTestParser(t, "postgresql").ParseExprStr(src)
+		if err != nil {
+			t.Fatalf("ParseExprStr(%q): %v", src, err)
+		}
+		lit, ok := got.(*ast.Literal)
+		if !ok || lit.Kind != ast.String || lit.Text != text {
+			t.Fatalf("ParseExprStr(%q) = %#v, want String literal %q", src, got, text)
+		}
+	}
+	// 十六进制外内容:jar 实测解析期拒绝(Binary literal…),Go 词法层校验,
+	// 错误码同为 PARSE_ERROR(阶段可异,契约按码)。
+	if _, err := newTestParser(t, "postgresql").ParseExprStr(`x'zz'`); err == nil {
+		t.Fatal("x'zz' should be rejected")
+	}
+}
+
+// TestNullSafeEqAndBitwiseOps T11 jar 实测:<=> 五方言解析接受(NullSafeEq,
+// 比较档);& ^ ~ 二元形态五方言解析接受(一元 ~ 与 | 拒绝,未收)。层级
+// 归加法档,树形为内部表示(控制者裁定),断言只验接受与 Op 种别。
+func TestNullSafeEqAndBitwiseOps(t *testing.T) {
+	for _, d := range []string{"postgresql", "trino", "mysql", "hive", "sparksql"} {
+		for _, src := range []string{`1 <=> 2`, `1 & 2`, `1 ^ 2`, `1 ~ 2`} {
+			got, err := newTestParser(t, d).ParseExprStr(src)
+			if err != nil {
+				t.Fatalf("[%s] ParseExprStr(%q): %v", d, src, err)
+			}
+			bin, ok := got.(*ast.Binary)
+			if !ok {
+				t.Fatalf("[%s] %q = %T, want *ast.Binary", d, src, got)
+			}
+			wantOp := map[string]ast.BinaryOp{
+				`1 <=> 2`: ast.NullSafeEq, `1 & 2`: ast.BitAnd,
+				`1 ^ 2`: ast.BitXor, `1 ~ 2`: ast.Tilde,
+			}[src]
+			if bin.Op != wantOp {
+				t.Fatalf("[%s] %q op = %v, want %v", d, src, bin.Op, wantOp)
+			}
+		}
+		// 一元 ~ 与 | 仍拒绝(jar 实测)。
+		if _, err := newTestParser(t, d).ParseExprStr(`~1`); err == nil {
+			t.Fatalf("[%s] unary ~1 should be rejected", d)
+		}
 	}
 }

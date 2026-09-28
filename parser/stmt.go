@@ -603,14 +603,16 @@ func (p *Parser) unsupportedFirstWordKind(tok lexer.Token) (string, bool) {
 	return kind, true
 }
 
-// firstWordTailShape 首词后的轻量形状护栏:过滤 jar 实测(Probe3/Probe4,
-// 五方言一致)为 FAIL 的残片形态,使其回到 PARSE_ERROR 分路——
+// firstWordTailShape 首词后的轻量形状护栏:过滤 jar 实测(Probe3/Probe4 与
+// T11 补测,五方言一致)为 FAIL 的残片形态,使其回到 PARSE_ERROR 分路——
 //
 //	DELETE 后必须随 FROM;MERGE 后必须随 INTO;CALL 的名字后必须有括号
-//	(或点段的下一段);SHOW/DISCARD 后必须随标识符形态项;SET 后不得为
-//	TRANSACTION(SET TRANSACTION 为保留字,`SET x[TO|=]..`/长形态放行);
-//	其余(UPDATE/TABLE)后必须随非保留标识符。护栏未覆盖的残片(如
-//	`COMMIT x`)会落到 UNSUPPORTED 分路,残余窗口记 task-9 报告。
+//	(或点段的下一段);SHOW 后必须随标识符形态项;DISCARD 仅接受 ALL
+//	(T11 jar 实测 `DISCARD x` → PARSE_ERROR、`DISCARD ALL` → UNSUPPORTED);
+//	SET 后不得为 TRANSACTION(SET TRANSACTION 为保留字,`SET x[TO|=]..`/
+//	长形态放行);BEGIN/COMMIT/ROLLBACK 仅接受裸形态或随 WORK(T11 jar 实测
+//	`COMMIT x`/`BEGIN FOO` → PARSE_ERROR,裸词与 WORK 形态 → UNSUPPORTED);
+//	其余(UPDATE/TABLE)后必须随非保留标识符。
 func (p *Parser) firstWordTailShape(word string) bool {
 	switch word {
 	case "DELETE":
@@ -630,16 +632,43 @@ func (p *Parser) firstWordTailShape(word string) bool {
 		// (jar 实测 kind=EXPLAIN)均解析成功;字符串字面量形态 jar 实测 FAIL。
 		return p.peekAliasable() || p.peekKw("SELECT") || p.peekKw("WITH") ||
 			p.peekKw("VALUES") || (p.peekTok().Kind == lexer.Op && p.peekTok().Text == "(")
-	case "SHOW", "DISCARD":
-		// 裸形态 jar 实测 FAIL,必须随标识符形态项(SHOW t / DISCARD ALL)。
+	case "SHOW":
+		// 裸形态 jar 实测 FAIL,必须随标识符形态项(SHOW t)。
 		return p.peekAliasable()
+	case "DISCARD":
+		// T11 jar 实测:DISCARD ALL 良构、DISCARD x 为 PARSE_ERROR——仅 ALL。
+		return p.peekKw("ALL") && p.tailAtStatementEnd(1)
 	case "BEGIN", "COMMIT", "ROLLBACK":
-		// 裸形态即良构(jar 实测 BEGIN/BEGIN WORK/COMMIT/COMMIT WORK/
-		// ROLLBACK/ROLLBACK WORK 均 OK),不做尾部护栏。
-		return true
+		// T11 jar 实测:裸形态与 WORK/TRANSACTION 形态良构(BEGIN
+		// TRANSACTION jar 实测 UNSUPPORTED);其余残片(COMMIT x/BEGIN FOO)
+		// 为 PARSE_ERROR。
+		if p.tailAtStatementEnd(0) {
+			return true
+		}
+		return p.peekWorkTransKw() && p.tailAtStatementEnd(1)
 	default: // UPDATE / TABLE:后必须随非保留标识符
 		return p.peekAliasable()
 	}
+}
+
+// tailAtStatementEnd 报告跳过 n 个 token 后是否到达语句末尾(EOF 或顶层分号;
+// 本拆分器已在顶层分号处切开,语句内不会再有分号,EOF 即可)。
+func (p *Parser) tailAtStatementEnd(n int) bool {
+	idx := p.cur + 1 + n
+	if idx >= len(p.toks) {
+		idx = len(p.toks) - 1
+	}
+	return p.toks[idx].Kind == lexer.EOF
+}
+
+// peekWorkTransKw 报告当前 token 是否为未引号的 WORK 或 TRANSACTION
+// (BEGIN/COMMIT/ROLLBACK 的合法伴随词,jar 实测)。
+func (p *Parser) peekWorkTransKw() bool {
+	t := p.peekTok()
+	if t.Kind != lexer.Ident {
+		return false
+	}
+	return strings.EqualFold(t.Text, "WORK") || strings.EqualFold(t.Text, "TRANSACTION")
 }
 
 // ---------------------------------------------------------------------------

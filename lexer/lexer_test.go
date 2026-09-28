@@ -314,8 +314,8 @@ func TestOperatorsAndParams(t *testing.T) {
 	kinds(t, toks, Param, Ident, EOF)
 
 	// 白名单外字符 → 词法错。已知口径(Ruling 8):Java 为合法 token、
-	// 解析期报 PARSE_ERROR,错误码一致,消息与位置不同。
-	mustLexErr(t, pg, "~", 1, 1)
+	// 解析期报 PARSE_ERROR,错误码一致,消息与位置不同。(~ & ^ 已于 T11
+	// jar 实测后收进 opTable,不再在此列。)
 	mustLexErr(t, pg, ":", 1, 1)
 	mustLexErr(t, pg, "!", 1, 1)
 	mustLexErr(t, pg, "|", 1, 1)
@@ -409,8 +409,9 @@ func TestPositions(t *testing.T) {
 	}
 }
 
-// (h) tokens.json 每个 operator 做 round-trip;且 opTable 与 tokens.json
-// 的 operators 完全一致(双向),防止两者漂移。
+// (h) tokens.json 每个 operator 做 round-trip;opTable 必须是 tokens.json
+// operators 的超集(tokens.json 是简报白名单快照,T11 jar 实测追加的
+// <=> & ^ ~ 只在 opTable;子集关系防白名单漂移)。
 func TestOperatorRoundTrip(t *testing.T) {
 	pg := mustProfile(t, "postgresql")
 	vocab := loadVocab(t)
@@ -438,8 +439,24 @@ func TestOperatorRoundTrip(t *testing.T) {
 		}
 	}
 
-	if !reflect.DeepEqual(opTable, vocab.Operators) {
-		t.Fatalf("lexer opTable %v != tokens.json operators %v", opTable, vocab.Operators)
+	inJSON := make(map[string]bool, len(vocab.Operators))
+	for _, op := range vocab.Operators {
+		inJSON[op] = true
+	}
+	for _, op := range opTable {
+		if !inJSON[op] {
+			continue // T11 jar 实测扩展项(<=> & ^ ~),不在白名单快照内
+		}
+	}
+	// 超集断言:白名单每一项都必须仍在 opTable(防机械表回退)。
+	opSet := make(map[string]bool, len(opTable))
+	for _, op := range opTable {
+		opSet[op] = true
+	}
+	for _, op := range vocab.Operators {
+		if !opSet[op] {
+			t.Fatalf("tokens.json operator %q missing from lexer opTable %v", op, opTable)
+		}
 	}
 }
 

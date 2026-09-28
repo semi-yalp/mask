@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"io.sqlmask/go/ast"
+	"io.sqlmask/go/dialect"
 	"io.sqlmask/go/lexer"
 )
 
@@ -384,6 +385,22 @@ func (p *Parser) parseOrderAndTail(q ast.Query, topFetch ast.Expr, setOpSeen boo
 				return nil, err
 			}
 		}
+		// LIMIT start, count(T11 jar 实测:conformance 门控——pg/trino 拒绝
+		// 'LIMIT start, count' is not allowed...,MySQL5/Lenient 接受;逗号
+		// 形态后可随 OFFSET 实测接受)。AST 归一为 Limit=count,Offset=start。
+		if p.atOp(",") {
+			comma := p.advance()
+			if p.profile.Conformance == dialect.Default {
+				return nil, p.errAt(comma.Pos, "'LIMIT start, count' is not allowed under the current SQL conformance level")
+			}
+			start := limit
+			var count ast.Expr
+			var err error
+			if count, err = p.parseTailValue(); err != nil {
+				return nil, err
+			}
+			limit, offset = count, start
+		}
 		if p.atKw("OFFSET") {
 			p.advance()
 			var err error
@@ -404,6 +421,20 @@ func (p *Parser) parseOrderAndTail(q ast.Query, topFetch ast.Expr, setOpSeen boo
 			return nil, err
 		}
 		p.skipRowOrRows()
+		// OFFSET n [ROW|ROWS] LIMIT m(T11 jar 实测:仅 Lenient 档接受,
+		// pg/MySQL5 拒绝 'OFFSET start LIMIT count' is not allowed...;Lenient
+		// 下 ROWS 计量词亦接受)。AST 归一为 Limit=m,Offset=n。
+		if p.atKw("LIMIT") {
+			lt := p.advance()
+			if p.profile.Conformance != dialect.Lenient {
+				return nil, p.errAt(lt.Pos, "'OFFSET start LIMIT count' is not allowed under the current SQL conformance level")
+			}
+			var count ast.Expr
+			if count, err = p.parseTailValue(); err != nil {
+				return nil, err
+			}
+			limit = count
+		}
 		if p.atKw("FETCH") {
 			p.advance()
 			if fetch, err = p.parseFetchOnly(); err != nil {
@@ -581,7 +612,9 @@ func (p *Parser) parseSelectItem() (ast.SelectItem, error) {
 		if p.atOp(".") && p.peekTok().Kind == lexer.Op && p.peekTok().Text == "*" {
 			p.advance() // .
 			p.advance() // *
-			return ast.SelectItem{StarQualifier: id.Parts}, nil
+			// 编码约定(ast.SelectItem 文档):星项 Star 恒 true,限定段落
+			// StarQualifier;表达式项 Star=false 且 StarQualifier 必空。
+			return ast.SelectItem{Star: true, StarQualifier: id.Parts}, nil
 		}
 		p.cur = save // 非星形态:回退,按普通表达式重解析
 	}
@@ -792,9 +825,9 @@ func (p *Parser) parseTableRefPrimary() (ast.TableRef, error) {
 	}
 }
 
-// parseTableIdentifier 解析表名多段标识符(1–4 段,简报 TableName 段数上限;
-// 超 4 段报 PARSE_ERROR——jar 实测 Java 解析接受更长段名、语料零命中,差异记
-// T11 watchlist)。每段为单段 Identifier(Pos 取该段 token,折算同 parseIdentifier)。
+// parseTableIdentifier 解析表名多段标识符(段数无上限;T11 jar 实测 5 段
+// a.b.c.d.e 解析接受——复合标识符在解析期不限段数,语义校验属 M2)。每段为
+// 单段 Identifier(Pos 取该段 token,折算同 parseIdentifier)。
 func (p *Parser) parseTableIdentifier() ([]ast.Identifier, error) {
 	var parts []ast.Identifier
 	for {
@@ -807,9 +840,6 @@ func (p *Parser) parseTableIdentifier() ([]ast.Identifier, error) {
 		}
 		p.advance()
 		parts = append(parts, p.simpleIdentFrom(tok))
-		if len(parts) > 4 {
-			return nil, p.errAt(tok.Pos, "table name may have at most 4 parts, found %s %q", tok.Kind, tok.Text)
-		}
 		if !p.atOp(".") {
 			return parts, nil
 		}

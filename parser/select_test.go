@@ -122,12 +122,12 @@ func TestSelectItems(t *testing.T) {
 		}},
 		// 简报:`SELECT t.* FROM t`(StarQualifier=["t"])
 		{`SELECT t.* FROM t`, &ast.Select{
-			Items: []ast.SelectItem{{StarQualifier: []ast.IdentPart{{Value: "t"}}}},
+			Items: []ast.SelectItem{{Star: true, StarQualifier: []ast.IdentPart{{Value: "t"}}}},
 			From:  []ast.TableRef{tn1("t")},
 		}},
 		// 引号段星限定符:值折算按 QuotedCasing(pg 恒 UNCHANGED),Quoted 保真
 		{`SELECT "T".* FROM "T"`, &ast.Select{
-			Items: []ast.SelectItem{{StarQualifier: []ast.IdentPart{{Value: "T", Quoted: true}}}},
+			Items: []ast.SelectItem{{Star: true, StarQualifier: []ast.IdentPart{{Value: "T", Quoted: true}}}},
 			From: []ast.TableRef{&ast.TableNameRef{Parts: []ast.Identifier{
 				{Parts: []ast.IdentPart{{Value: "T", Quoted: true}}}}}},
 		}},
@@ -657,8 +657,8 @@ func TestSelectRejections(t *testing.T) {
 		// SELECT 后必须有选择项(子句关键字不能起项)
 		{`SELECT FROM t`, 8},
 		{`SELECT DISTINCT`, 0},
-		// 表名段数上限(简报 TableName 1–4 段;第 5 段报错)
-		{`SELECT 1 FROM a.b.c.d.e`, 23},
+		// 表名段数上限已在 T11 移除(jar 实测 5 段 a.b.c.d.e 解析接受,
+		// 见 TestTableIdentifierManyParts)。
 		// JOIN 条件缺失 / CROSS、NATURAL 带条件(简报文法;jar 实测 Java 解析
 		// 接受这三种形态,Go 拒绝——差异记 T11 watchlist,语料零命中)
 		{`SELECT 1 FROM t JOIN u`, 0},
@@ -721,5 +721,125 @@ func TestQueryLexErrorPassthrough(t *testing.T) {
 	}
 	if !strings.Contains(me.Message, "Lexical error") {
 		t.Fatalf("message %q does not contain Lexical error", me.Message)
+	}
+}
+
+// TestTableIdentifierManyParts T11 jar 实测:5 段表名解析接受(VALIDATION
+// 才失败),段数上限移除;多段星限定符 s.t.*(T7 挂账补测)。
+func TestTableIdentifierManyParts(t *testing.T) {
+	got, err := newTestParser(t, "postgresql").ParseQueryStr(`SELECT 1 FROM a.b.c.d.e`)
+	if err != nil {
+		t.Fatalf("5-part name: %v", err)
+	}
+	sel := got.(*ast.Select)
+	ref := sel.From[0].(*ast.TableNameRef)
+	if len(ref.Parts) != 5 {
+		t.Fatalf("parts = %d, want 5", len(ref.Parts))
+	}
+
+	got2, err := newTestParser(t, "postgresql").ParseQueryStr(`SELECT s.t.* FROM s.t`)
+	if err != nil {
+		t.Fatalf("s.t.*: %v", err)
+	}
+	item := got2.(*ast.Select).Items[0]
+	if !item.Star || len(item.StarQualifier) != 2 || item.StarQualifier[0].Value != "s" {
+		t.Fatalf("s.t.* item = %#v", item)
+	}
+}
+
+// TestOffsetLimitAndCommaLimit T11 jar 实测:OFFSET n [ROW|ROWS] LIMIT m 仅
+// Lenient 档(hive/sparksql)接受;LIMIT start, count 在 MySQL5/Lenient 接受
+// (pg/trino 拒绝);逗号形态可随 OFFSET(mysql 实测)。AST 归一:Limit=count,
+// Offset=start。
+func TestOffsetLimitAndCommaLimit(t *testing.T) {
+	accept := map[string][]string{
+		`SELECT 1 OFFSET 1 LIMIT 2`:      {"hive", "sparksql"},
+		`SELECT 1 OFFSET 1 ROWS LIMIT 2`: {"hive", "sparksql"},
+		`SELECT 1 LIMIT 1, 2`:            {"mysql", "hive", "sparksql"},
+		`SELECT 1 LIMIT 1, 2 OFFSET 3`:   {"mysql", "hive", "sparksql"},
+	}
+	for src, ds := range accept {
+		for _, d := range ds {
+			if _, err := newTestParser(t, d).ParseQueryStr(src); err != nil {
+				t.Fatalf("[%s] %q: %v", d, src, err)
+			}
+		}
+	}
+	reject := map[string][]string{
+		`SELECT 1 OFFSET 1 LIMIT 2`: {"postgresql", "trino", "mysql"},
+		`SELECT 1 LIMIT 1, 2`:       {"postgresql", "trino"},
+	}
+	for src, ds := range reject {
+		for _, d := range ds {
+			if _, err := newTestParser(t, d).ParseQueryStr(src); err == nil {
+				t.Fatalf("[%s] %q should be rejected", d, src)
+			}
+		}
+	}
+	// 归一断言:mysql LIMIT 1, 2 → Limit=2, Offset=1。
+	got, err := newTestParser(t, "mysql").ParseQueryStr(`SELECT 1 LIMIT 1, 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ob := got.(*ast.OrderBy)
+	if lit(ob.Limit) != "2" || lit(ob.Offset) != "1" {
+		t.Fatalf("LIMIT 1,2 => limit=%v offset=%v", ob.Limit, ob.Offset)
+	}
+}
+
+func lit(e ast.Expr) string {
+	if l, ok := e.(*ast.Literal); ok {
+		return l.Text
+	}
+	return "?"
+}
+
+// TestFirstWordShards T11 jar 实测:COMMIT x / BEGIN FOO / DISCARD x 为
+// PARSE_ERROR(残片);裸词与 WORK/TRANSACTION/ALL 形态为 UNSUPPORTED_STATEMENT
+// (classify 阶段语义)。
+func TestFirstWordShards(t *testing.T) {
+	for _, src := range []string{`COMMIT x`, `BEGIN FOO`, `DISCARD x`, `DISCARD ALL x`} {
+		_, err := newTestParser(t, "postgresql").ParseStmtStr(src)
+		var me *maskerr.Error
+		if !errors.As(err, &me) || me.Code != maskerr.ParseError {
+			t.Fatalf("%q: got %v, want PARSE_ERROR", src, err)
+		}
+	}
+	for _, src := range []string{`COMMIT`, `COMMIT WORK`, `BEGIN TRANSACTION`, `ROLLBACK`, `DISCARD ALL`, `SHOW x`} {
+		_, err := newTestParser(t, "postgresql").ParseStmtStr(src)
+		var me *maskerr.Error
+		if !errors.As(err, &me) || me.Code != maskerr.UnsupportedStatement {
+			t.Fatalf("%q: got %v, want UNSUPPORTED_STATEMENT", src, err)
+		}
+	}
+}
+
+// TestGroupByEmptyParen T11 jar 实测:GROUP BY () 在 pg/mysql 均为
+// PARSE_ERROR(fork 不接受空分组集),Go 拒绝且不引入 GroupingSet 节点。
+func TestGroupByEmptyParen(t *testing.T) {
+	for _, d := range []string{"postgresql", "mysql"} {
+		if _, err := newTestParser(t, d).ParseQueryStr(`SELECT 1 GROUP BY ()`); err == nil {
+			t.Fatalf("[%s] GROUP BY () should be rejected", d)
+		}
+	}
+}
+
+// TestOrderByThenSetOpFragment T8 挂账补测:statement 级 ORDER BY 归约给左侧
+// 查询后,UNION 成残片被拒。TestLimitOffsetNumeric T8 挂账补测:LIMIT 5
+// OFFSET 3 数值形态。
+func TestOrderByThenSetOpFragment(t *testing.T) {
+	if _, err := newTestParser(t, "postgresql").ParseQueryStr(`SELECT 1 ORDER BY 1 UNION SELECT 2`); err == nil {
+		t.Fatal("ORDER BY then UNION fragment should be rejected")
+	}
+}
+
+func TestLimitOffsetNumeric(t *testing.T) {
+	got, err := newTestParser(t, "postgresql").ParseQueryStr(`SELECT 1 LIMIT 5 OFFSET 3`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ob := got.(*ast.OrderBy)
+	if lit(ob.Limit) != "5" || lit(ob.Offset) != "3" {
+		t.Fatalf("limit=%v offset=%v", ob.Limit, ob.Offset)
 	}
 }

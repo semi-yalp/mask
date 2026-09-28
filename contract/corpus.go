@@ -49,6 +49,28 @@ func corpusFiles() []string {
 		files = append(files, "mask-engine/tpcds/queries/"+n)
 	}
 	files = append(files, "mask-engine/src/test/resources/golden/write-statements.sql")
+	// T11:Go 侧 parse-reject 语料(Java postgresql 解析期拒绝形态集合),
+	// 守护契约的 parse 判定面(T12 起该目录扩展方言差异语料)。
+	files = append(files, extraCorpusFiles()...)
+	return files
+}
+
+// extraCorpusFiles 列出 testdata/extra/ 下已提交的语料文件(不存在则跳过,
+// 便于语料增量演进)。文件名映射沿用 dialectForFile。
+func extraCorpusFiles() []string {
+	root := repotool.Root()
+	dir := filepath.Join(root, "testdata", "extra")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".sql") {
+			files = append(files, "testdata/extra/"+e.Name())
+		}
+	}
+	sort.Strings(files)
 	return files
 }
 

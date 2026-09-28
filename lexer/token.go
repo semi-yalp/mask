@@ -14,13 +14,16 @@
 // 运算符匹配表 opTable 为程序内常量,内容与 tokens.json 逐项一致
 // (由测试双向锁定),lexer 不在运行时读文件。
 //
-// 已知口径(差分 watchlist,fix round 1 裁定 Ruling 3/4/5/6/8/11/13):
-// 未闭合字符串、引号标识符内裸换行、BackTick 方言下的双引号、白名单外
-// 字符(~ : ! | 等)在本词法器报词法错,而 Java 版词法层放行、由解析器
-// 报 PARSE_ERROR —— 对外错误码一致,消息与位置可能不同,差分按错误码
-// 比对;N'…'、x'…'、U&'…'、_charset'…'、[方括号标识符] 等 Java 单 token
-// 构造在此拆分为 Ident+String;散落注释外的 */ 为 Op(*)+Op(/)(Java 为
-// COMMENT_END token)。以上均列入 watchlist,差分出现时按本口径归因。
+// 已知口径(差分 watchlist,fix round 1 裁定 Ruling 3/4/5/6/8/11/13,其
+// 前缀串一项已被 T11 jar 实测推翻并对齐):未闭合字符串、引号标识符内
+// 裸换行、BackTick 方言下的双引号、白名单外字符(: ! | { } [ ] -> .. 等)
+// 在本词法器报词法错,而 Java 版词法层放行、由解析器报 PARSE_ERROR ——
+// 对外错误码一致,消息与位置可能不同,差分按错误码比对。T11 更新:
+// N'…'/x'…'/U&'…'/_charset'…' 现按 jar 实测产单 String token(此前拆
+// Ident+String 造成接受面差异,见 lexPrefixedString);`<=>`/`&`/`^`/`~`
+// 补进 opTable(jar 实测 fork 解析接受);散落注释外的 */ 仍为
+// Op(*)+Op(/)(Java 为 COMMENT_END token)。残余口径列入 watchlist,
+// 差分出现时按本口径归因。
 package lexer
 
 import "strconv"
@@ -83,23 +86,32 @@ type Token struct {
 	Pos  Pos
 }
 
-// opTable 运算符最长匹配表,内容机械来自 testdata/tokens.json 的 operators
-// (cmd/tokenextract 从 JavaCC tokenImage 按简报白名单提取)。
-// 二字符条目优先于单字符匹配(最长匹配);? 不在此匹配 —— 由 Param 分支处理。
+// opTable 运算符最长匹配表。基础 21 项机械来自 testdata/tokens.json 的
+// operators(cmd/tokenextract 从 JavaCC tokenImage 按简报白名单提取);
+// 第二行为 T11 的 jar 实测扩展(白名单外但 fork 词法表确有、且解析接受
+// ——`SELECT 1 <=> 2` 五方言解析接受(mysql/hive/sparksql 校验亦过,
+// pg/trino 到校验期才拒);`SELECT 1 & 2`/`1 ^ 2`/`1 ~ 2` 解析接受、
+// pg/trino 校验期才拒;`|`/一元 `~1` 解析拒绝,故不收)。二/三字符条目
+// 优先于更短匹配(最长匹配,<=> 先于 <=);? 不在此匹配 —— 由 Param 分支
+// 处理。tokens.json 仍为简报白名单快照,超集关系由测试锁定。
 var opTable = []string{
 	"+", "-", "*", "/", "%", "=", "<>", "!=", "<", "<=", ">", ">=",
 	"(", ")", ",", ".", ";", "||", "::", "=>", "?",
+	"<=>", "&", "^", "~",
 }
 
-// twoOp/oneOp 为 opTable 按长度拆分的查找集(oneOp 不含 ?)。
+// threeOp/twoOp/oneOp 为 opTable 按长度拆分的查找集(oneOp 不含 ?)。
 var (
-	twoOp = make(map[string]bool)
-	oneOp = make(map[byte]bool)
+	threeOp = make(map[string]bool)
+	twoOp   = make(map[string]bool)
+	oneOp   = make(map[byte]bool)
 )
 
 func init() {
 	for _, op := range opTable {
 		switch len(op) {
+		case 3:
+			threeOp[op] = true
 		case 2:
 			twoOp[op] = true
 		case 1:

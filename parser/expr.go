@@ -94,15 +94,17 @@ func (p *Parser) parseNot() (ast.Expr, error) {
 }
 
 // comparisonOps 运算符文本 → BinaryOp(<> 与 != 同为 Ne;!= 仅在
-// Default 档 conformance 下拒绝,见 parsePred)。
+// Default 档 conformance 下拒绝,见 parsePred;T11 jar 实测 <=> 五方言解析
+// 接受,归 NullSafeEq)。
 var comparisonOps = map[string]ast.BinaryOp{
-	"=":  ast.Eq,
-	"<>": ast.Ne,
-	"!=": ast.Ne,
-	"<":  ast.Lt,
-	"<=": ast.Le,
-	">":  ast.Gt,
-	">=": ast.Ge,
+	"=":   ast.Eq,
+	"<>":  ast.Ne,
+	"!=":  ast.Ne,
+	"<=>": ast.NullSafeEq,
+	"<":   ast.Lt,
+	"<=":  ast.Le,
+	">":   ast.Gt,
+	">=":  ast.Ge,
 }
 
 // predKwAfterNot 报告 NOT 之后是否为谓词层关键字(供 NOT IN / NOT BETWEEN /
@@ -355,6 +357,15 @@ func (p *Parser) parseAdd() (ast.Expr, error) {
 			op = ast.Sub
 		case p.atOp("||"):
 			op = ast.Concat
+		// T11 jar 实测:& ^ ~ 二元形态五方言解析接受(一元 ~ 与 | 解析
+		// 拒绝,故不收);层级归入加法档(M1 只求接受边界一致,树形为
+		// 内部表示,控制者裁定)。
+		case p.atOp("&"):
+			op = ast.BitAnd
+		case p.atOp("^"):
+			op = ast.BitXor
+		case p.atOp("~"):
+			op = ast.Tilde
 		default:
 			return left, nil
 		}
