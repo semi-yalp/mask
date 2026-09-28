@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"io.sqlmask/go/internal/repotool"
@@ -179,13 +180,15 @@ func TestCorpusKeysAndDialects(t *testing.T) {
 		if Key(c) != want {
 			t.Fatalf("Key(%+v) = %q, want %q", c, Key(c), want)
 		}
-		// 当前 13 个语料文件名均不含 mysql/trino,按映射规则应全为 postgresql;
-		// 若未来加入含这些子串的文件,规则本身由 dialectForFile 单测护栏。
-		if c.Dialect != "postgresql" {
+		// mask-engine 语料按 T10 规则:文件名不含 mysql/trino → postgresql。
+		// testdata/extra(T12)按文件名映射 hive/sparksql 等,由下方
+		// dialectForFile 护栏覆盖,这里只校验非空。
+		if !strings.HasPrefix(c.File, "testdata/extra/") && c.Dialect != "postgresql" {
 			t.Errorf("%s: dialect = %q, want postgresql (filename lacks mysql/trino)", c.File, c.Dialect)
 		}
 	}
-	// 方言映射规则护栏:含 mysql→mysql、含 trino→trino、其余→postgresql。
+	// 方言映射规则护栏:含 mysql→mysql、含 trino→trino、含 sparksql→sparksql、
+	// 含 hive→hive(T12)、其余→postgresql。
 	for base, want := range map[string]string{
 		"tpcds-mysql-crlf.sql":            "mysql",
 		"tpcds_mysql_oneline.sql":         "mysql",
@@ -194,6 +197,9 @@ func TestCorpusKeysAndDialects(t *testing.T) {
 		"tpcds_common_cases.sql":          "postgresql",
 		"write-statements.sql":            "postgresql",
 		"tpcds-mysql-and-trino-mixed.sql": "mysql", // mysql 优先
+		"hive.sql":                        "hive",
+		"sparksql.sql":                    "sparksql",
+		"parse-rejects.sql":               "postgresql",
 	} {
 		if got := dialectForFile(base); got != want {
 			t.Errorf("dialectForFile(%q) = %q, want %q", base, got, want)

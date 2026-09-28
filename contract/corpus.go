@@ -75,7 +75,8 @@ func extraCorpusFiles() []string {
 }
 
 // dialectForFile 按文件名映射目标方言:含 mysql→mysql、含 trino→trino、
-// 其余→postgresql。
+// 含 hive→hive、含 sparksql→sparksql(T12 testdata/extra 语料)、其余→
+// postgresql。
 func dialectForFile(base string) string {
 	l := strings.ToLower(base)
 	switch {
@@ -83,6 +84,10 @@ func dialectForFile(base string) string {
 		return "mysql"
 	case strings.Contains(l, "trino"):
 		return "trino"
+	case strings.Contains(l, "sparksql"):
+		return "sparksql"
+	case strings.Contains(l, "hive"):
+		return "hive"
 	default:
 		return "postgresql"
 	}
