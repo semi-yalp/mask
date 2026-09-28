@@ -515,6 +515,12 @@ var clauseStartKw = map[string]bool{
 // jar 实测可作别名(故不在集合):all/between/is/like/ilike/similar/end/else/
 // exists/true/false 与决策 4 最小非保留集 top/overwrite/year/month/day/hour/
 // minute/second。
+//
+// fix round 1(Task 9)补测增补:UPDATE/DELETE/MERGE/TABLE/SET/DESCRIBE/CALL
+// 七词经 jar 实测(Probe5/Probe6)为 fork 保留 token——别名(SELECT 1 update)、
+// CTE 名(WITH update AS ..)、INSERT 列名((update))全部 FAIL,而 BEGIN/
+// COMMIT/ROLLBACK/SHOW/DISCARD 经同法实测可作别名(LOOKAHEAD 触发的 postgres
+// 语句,词本身非保留)故不入集。该集合同时服务语句首词护栏(firstWordTailShape)。
 var aliasStopKw = map[string]bool{
 	"SELECT": true, "FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
 	"WINDOW": true, "ORDER": true, "LIMIT": true, "OFFSET": true, "FETCH": true,
@@ -524,6 +530,8 @@ var aliasStopKw = map[string]bool{
 	"OUTER": true, "CROSS": true, "NATURAL": true, "ON": true, "USING": true,
 	"AND": true, "OR": true, "NOT": true, "IN": true,
 	"WHEN": true, "THEN": true, "CASE": true, "NULL": true,
+	"UPDATE": true, "DELETE": true, "MERGE": true, "TABLE": true,
+	"SET": true, "DESCRIBE": true, "CALL": true,
 }
 
 // aliasable 判定当前 token 可否作隐式别名(未引号且不在停用词集合)。

@@ -207,13 +207,18 @@ func (k CreateTableVariant) String() string {
 	return "CreateTableVariant(" + strconv.Itoa(int(k)) + ")"
 }
 
-// CreateTable 建表变体语句;Columns 为可选列名清单,Query 为来源查询(CTAS)。
+// CreateTable 建表变体语句;Columns 为可选列名清单(类型不落 AST,M3 从
+// unparse 重组),Query 为来源查询(CTAS)。IfNotExists 对应 CREATE TABLE
+// IF NOT EXISTS——Task 5 简报 Interfaces 未列,fix round 1(Task 9)控制者
+// 裁定新增:M3 compose 重组需要该标记,与 Java SqlCreateTable.ifNotExists
+// 对齐;解析层记录,Classify 不消费。
 type CreateTable struct {
-	Pos     lexer.Pos
-	Variant CreateTableVariant
-	Name    TableNameRef
-	Columns []Identifier
-	Query   Query
+	Pos         lexer.Pos
+	Variant     CreateTableVariant
+	IfNotExists bool
+	Name        TableNameRef
+	Columns     []Identifier
+	Query       Query
 }
 
 // ---------------------------------------------------------------------------

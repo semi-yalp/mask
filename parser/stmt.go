@@ -6,6 +6,7 @@ import (
 	"io.sqlmask/go/ast"
 	"io.sqlmask/go/dialect"
 	"io.sqlmask/go/lexer"
+	"io.sqlmask/go/maskerr"
 )
 
 // 本文件实现语句层(Task 9):ParseStatement 完整入口与 WITH/VALUES/INSERT/
@@ -46,18 +47,24 @@ import (
 //     表名本身为未引号 DIRECTORY 且后随字符串字面量时,按 fork 检查点与
 //     原文案拒绝(简报决策 10)。
 //   - CREATE [OR REPLACE] [MULTISET|SET] [VOLATILE] TABLE [IF NOT EXISTS]
-//     name [(col,..)] [AS query]:变体词按 fork 产生式位置解析(jar 实测:
-//     MULTISET/SET 先于 VOLATILE、REPLACE 必须经 OR 且在 TABLE 前),折算进
-//     单个 Variant 字段(叠加形态按 REPLACE>MULTISET>SET>VOLATILE 记录,
-//     Classify 对非 Plain 一律拒绝,取舍仅影响报错文案);IF NOT EXISTS 解析
-//     接受但 AST 无字段承载(记 watchlist);列清单为名称形态(Go AST 无
-//     类型位,fork 实测要求带类型,接受/拒绝边界差异记契约);缺 AS 时
-//     Query=nil(纯建表),交由 engine.Classify 拒。
-//   - 认识但未实现的语句首词(UPDATE/DELETE/MERGE/GRANT 等,JavaCC keywords
-//     表内)→ PARSE_ERROR(message 含首词与位置,简报决策):Go 一律报
-//     PARSE_ERROR;jar 实测其中 UPDATE/DELETE/MERGE/SET OPTION/DESCRIBE/
-//     CALL 等能解析到 classify 报 UNSUPPORTED_STATEMENT,错误码差异由 T11
-//     契约差分记录;GRANT/EXPLAIN 等 fork 文法即拒,两侧码一致。
+//     name [(col 类型 [NOT NULL] {, ...})] [AS query]:变体词按 fork 产生式
+//     位置解析(jar 实测:MULTISET/SET 先于 VOLATILE、REPLACE 必须经 OR 且在
+//     TABLE 前),折算进单个 Variant 字段(叠加形态按 REPLACE>VOLATILE>
+//     MULTISET>SET 记录——VOLATILE 必须压过 SET,使 compose 变体钩子的裁定
+//     与 Java 逐字一致);IF NOT EXISTS 解析记录进 ast.CreateTable.IfNotExists
+//     (fix round 1);列清单镜像 fork ColumnWithType:**列必须带类型**——名称
+//     解析进 ast.Columns,类型以深度感知跳读消费后丢弃(M3 从 unparse 重组;
+//     仅列名无类型 → PARSE_ERROR,jar 实测 `(a, b)` 报于逗号位、`(a)` 报于
+//     闭括号位);缺 AS 时 Query=nil(纯建表),交由 engine.Classify 拒。
+//   - 认识但未实现的语句首词,按 jar 实测分两路(fix round 1 控制者裁定):
+//     Java 能解析、由 classify 抛 UNSUPPORTED_STATEMENT 的首词(UPDATE/
+//     DELETE/MERGE/TABLE/SET/DESCRIBE/CALL + postgres 组 BEGIN/COMMIT/
+//     ROLLBACK/SHOW/DISCARD,kind 名逐字)→ UNSUPPORTED_STATEMENT(message
+//     镜像 classify 格式,ordinal 固定 0,契约只比 stage+code);Java 文法
+//     即拒的首词(GRANT/EXPLAIN/ALTER/TRUNCATE 等)→ PARSE_ERROR。两路各带
+//     轻量形状护栏过滤 jar 实测为 FAIL 的残片形态(如 `DELETE t`、`SET` 裸、
+//     `SET TRANSACTION`、`CALL proc` 缺括号),护栏未命中的走不认识/PARSE_ERROR
+//     分路;残余窗口记 task-9 报告。
 
 // ParseStatement 顶层语句入口:分发查询/INSERT/CREATE,认识但不实现的语句
 // 首词与不认识的 token 一律 PARSE_ERROR;语句后必须到输入末尾。
@@ -96,8 +103,15 @@ func (p *Parser) ParseStatement() (ast.Statement, error) {
 	case p.atKw("CREATE"):
 		stmt, err = p.parseCreate()
 	default:
-		// 认识但未实现的语句首词(简报决策:PARSE_ERROR,message 含首词与
-		// 位置);引号标识符永不匹配关键字(决策 3),走不认识分支。
+		// 认识但未实现的语句首词(fix round 1 两路,见文件头说明):jar 实测
+		// Java 能解析、classify 拒的首词 → UNSUPPORTED_STATEMENT(错误码语义
+		// 归 classify 阶段,T10 GoVerdict 按码归类);其余 JavaCC keywords 表内
+		// 首词(fork 文法即拒)与不认识 token → PARSE_ERROR。引号标识符永不
+		// 匹配关键字(决策 3),走不认识分支。
+		if kind, ok := p.unsupportedFirstWordKind(tok); ok {
+			return nil, maskerr.Errorf(maskerr.UnsupportedStatement,
+				"statement 0: unsupported statement kind %s; only SELECT and WITH ... SELECT queries are supported in this version", kind)
+		}
 		if tok.Kind == lexer.Ident && javaCCKeyword[strings.ToUpper(tok.Text)] {
 			return nil, p.errAt(tok.Pos, "unsupported statement starting with keyword %q", tok.Text)
 		}
@@ -275,7 +289,7 @@ func (p *Parser) parseValuesRow() ([]ast.Expr, error) {
 
 // parseInsert 解析 INSERT INTO target [(cols)] source(fork SqlInsert;INSERT
 // 之后的方言关键词清单在该 fork 为空产生式,不消费)。「(」的歧义按
-// LOOKAHEAD(2) 区分(见 insertColumnListAhead);源为完整 ParseQuery
+// LOOKAHEAD(2) 区分(见 peekAliasable);源为完整 ParseQuery
 // (ORDER BY/LIMIT 留在源内,fork 源位置即 OrderedQueryOrExpr)。
 func (p *Parser) parseInsert() (ast.Statement, error) {
 	tok := p.advance() // INSERT
@@ -287,7 +301,7 @@ func (p *Parser) parseInsert() (ast.Statement, error) {
 		return nil, err
 	}
 	ins := &ast.Insert{Pos: tok.Pos, Target: ast.TableNameRef{Pos: parts[0].Pos, Parts: parts}}
-	if p.atOp("(") && p.insertColumnListAhead() {
+	if p.atOp("(") && p.peekAliasable() {
 		cols, err := p.parseInsertColumnList()
 		if err != nil {
 			return nil, err
@@ -302,15 +316,25 @@ func (p *Parser) parseInsert() (ast.Statement, error) {
 	return ins, nil
 }
 
-// insertColumnListAhead 判定「(」之后是否为列清单起点:非保留标识符
-// (镜像 fork LOOKAHEAD(2) 的 CompoundIdentifier 起始条件——保留字是独立
-// token 不可作列名;引号标识符恒可)。不满足则该括号属于括号源。
-func (p *Parser) insertColumnListAhead() bool {
+// peekAliasable 判定当前 token 的下一个 token 可否作「非保留标识符」形态
+// (未引号且不在停用词集合):双重用途——INSERT/CREATE 的「(」之后为该形态
+// 才作列清单起点(镜像 fork LOOKAHEAD(2) 的 CompoundIdentifier 起始条件:
+// 保留字是独立 token 不可作列名;引号标识符恒可),以及语句首词护栏
+// (firstWordTailShape)。
+func (p *Parser) peekAliasable() bool {
 	nxt := p.peekTok()
 	if nxt.Kind == lexer.QuotedIdent {
 		return true
 	}
 	return nxt.Kind == lexer.Ident && !aliasStopKw[strings.ToUpper(nxt.Text)]
+}
+
+// peek2Tok 返回当前 token 之后的第二个 token(越界时返回末尾 EOF token)。
+func (p *Parser) peek2Tok() lexer.Token {
+	if p.cur+2 < len(p.toks) {
+		return p.toks[p.cur+2]
+	}
+	return p.toks[len(p.toks)-1]
 }
 
 // parseInsertColumnList 解析 ( col {, col} ):列名允许多段(jar 实测
@@ -372,7 +396,7 @@ func (p *Parser) parseInsertOverwrite() (ast.Statement, error) {
 	if !last.Quoted && strings.EqualFold(last.Value, "DIRECTORY") && p.curTok().Kind == lexer.String {
 		return nil, p.errAt(p.curTok().Pos, "INSERT OVERWRITE DIRECTORY is not supported")
 	}
-	if p.atOp("(") && p.insertColumnListAhead() {
+	if p.atOp("(") && p.peekAliasable() {
 		cols, err := p.parseInsertColumnList()
 		if err != nil {
 			return nil, err
@@ -422,8 +446,9 @@ func (p *Parser) parseCreate() (ast.Statement, error) {
 	if _, err := p.expectKw("TABLE"); err != nil {
 		return nil, err
 	}
-	// IF NOT EXISTS:解析接受(fork IfNotExistsOpt),AST 无字段承载(M1
-	// watchlist:compose 再生成时丢失该标记)。
+	// IF NOT EXISTS:解析记录进 IfNotExists(fork IfNotExistsOpt;fix round 1
+	// 控制者裁定新增字段,M3 compose 重组需要)。
+	ifNotExists := false
 	if p.atKw("IF") {
 		p.advance()
 		if _, err := p.expectKw("NOT"); err != nil {
@@ -432,24 +457,29 @@ func (p *Parser) parseCreate() (ast.Statement, error) {
 		if _, err := p.expectKw("EXISTS"); err != nil {
 			return nil, err
 		}
+		ifNotExists = true
 	}
 	parts, err := p.parseTableIdentifier()
 	if err != nil {
 		return nil, err
 	}
-	ct := &ast.CreateTable{Pos: tok.Pos, Name: ast.TableNameRef{Pos: parts[0].Pos, Parts: parts}}
+	ct := &ast.CreateTable{Pos: tok.Pos, IfNotExists: ifNotExists,
+		Name: ast.TableNameRef{Pos: parts[0].Pos, Parts: parts}}
 	switch {
 	case replace:
 		ct.Variant = ast.Replace
+	case volatile:
+		// 叠加形态的折算优先级(fix round 1 调整):VOLATILE 必须压过
+		// MULTISET/SET——compose 变体钩子(Java checkCreateTableVariant)拒
+		// VOLATILE 而放行 SET,`CREATE SET VOLATILE TABLE` 折成 Set 会误放行。
+		ct.Variant = ast.Volatile
 	case multiset:
 		ct.Variant = ast.Multiset
 	case set:
 		ct.Variant = ast.Set
-	case volatile:
-		ct.Variant = ast.Volatile
 	}
-	if p.atOp("(") && p.insertColumnListAhead() {
-		cols, err := p.parseInsertColumnList()
+	if p.atOp("(") && p.peekAliasable() {
+		cols, err := p.parseCreateColumnList()
 		if err != nil {
 			return nil, err
 		}
@@ -466,6 +496,152 @@ func (p *Parser) parseCreate() (ast.Statement, error) {
 	return ct, nil
 }
 
+// parseCreateColumnList 解析 CREATE TABLE 的列清单(fork ExtendColumnList 的
+// ColumnWithType,fix round 1):列必须为「名 类型 [NOT NULL]」对——名称解析
+// 进 ast.Columns(允许多段,jar 实测 a.b 接受),类型经 skipColumnType 消费后
+// 丢弃(M3 从 unparse 重组);仅列名无类型 → PARSE_ERROR。
+func (p *Parser) parseCreateColumnList() ([]ast.Identifier, error) {
+	p.advance() // (
+	var cols []ast.Identifier
+	for {
+		ct := p.curTok()
+		if !p.aliasable(ct) {
+			return nil, p.errAt(ct.Pos, "expected column name in CREATE TABLE, found %s %q", ct.Kind, ct.Text)
+		}
+		id, err := p.parseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		cols = append(cols, id)
+		if err := p.skipColumnType(id.Parts[0].Value); err != nil {
+			return nil, err
+		}
+		if p.atOp(",") {
+			p.advance()
+			continue
+		}
+		break
+	}
+	if _, err := p.expectOp(")"); err != nil {
+		return nil, err
+	}
+	return cols, nil
+}
+
+// skipColumnType 消费一列的类型 token(fork DataType [NOT NULL];类型文法不
+// 落 AST),至逗号或深度 0 的闭括号为止——括号内逗号(如 DECIMAL(5, 2))随
+// 深度吞掉。类型缺失(紧跟逗号/闭括号/输入末尾)→ PARSE_ERROR,位置镜像 jar
+// 实测:`(a, b)` 报于逗号位、`(a)` 报于闭括号位。跳读不校验类型文法(垃圾
+// 类型如 `a FOO BAR` jar 拒、Go 放行,差异记 task-9 报告)。
+func (p *Parser) skipColumnType(name string) error {
+	if p.atOp(",") || p.atOp(")") || p.curTok().Kind == lexer.EOF {
+		t := p.curTok()
+		return p.errAt(t.Pos, "expected column type after column %q, found %s %q", name, t.Kind, t.Text)
+	}
+	depth := 0
+	for {
+		t := p.curTok()
+		if t.Kind == lexer.EOF {
+			return p.errAt(t.Pos, "expected ',' or ')' after column type of %q", name)
+		}
+		if t.Kind == lexer.Op {
+			switch t.Text {
+			case "(":
+				depth++
+			case ")":
+				if depth == 0 {
+					return nil
+				}
+				depth--
+			case ",":
+				if depth == 0 {
+					return nil
+				}
+			}
+		}
+		p.advance()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 认识但未实现的语句首词(两路分发)
+// ---------------------------------------------------------------------------
+
+// firstWordUnsupportedKinds 语句首词 → Java SqlKind 名:jar 实测(Probe3/
+// Probe4,五方言一致)这些首词的良构语句能被 fork 解析成功、由 classify 抛
+// UNSUPPORTED_STATEMENT,故 Go 直接在入口按 classify 阶段语义报
+// UNSUPPORTED_STATEMENT(fix round 1 控制者裁定;错误码语义归 classify 阶段,
+// T10 GoVerdict 按码归类;ordinal 固定 0,契约只比 stage+code)。kind 名逐字
+// 取 jar 实测(BEGIN/COMMIT/ROLLBACK/SHOW/DISCARD 的 SqlBegin/Commit/Rollback/
+// Show/Discard 节点 kind 均为 OTHER)。
+var firstWordUnsupportedKinds = map[string]string{
+	"UPDATE":   "UPDATE",
+	"DELETE":   "DELETE",
+	"MERGE":    "MERGE",
+	"TABLE":    "EXPLICIT_TABLE",
+	"SET":      "SET_OPTION",
+	"DESCRIBE": "DESCRIBE_TABLE",
+	"CALL":     "PROCEDURE_CALL",
+	"BEGIN":    "OTHER",
+	"COMMIT":   "OTHER",
+	"ROLLBACK": "OTHER",
+	"SHOW":     "OTHER",
+	"DISCARD":  "OTHER",
+}
+
+// unsupportedFirstWordKind 判定语句首词是否命中「Java 能解析、classify 拒」
+// 分路;命中返回 Java SqlKind 名。首词后的轻量形状护栏见 firstWordTailShape。
+func (p *Parser) unsupportedFirstWordKind(tok lexer.Token) (string, bool) {
+	if tok.Kind != lexer.Ident {
+		return "", false
+	}
+	word := strings.ToUpper(tok.Text)
+	kind, ok := firstWordUnsupportedKinds[word]
+	if !ok || !p.firstWordTailShape(word) {
+		return "", false
+	}
+	return kind, true
+}
+
+// firstWordTailShape 首词后的轻量形状护栏:过滤 jar 实测(Probe3/Probe4,
+// 五方言一致)为 FAIL 的残片形态,使其回到 PARSE_ERROR 分路——
+//
+//	DELETE 后必须随 FROM;MERGE 后必须随 INTO;CALL 的名字后必须有括号
+//	(或点段的下一段);SHOW/DISCARD 后必须随标识符形态项;SET 后不得为
+//	TRANSACTION(SET TRANSACTION 为保留字,`SET x[TO|=]..`/长形态放行);
+//	其余(UPDATE/TABLE)后必须随非保留标识符。护栏未覆盖的残片(如
+//	`COMMIT x`)会落到 UNSUPPORTED 分路,残余窗口记 task-9 报告。
+func (p *Parser) firstWordTailShape(word string) bool {
+	switch word {
+	case "DELETE":
+		return p.peekKw("FROM")
+	case "MERGE":
+		return p.peekKw("INTO")
+	case "CALL":
+		if !p.peekAliasable() {
+			return false
+		}
+		nxt2 := p.peek2Tok()
+		return nxt2.Kind == lexer.Op && (nxt2.Text == "(" || nxt2.Text == ".")
+	case "SET":
+		return p.peekAliasable() && !p.peekKw("TRANSACTION")
+	case "DESCRIBE":
+		// DESCRIBE t / DESCRIBE x.y(DESCRIBE_TABLE)与 DESCRIBE <查询>
+		// (jar 实测 kind=EXPLAIN)均解析成功;字符串字面量形态 jar 实测 FAIL。
+		return p.peekAliasable() || p.peekKw("SELECT") || p.peekKw("WITH") ||
+			p.peekKw("VALUES") || (p.peekTok().Kind == lexer.Op && p.peekTok().Text == "(")
+	case "SHOW", "DISCARD":
+		// 裸形态 jar 实测 FAIL,必须随标识符形态项(SHOW t / DISCARD ALL)。
+		return p.peekAliasable()
+	case "BEGIN", "COMMIT", "ROLLBACK":
+		// 裸形态即良构(jar 实测 BEGIN/BEGIN WORK/COMMIT/COMMIT WORK/
+		// ROLLBACK/ROLLBACK WORK 均 OK),不做尾部护栏。
+		return true
+	default: // UPDATE / TABLE:后必须随非保留标识符
+		return p.peekAliasable()
+	}
+}
+
 // ---------------------------------------------------------------------------
 // JavaCC 关键字表(语句首词的「认识但不实现」判定)
 // ---------------------------------------------------------------------------
@@ -474,8 +650,10 @@ func (p *Parser) parseCreate() (ast.Statement, error) {
 // testdata/tokens.json 的 keywords(cmd/tokenextract 从 JavaCC
 // SqlMaskParserImplConstants 提取),由 stmt_test.go 的
 // TestJavaCCKeywordTableLocked 双向锁定。仅用于 ParseStatement 的语句首词
-// 分发:表内词 → 「认识但不实现」PARSE_ERROR(message 含首词);表外 token
-// → 「不认识」PARSE_ERROR。两路错误码一致,文案区分仅助诊断。
+// 分发的兜底路(fix round 1:先查 firstWordUnsupportedKinds 的
+// UNSUPPORTED_STATEMENT 分路):表内词 → 「认识但 fork 文法即拒」
+// PARSE_ERROR(message 含首词);表外 token → 「不认识」PARSE_ERROR。两路
+// 错误码一致,文案区分仅助诊断。
 var javaCCKeyword = map[string]bool{
 	"A": true, "ABS": true, "ABSENT": true, "ABSOLUTE": true, "ACTION": true, "ADA": true, "ADD": true,
 	"ADMIN": true, "AFTER": true, "ALL": true, "ALLOCATE": true, "ALLOW": true, "ALTER": true, "ALWAYS": true,

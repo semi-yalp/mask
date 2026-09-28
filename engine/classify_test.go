@@ -17,7 +17,8 @@ import (
 // ---------------------------------------------------------------------------
 
 // 接受面:SELECT/INSERT(含 INSERT OVERWRITE)→ nil;ORDER_BY/WITH 包住
-// query-like(Java isQuery:SELECT|WITH|ORDER_BY)→ nil;Plain CTAS → nil。
+// query-like(Java isQuery:SELECT|WITH|ORDER_BY)→ nil;CTAS → nil——变体
+// 不在 Classify 检查(fix round 1:变体检查回位 compose 阶段钩子)。
 func TestClassifyAccepted(t *testing.T) {
 	sel := &ast.Select{}
 	accepted := []ast.Statement{
@@ -29,6 +30,10 @@ func TestClassifyAccepted(t *testing.T) {
 		&ast.With{Body: sel},
 		&ast.With{Body: &ast.OrderBy{Query: sel}},
 		&ast.CreateTable{Query: sel},
+		&ast.CreateTable{Variant: ast.Replace, Query: sel},
+		&ast.CreateTable{Variant: ast.Volatile, Query: sel},
+		&ast.CreateTable{Variant: ast.Multiset, Query: sel},
+		&ast.CreateTable{Variant: ast.Set, Query: sel},
 	}
 	for i, stmt := range accepted {
 		if err := Classify(stmt, 0); err != nil {
@@ -91,27 +96,43 @@ func TestClassifyOrdinal(t *testing.T) {
 	}
 }
 
-// CREATE TABLE 变体拒绝(简报裁定:Variant!=Plain → UNSUPPORTED_STATEMENT,
-// message 另述 variant 名;Query==nil 时仍按 Java classify 优先报 CREATE_TABLE)。
-func TestClassifyCreateTableVariant(t *testing.T) {
-	for _, v := range []ast.CreateTableVariant{ast.Replace, ast.Volatile, ast.Set, ast.Multiset} {
-		err := Classify(&ast.CreateTable{Variant: v, Query: &ast.Select{}}, 0)
+// CheckCreateTableVariantForCompose:CREATE TABLE 变体拒绝在 compose 阶段
+// (fix round 1 回位),语义逐字镜像 Java checkCreateTableVariant——
+// REPLACE/VOLATILE/MULTISET 拒,SET 放行(Java 文案列举含 SET 但检查不拒);
+// 非 CreateTable 语句为 no-op;message 逐字对齐 Java(末尾方言名除外)。
+func TestCheckCreateTableVariantForCompose(t *testing.T) {
+	const wantMsg = "unsupported CREATE TABLE variant (REPLACE / VOLATILE / SET / MULTISET); only plain CREATE TABLE [IF NOT EXISTS] ... AS SELECT is supported"
+	for _, v := range []ast.CreateTableVariant{ast.Replace, ast.Volatile, ast.Multiset} {
+		err := CheckCreateTableVariantForCompose(&ast.CreateTable{Variant: v, Query: &ast.Select{}})
 		var me *maskerr.Error
 		if !errors.As(err, &me) {
-			t.Fatalf("variant %v: Classify = %v, want *maskerr.Error", v, err)
+			t.Fatalf("variant %v: hook = %v, want *maskerr.Error", v, err)
 		}
 		if me.Code != maskerr.UnsupportedStatement {
 			t.Fatalf("variant %v: code = %s, want UNSUPPORTED_STATEMENT", v, me.Code)
 		}
-		if !strings.Contains(strings.ToUpper(me.Message), strings.ToUpper(v.String())) {
-			t.Fatalf("variant %v: message %q does not contain variant name", v, me.Message)
+		if me.Message != wantMsg {
+			t.Fatalf("variant %v: message = %q, want %q", v, me.Message, wantMsg)
 		}
 	}
-	// Query==nil 优先:即使带变体也报 CREATE_TABLE(镜像 Java classify 的唯一分支)
+	// SET 放行(与 Java checkCreateTableVariant 一致);非 CTAS 语句 no-op。
+	// 注意:Variant=Replace 且 Query=nil 的 CreateTable 仍被钩子拒——钩子只看
+	// 变体位,不看 Query(此类语句实际到不了 compose,classify 先拒)。
+	for _, stmt := range []ast.Statement{
+		&ast.CreateTable{Variant: ast.Set, Query: &ast.Select{}},
+		&ast.CreateTable{Query: &ast.Select{}},
+		&ast.Select{},
+		&ast.Insert{Source: &ast.Select{}},
+	} {
+		if err := CheckCreateTableVariantForCompose(stmt); err != nil {
+			t.Fatalf("%T (variant path): hook = %v, want nil", stmt, err)
+		}
+	}
+	// Query==nil 仍报 CREATE_TABLE(镜像 Java classify 的唯一分支,先于 compose)
 	err := Classify(&ast.CreateTable{Variant: ast.Replace}, 0)
 	var me *maskerr.Error
 	if !errors.As(err, &me) || !strings.Contains(me.Message, "CREATE_TABLE") {
-		t.Fatalf("nil-query variant: message = %v, want CREATE_TABLE kind message", err)
+		t.Fatalf("nil-query variant: Classify = %v, want CREATE_TABLE kind message", err)
 	}
 }
 
@@ -130,6 +151,20 @@ func classifyParsed(t *testing.T, dialectName, sql string) error {
 		t.Fatalf("ParseStatement(%q): unexpected error: %v", sql, err)
 	}
 	return Classify(stmt, 0)
+}
+
+// parseStmtOnly 仅解析,返回语句(供 compose 钩子端到端使用)。
+func parseStmtOnly(t *testing.T, dialectName, sql string) ast.Statement {
+	t.Helper()
+	prof, err := dialect.ByName(dialectName)
+	if err != nil {
+		t.Fatalf("ByName(%q): %v", dialectName, err)
+	}
+	stmt, err := parser.New(prof, sql).ParseStatement()
+	if err != nil {
+		t.Fatalf("ParseStatement(%q): unexpected error: %v", sql, err)
+	}
+	return stmt
 }
 
 func TestClassifyWithParser(t *testing.T) {
@@ -179,11 +214,35 @@ func TestClassifyWithParser(t *testing.T) {
 			t.Fatalf("Classify(INSERT OVERWRITE, %s) = %v, want nil", d, err)
 		}
 	}
-	// CREATE TABLE 变体端到端
-	err := classifyParsed(t, "postgresql", `CREATE OR REPLACE TABLE x AS SELECT 1`)
-	var me *maskerr.Error
-	if !errors.As(err, &me) || me.Code != maskerr.UnsupportedStatement ||
-		!strings.Contains(strings.ToUpper(me.Message), "REPLACE") {
-		t.Fatalf("Classify(CREATE OR REPLACE TABLE) = %v, want UNSUPPORTED with variant name", err)
+	// CREATE TABLE 变体端到端:Classify 放行(fix round 1 回位),变体拒绝
+	// 由 compose 钩子按 Java 语义给出(SET 放行,REPLACE/VOLATILE/MULTISET 拒)
+	for _, tc := range []struct {
+		sql      string
+		variant  ast.CreateTableVariant
+		rejected bool
+	}{
+		{`CREATE OR REPLACE TABLE x AS SELECT 1`, ast.Replace, true},
+		{`CREATE VOLATILE TABLE x AS SELECT 1`, ast.Volatile, true},
+		{`CREATE MULTISET TABLE x AS SELECT 1`, ast.Multiset, true},
+		{`CREATE SET TABLE x AS SELECT 1`, ast.Set, false},
+		{`CREATE TABLE x AS SELECT 1`, ast.Plain, false},
+	} {
+		stmt := parseStmtOnly(t, "postgresql", tc.sql)
+		ct := stmt.(*ast.CreateTable)
+		if ct.Variant != tc.variant {
+			t.Fatalf("%q: variant = %v, want %v", tc.sql, ct.Variant, tc.variant)
+		}
+		if err := Classify(stmt, 0); err != nil {
+			t.Fatalf("Classify(%q) = %v, want nil (变体不在 classify)", tc.sql, err)
+		}
+		err := CheckCreateTableVariantForCompose(stmt)
+		if tc.rejected {
+			var me *maskerr.Error
+			if !errors.As(err, &me) || me.Code != maskerr.UnsupportedStatement {
+				t.Fatalf("hook(%q) = %v, want UNSUPPORTED_STATEMENT", tc.sql, err)
+			}
+		} else if err != nil {
+			t.Fatalf("hook(%q) = %v, want nil", tc.sql, err)
+		}
 	}
 }

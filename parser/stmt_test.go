@@ -250,14 +250,35 @@ func TestParseCreateTable(t *testing.T) {
 	if ct6.Query != nil {
 		t.Fatalf("query = %v, want nil", ct6.Query)
 	}
-	// IF NOT EXISTS 解析接受(AST 无字段,M1 记录为 watchlist)
-	if _, err := newTestParser(t, "postgresql").ParseStmtStr(`CREATE TABLE IF NOT EXISTS x AS SELECT 1`); err != nil {
-		t.Fatalf("CREATE TABLE IF NOT EXISTS: unexpected error: %v", err)
+	// IF NOT EXISTS 解析记录(fix round 1:ast.CreateTable.IfNotExists)
+	ct7 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE IF NOT EXISTS x AS SELECT 1`))
+	if !ct7.IfNotExists {
+		t.Fatal("CREATE TABLE IF NOT EXISTS parsed but IfNotExists = false")
 	}
-	// 列名清单(名称形态)
-	ct7 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x (a, b) AS SELECT 1`))
-	if len(ct7.Columns) != 2 {
-		t.Fatalf("columns = %d, want 2", len(ct7.Columns))
+	if plain := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x AS SELECT 1`)); plain.IfNotExists {
+		t.Fatal("plain CREATE TABLE: IfNotExists = true, want false")
+	}
+	// 叠加变体折算优先级(fix round 1):VOLATILE 压过 SET(compose 钩子拒
+	// VOLATILE 而放行 SET,折成 Set 会误放行);jar 实测该形态解析接受。
+	if got := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE SET VOLATILE TABLE x AS SELECT 1`)).Variant; got != ast.Volatile {
+		t.Fatalf("variant = %v, want Volatile (VOLATILE 必须压过 SET)", got)
+	}
+	// CTAS 类型化列清单(fix round 1):名进 AST,类型消费后丢弃;列必须带类型
+	ct8 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x (a INT) AS SELECT 1`))
+	if len(ct8.Columns) != 1 || identText(ct8.Columns[0]) != "a" {
+		t.Fatalf("columns = %v, want [a]", ct8.Columns)
+	}
+	ct9 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x (a INT NOT NULL, b VARCHAR(10)) AS SELECT 1`))
+	if len(ct9.Columns) != 2 || identText(ct9.Columns[0]) != "a" || identText(ct9.Columns[1]) != "b" {
+		t.Fatalf("columns = %v, want [a b]", ct9.Columns)
+	}
+	ct10 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x (a.b INT) AS SELECT 1`))
+	if len(ct10.Columns) != 1 || len(ct10.Columns[0].Parts) != 2 {
+		t.Fatalf("columns = %v, want compound a.b", ct10.Columns)
+	}
+	ct11 := stmtAs[*ast.CreateTable](t, mustStmt(t, "postgresql", `CREATE TABLE x (a DECIMAL(5, 2)) AS SELECT 1`))
+	if len(ct11.Columns) != 1 {
+		t.Fatalf("columns = %d, want 1(括号内逗号不终结类型)", len(ct11.Columns))
 	}
 	// CTAS 源可为 VALUES/WITH 查询(jar 实测面)
 	if _, err := newTestParser(t, "postgresql").ParseStmtStr(`CREATE TABLE x AS VALUES (1)`); err != nil {
@@ -278,6 +299,12 @@ func TestParseCreateTable(t *testing.T) {
 	} {
 		wantStmtError(t, "postgresql", src, 0)
 	}
+	// 列清单拒面(jar 实测 FAIL:列必须带类型;空清单):位置镜像——(a, b) 报于
+	// 逗号位 col 18,(a) 报于闭括号位 col 18
+	wantStmtError(t, "postgresql", `CREATE TABLE x (a, b) AS SELECT 1`, 18)
+	wantStmtError(t, "postgresql", `CREATE TABLE x (a) AS SELECT 1`, 18)
+	wantStmtError(t, "postgresql", `CREATE TABLE x (a INT, b) AS SELECT 1`, 25)
+	wantStmtError(t, "postgresql", `CREATE TABLE x () AS SELECT 1`, 0)
 }
 
 // INSERT OVERWRITE [TABLE] .. SELECT:hive/sparksql 解析成功,pg/mysql/trino
@@ -311,23 +338,63 @@ func TestParseInsertOverwritePartitionDirectory(t *testing.T) {
 	wantStmtError(t, "hive", `INSERT OVERWRITE DIRECTORY '/tmp/x' SELECT 1`, 0, "DIRECTORY")
 }
 
-// 认识但未实现的语句首词(JavaCC keywords 表内)→ PARSE_ERROR,消息含首词与位置。
+// 认识但未实现的语句首词,按 jar 实测分两路(fix round 1):
+// 「Java 能解析、classify 拒」→ UNSUPPORTED_STATEMENT(message 镜像 classify
+// 格式,ordinal 0,K 用 Java SqlKind 名);「Java 文法即拒」→ PARSE_ERROR。
 func TestParseStatementUnsupportedFirstWord(t *testing.T) {
+	// jar 实测(Probe3/Probe4,五方言一致)解析成功、classify 拒的首词形态
+	unsupported := []struct {
+		src  string
+		kind string
+	}{
+		{`UPDATE customer SET c_email_address = 'x'`, "UPDATE"},
+		{`DELETE FROM customer`, "DELETE"},
+		{`MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = 1`, "MERGE"},
+		{`TABLE t`, "EXPLICIT_TABLE"},
+		{`SET x = 1`, "SET_OPTION"},
+		{`SET x TO 1`, "SET_OPTION"},
+		{`DESCRIBE t`, "DESCRIBE_TABLE"},
+		{`DESCRIBE x.y`, "DESCRIBE_TABLE"},
+		{`CALL proc(1)`, "PROCEDURE_CALL"},
+		{`BEGIN TRANSACTION`, "OTHER"},
+		{`COMMIT`, "OTHER"},
+		{`ROLLBACK`, "OTHER"},
+		{`SHOW t`, "OTHER"},
+		{`DISCARD ALL`, "OTHER"},
+	}
+	for _, tc := range unsupported {
+		_, err := newTestParser(t, "postgresql").ParseStmtStr(tc.src)
+		var me *maskerr.Error
+		if !errors.As(err, &me) {
+			t.Fatalf("ParseStmtStr(%q): error %T is not *maskerr.Error: %v", tc.src, err, err)
+		}
+		if me.Code != maskerr.UnsupportedStatement {
+			t.Fatalf("ParseStmtStr(%q): code = %s, want UNSUPPORTED_STATEMENT (message: %s)", tc.src, me.Code, me.Message)
+		}
+		if want := "statement 0: unsupported statement kind " + tc.kind + ";"; !strings.HasPrefix(me.Message, want) {
+			t.Fatalf("ParseStmtStr(%q): message %q missing prefix %q", tc.src, me.Message, want)
+		}
+	}
+	// jar 实测 fork 文法即拒的首词与残片形态(护栏过滤)→ PARSE_ERROR
 	for _, src := range []string{
-		`UPDATE t SET a = 1`,
-		`DELETE FROM t WHERE a = 1`,
-		`MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = 1`,
 		`GRANT SELECT ON t TO u`,
-		`ALTER TABLE t ADD COLUMN c INT`,
 		`EXPLAIN SELECT 1`,
+		`ALTER TABLE t ADD COLUMN c INT`,
 		`TRUNCATE TABLE t`,
-		`TABLE t`,
-		`SET x = 1`,
-		`DESCRIBE t`,
-		`CALL proc(1)`,
+		`DELETE t`,          // 缺 FROM
+		`MERGE t`,           // 缺 INTO
+		`UPDATE (SELECT 1)`, // 目标非标识符
+		`SET`,               // 裸 SET
+		`SET TRANSACTION`,   // jar 实测 TRANSACTION 保留字拒
+		`TABLE`,             // 裸 TABLE
+		`TABLE SELECT`,      // 表名位为保留字
+		`CALL`,              // 裸 CALL
+		`CALL proc`,         // 缺括号
+		`SHOW`,              // 裸 SHOW
+		`DISCARD`,           // 裸 DISCARD
+		`DESCRIBE 'str'`,    // 字符串形态 jar 实测 FAIL
 	} {
-		word := strings.Fields(src)[0]
-		wantStmtError(t, "postgresql", src, 1, word)
+		wantStmtError(t, "postgresql", src, 0)
 	}
 }
 

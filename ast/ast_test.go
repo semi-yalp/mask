@@ -237,7 +237,7 @@ func TestCompositionSmoke(t *testing.T) {
 	}
 	var _ Statement = &Insert{Target: TableNameRef{Parts: []Identifier{{Parts: []IdentPart{{Value: "t"}}}}}, Columns: []Identifier{{Parts: []IdentPart{{Value: "c"}}}}, Source: query}
 	var _ Statement = &InsertOverwrite{Target: TableNameRef{}, Source: query}
-	var _ Statement = &CreateTable{Variant: Replace, Name: TableNameRef{}, Columns: []Identifier{{}}, Query: query}
+	var _ Statement = &CreateTable{Variant: Replace, IfNotExists: true, Name: TableNameRef{}, Columns: []Identifier{{}}, Query: query}
 	var _ Statement = &CreateTable{Variant: Multiset, Name: TableNameRef{}, Query: query}
 	var _ Statement = &CreateTable{Variant: Volatile, Name: TableNameRef{}, Query: query}
 	var _ Statement = &CreateTable{Variant: Set, Name: TableNameRef{}, Query: query}

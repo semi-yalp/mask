@@ -58,3 +58,40 @@
 - **`parseWith` 的限尾**:body 经 `parseQueryPrimary`+`parseSetOpExpr` 归约后包 With,再交 `parseOrderAndTail`(TOP fetch 并入包装——AllowTopN 开启时才可达,五方言均关)。
 - **引擎包落位**:`engine` 为新 Go 包(仅 ast+maskerr 依赖);classify_test 以测试内 import 方式引用 parser 做端到端,不产生依赖环。
 - **Pos 口径**:Insert/InsertOverwrite.Pos = INSERT token;With.Pos = WITH token;CreateTable.Pos = CREATE token;TableNameRef.Pos = 首段 token。INSERT OVERWRITE 门控错误取语句首 token 位(fork 该错误不带位点)。
+
+---
+
+# Fix Round 1 报告:首词 classify 边界 / CTAS 类型化列 / 变体检查回位 compose
+
+- **状态:DONE**(四项裁定全部落地;`go build ./... && go vet ./... && go test -count=1 ./...` 全绿;临时差分抽查与 jar Probe3/Probe4/Probe5/Probe6 逐条对照后删除)
+- **提交:`fix(parser,engine,ast): 首词 classify 边界/CTAS 类型化列/变体检查回位 compose(fix round 1)`**
+- **jar 实测(新增 Probe3/Probe4/Probe5/Probe6,五方言 conformance 一致)**:12 个语句首词的良构/残片形态、CTAS 类型化列 10 形态、7 词的别名/CTE 名/列名位保留性。
+
+## F1. 首词边界(顾虑 1)
+
+- **落地**:ParseStatement 兜底分路改两路——`firstWordUnsupportedKinds`(12 词)命中且过形状护栏 → **UNSUPPORTED_STATEMENT**(message 镜像 classify 格式,ordinal 固定 0,K 用 jar 实测 SqlKind 名);其余 JavaCC keywords 表内首词 → PARSE_ERROR(fork 文法即拒)。
+- **词表(kind 名逐字取 jar 实测)**:UPDATE→UPDATE、DELETE→DELETE、MERGE→MERGE、TABLE→EXPLICIT_TABLE、SET→SET_OPTION、DESCRIBE→DESCRIBE_TABLE、CALL→PROCEDURE_CALL(裁定清单 7 词)+ **BEGIN/COMMIT/ROLLBACK/SHOW/DISCARD→OTHER**(裁定"等"字延展:Probe3/Probe4 实测五方言解析成功、classify default → UNSUPPORTED,与 7 词同类;BEGIN/COMMIT/ROLLBACK 裸形与 WORK/TRANSACTION 尾均实测 OK,不做尾部护栏)。
+- **形状护栏(firstWordTailShape,过滤 jar 实测 FAIL 的残片)**:DELETE→必须随 FROM;MERGE→必须随 INTO;CALL→名字后必须有 `(`/`.`(`CALL proc` 裸名 jar 实测 FAIL);SHOW/DISCARD→必须随标识符形态项(裸形 jar 实测 FAIL);SET→随非保留标识符且不得为 TRANSACTION(`SET TRANSACTION` jar 实测 FAIL——TRANSACTION 为保留 token,`SET x TO 1`/长形态实测 OK);UPDATE/TABLE→随非保留标识符;DESCRIBE→标识符形态或查询头(SELECT/WITH/VALUES/`(`——`DESCRIBE SELECT 1` jar 实测解析成功 kind=EXPLAIN,Go kind 名仍报 DESCRIBE_TABLE,契约文案可异)。
+- **护栏底座增补**:`aliasStopKw` 增补 UPDATE/DELETE/MERGE/TABLE/SET/DESCRIBE/CALL 七词——Probe5/Probe6 实测七词为 fork 保留 token(别名 `SELECT 1 update`、CTE 名 `WITH update AS ..`、INSERT 列名 `(update)` 全部 FAIL),而 BEGIN/COMMIT/ROLLBACK/SHOW/DISCARD 同法实测可作别名故不入集。此增补同时修正 peekAliasable(列清单 LOOKAHEAD 代理)与 CTE 名/列名判定的同窗差异。
+
+## F2. CTAS 类型化列(顾虑 3)
+
+- `parseCreateColumnList` + `skipColumnType`:列清单镜像 fork ColumnWithType——**列必须带类型**;名称(允许多段,`(a.b INT)` jar 实测接受)解析进 ast.Columns,类型以括号深度感知的跳读消费后丢弃(`DECIMAL(5, 2)` 括号内逗号不终结,M3 从 unparse 重组);类型缺失 → PARSE_ERROR 且位置镜像 jar(`(a, b)` 报于逗号位 col 18、`(a)` 报于闭括号位 col 18、`(a INT, b)` 报于 col 25)。
+- 已知残留:跳读不校验类型文法,垃圾类型(`a FOO BAR`,jar 拒)Go 放行——记 T11 watchlist。
+
+## F3. IF NOT EXISTS
+
+- `ast.CreateTable` 新增 `IfNotExists bool` 字段(fix round 1 控制者裁定;与 Java SqlCreateTable.ifNotExists 对齐,M3 compose 重组需要),parseCreate 解析记录;ast_test.go 的 `var _ Statement` 断言表同步(Replace 行加 `IfNotExists: true`);正/反例测试落地。
+
+## F4. 变体检查回位 compose(顾虑 3)
+
+- `engine.Classify` 还原为:CreateTable 只查 `Query == nil`(变体不查)——`CREATE OR REPLACE TABLE x AS SELECT 1` 现在通过 Classify(与 Java classify 实测一致)。
+- 新增导出 `engine.CheckCreateTableVariantForCompose(stmt ast.Statement) error`(M3 compose 钩子,不接入 M1 判定路径):语义逐字镜像 Java checkCreateTableVariant(:238)——**Replace/Volatile/Multiset 拒、Set 放行**(Java 文案列举含 SET 但检查不拒 SET;`CREATE SET TABLE .. AS SELECT` 在 compose 阶段可过);非 CreateTable 语句 no-op(instanceof 守卫);message 逐字对齐 Java 文案,末尾方言名 "(profile)" 因钩子无 Profile 入参不携带(契约文案可异项)。
+- 配套:`parseCreate` 变体折算优先级调整为 REPLACE>VOLATILE>MULTISET>SET——VOLATILE 必须压过 SET,否则 `CREATE SET VOLATILE TABLE ..`(jar 解析接受)折成 Set 会被钩子误放行。
+- 端到端测试:五变体 × (Classify 放行 + 钩子裁定) 逐条断言;`CREATE TABLE x`(Query nil)仍报 UNSUPPORTED(CREATE_TABLE)。
+
+## Fix Round 1 新增 watchlist
+
+1. 【窗口】首词护栏未覆盖的残片(如 `COMMIT x`、`BEGIN FOO`、`SET <保留词非 TRANSACTION>`)落 UNSUPPORTED 分路而 jar 为 PARSE_ERROR;良构形态全部对齐。
+2. 【窗口】CTAS 类型跳读不校验类型文法:垃圾类型(`a FOO BAR`,jar 拒)Go 放行。
+3. 【文案】`DESCRIBE SELECT ..`(jar kind=EXPLAIN)Go 报 DESCRIBE_TABLE;UNSUPPORTED 首词 message ordinal 固定 0(Java 为语句序号)——契约只比 stage+code,文案可异项。

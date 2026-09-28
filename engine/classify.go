@@ -2,6 +2,8 @@
 // 语句分类逐字镜像 Java AbstractCalciteDialectAdapter 的 classify / isQuery /
 // unsupported 三方法(见本文件各函数注释);接受的语句面 = SELECT 与
 // WITH ... SELECT 查询、INSERT(含 INSERT OVERWRITE)与 Plain CTAS。
+// CREATE TABLE 变体拒绝位于 CheckCreateTableVariantForCompose——对齐 Java 的
+// composeWriteStatement 时机(validate 之后的重组阶段),M1 判定路径不消费。
 package engine
 
 import (
@@ -16,14 +18,15 @@ import (
 //	ORDER_BY → 被包查询体 isQuery(见下)才接受,否则按被包节点的 kind 拒;
 //	WITH     → body 同上;
 //	CREATE_TABLE → Query 为 nil(纯建表)→ 拒(message 逐字,K=CREATE_TABLE);
-//	  变体(非 Plain)→ 按 Task 9 简报裁定在此拒绝(Java 的变体检查位于
-//	  composeWriteStatement.checkCreateTableVariant,Go M1 无 compose 阶段,
-//	  前置到本函数:错误码一致,message 另述 variant 名);
 //	其余(顶层 Values / SetOp——Java 走 default 分支;Java isQuery 不含
 //	  VALUES/SetOp,故 SqlOrderBy 包装后的 `VALUES .. ORDER BY` 与
 //	  `.. UNION .. ORDER BY` 的可观测结果同为 UNSUPPORTED,见 isQuery)→ 拒。
 //
-// ordinal 进入 message 前缀 "statement N:"。
+// CREATE TABLE 变体(REPLACE/VOLATILE/MULTISET)不在本函数检查:Java 的
+// checkCreateTableVariant 位于 composeWriteStatement(validate 之后的重组阶段,
+// AbstractCalciteDialectAdapter.java:217),fix round 1 控制者裁定回位——Go 侧
+// 由 CheckCreateTableVariantForCompose 承载(M3 compose 钩子,不接入 M1 判定
+// 路径)。ordinal 进入 message 前缀 "statement N:"。
 func Classify(stmt ast.Statement, ordinal int) error {
 	switch s := stmt.(type) {
 	case *ast.OrderBy:
@@ -39,9 +42,6 @@ func Classify(stmt ast.Statement, ordinal int) error {
 	case *ast.CreateTable:
 		if s.Query == nil {
 			return unsupported("CREATE_TABLE", ordinal)
-		}
-		if s.Variant != ast.Plain {
-			return unsupportedCreateTableVariant(s.Variant, ordinal)
 		}
 		return nil
 	case *ast.Select, *ast.Insert, *ast.InsertOverwrite:
@@ -73,29 +73,25 @@ func unsupported(kind string, ordinal int) error {
 		ordinal, kind)
 }
 
-// unsupportedCreateTableVariant CREATE TABLE 变体拒绝(Task 9 简报裁定:
-// message 自拟、含 variant 名;Java 侧对应 checkCreateTableVariant,其文案
-// 列举全部变体并带方言名,此处按单个变体名报)。
-func unsupportedCreateTableVariant(v ast.CreateTableVariant, ordinal int) error {
-	return maskerr.Errorf(maskerr.UnsupportedStatement,
-		"statement %d: unsupported CREATE TABLE variant %s; only plain CREATE TABLE ... AS SELECT is supported in this version",
-		ordinal, createTableVariantSQLName(v))
-}
-
-// createTableVariantSQLName 变体的 SQL 关键字拼写(message 文案用)。
-func createTableVariantSQLName(v ast.CreateTableVariant) string {
-	switch v {
-	case ast.Replace:
-		return "REPLACE"
-	case ast.Volatile:
-		return "VOLATILE"
-	case ast.Set:
-		return "SET"
-	case ast.Multiset:
-		return "MULTISET"
-	default:
-		return v.String()
+// CheckCreateTableVariantForCompose CREATE TABLE 变体拒绝——M3 compose 阶段的
+// 钩子,逐字镜像 Java checkCreateTableVariant(AbstractCalciteDialectAdapter
+// .java:238):由 composeWriteStatement 在 validate 之后的重组阶段调用,故本
+// 函数不接入 M1 判定路径(Classify 不做变体检查),仅供 M3 compose 调用与
+// 单测。拒绝语义逐字:replace / volatile / MULTISET 拒;collectionType == SET
+// 放行(Java 文案列举含 SET 但检查不拒 SET——`CREATE SET TABLE .. AS SELECT`
+// 在 compose 阶段可过,与 Java 一致)。非 CreateTable 语句为 no-op(镜像
+// instanceof SqlBabelCreateTable 守卫)。message 逐字对齐 Java 文案;Java 末尾
+// 另附方言名 "(profile)",本钩子无 Profile 入参故不携带,文案可异项记契约。
+func CheckCreateTableVariantForCompose(stmt ast.Statement) error {
+	ct, ok := stmt.(*ast.CreateTable)
+	if !ok {
+		return nil
 	}
+	if ct.Variant == ast.Replace || ct.Variant == ast.Volatile || ct.Variant == ast.Multiset {
+		return maskerr.New(maskerr.UnsupportedStatement,
+			"unsupported CREATE TABLE variant (REPLACE / VOLATILE / SET / MULTISET); only plain CREATE TABLE [IF NOT EXISTS] ... AS SELECT is supported")
+	}
+	return nil
 }
 
 // sqlKindName 把 AST 节点映射为 Java SqlKind 名(仅 message 文案使用)。
