@@ -63,10 +63,19 @@ import (
 // 对 OrderedQueryOrExpr 的挂法;括号内的限尾由括号内的同一入口消费,不越出
 // 括号)。不消费查询之后的 token(供子查询/派生表复用),顶层入口的 EOF
 // 检查由 ParseStatement 承担。Task 7 覆盖裸 SELECT;Task 8 扩展集合运算与
-// 限尾;Task 9 扩展 WITH/VALUES 后在同一入口继续扩展其他 Query 形态。
+// 限尾;Task 9 扩展 WITH 头与 VALUES 基元(stmt.go)后,子查询/派生表/
+// INSERT 源/CTAS 源经同一入口自动获得相应能力。
+//
+// WITH 挂在头位(镜像 QueryOrExpr 的可选 WithList,包住集合运算归约后的
+// 查询体,parseWith 内部再挂限尾)——集合运算操作数位不消费 WITH,与 fork
+// LeafQuery 的接受面一致;VALUES/VALUE 为查询基元(镜像 LeafQuery 的
+// TableConstructor 备选)。
 func (p *Parser) ParseQuery() (ast.Query, error) {
 	if p.lexErr != nil {
 		return nil, p.lexErr
+	}
+	if p.atKw("WITH") {
+		return p.parseWith()
 	}
 	head, topFetch, err := p.parseQueryPrimary()
 	if err != nil {
@@ -79,11 +88,11 @@ func (p *Parser) ParseQuery() (ast.Query, error) {
 	return p.parseOrderAndTail(q, topFetch, q != head)
 }
 
-// parseQueryPrimary 查询基元:括号查询或裸 SELECT 头。括号内交还 ParseQuery
-// (集合运算与限尾留在括号内消费,镜像 fork ExprOrJoinOrOrderedQuery 的
-// LOOKAHEAD(2) Query+OrderByLimitOpt 分支;括号不产生额外包装节点)。第二
-// 返回值为裸 SELECT 头的 TOP fetch(仅 Profile.AllowTopN 开启时非 nil,
-// 五方言均关、M1 不可达;见 parseTopN)。
+// parseQueryPrimary 查询基元:括号查询、VALUES 行集(Task 9,stmt.go)或
+// 裸 SELECT 头。括号内交还 ParseQuery(集合运算与限尾留在括号内消费,镜像
+// fork ExprOrJoinOrOrderedQuery 的 LOOKAHEAD(2) Query+OrderByLimitOpt 分支;
+// 括号不产生额外包装节点)。第二返回值为裸 SELECT 头的 TOP fetch(仅
+// Profile.AllowTopN 开启时非 nil,五方言均关、M1 不可达;见 parseTopN)。
 func (p *Parser) parseQueryPrimary() (ast.Query, ast.Expr, error) {
 	if p.atOp("(") {
 		p.advance()
@@ -95,6 +104,10 @@ func (p *Parser) parseQueryPrimary() (ast.Query, ast.Expr, error) {
 			return nil, nil, err
 		}
 		return q, nil, nil
+	}
+	if p.atKw("VALUES") || p.atKw("VALUE") {
+		v, err := p.parseValues()
+		return v, nil, err
 	}
 	return p.parseSelectHead()
 }

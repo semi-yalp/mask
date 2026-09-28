@@ -674,26 +674,19 @@ func TestWindow(t *testing.T) {
 func newTrue() *bool  { b := true; return &b }
 func newFalse() *bool { b := false; return &b }
 
-// TestStatementStub ParseStatement 在本任务为存根,返回 PARSE_ERROR;
-// 词法错误优先透传(New 内部已调 lexer.Lex)。
-func TestStatementStub(t *testing.T) {
+// TestParseStatementLexicalErrorPassthrough:ParseStatement(Task 9 起为完整
+// 入口)对词法错误原样透传(New 内部已调 lexer.Lex);正常语句可解析。
+func TestParseStatementLexicalErrorPassthrough(t *testing.T) {
 	prof, err := dialect.ByName("postgresql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = New(prof, "SELECT 1").ParseStatement()
-	if err == nil {
-		t.Fatal("ParseStatement: expected error, got nil")
-	}
-	var me *maskerr.Error
-	if !errors.As(err, &me) || me.Code != maskerr.ParseError {
-		t.Fatalf("ParseStatement: got %v, want PARSE_ERROR", err)
-	}
-	if want := "statement parsing not implemented until Task 8/9"; me.Message != want {
-		t.Fatalf("ParseStatement message = %q, want %q", me.Message, want)
+	if _, err = New(prof, "SELECT 1").ParseStatement(); err != nil {
+		t.Fatalf("ParseStatement(SELECT 1): unexpected error: %v", err)
 	}
 	// 词法错误在 ParseStatement 中透传。
 	_, err = New(prof, `'unterminated`).ParseStatement()
+	var me *maskerr.Error
 	if !errors.As(err, &me) || me.Code != maskerr.ParseError || !strings.Contains(err.Error(), "Lexical error") {
 		t.Fatalf("ParseStatement with lexical error: got %v", err)
 	}

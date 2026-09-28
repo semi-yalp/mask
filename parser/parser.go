@@ -66,13 +66,7 @@ func New(p *dialect.Profile, src string) *Parser {
 }
 
 // ParseStatement 顶层语句入口。Task 6 为存根:Task 8/9 落语句层后替换。
-func (p *Parser) ParseStatement() (ast.Statement, error) {
-	if p.lexErr != nil {
-		return nil, p.lexErr
-	}
-	return nil, maskerr.Errorf(maskerr.ParseError,
-		"statement parsing not implemented until Task 8/9")
-}
+// 完整入口见 stmt.go(Task 9)。
 
 // ParseExpr 把整个输入解析为单个表达式(表达式到输入末尾,残留 token 报
 // 错,语义对齐 Java SqlExpressionEof)。导出供测试与 M2 rowfilter 复用。
