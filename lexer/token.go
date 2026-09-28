@@ -14,11 +14,14 @@
 // 运算符匹配表 opTable 为程序内常量,内容与 tokens.json 逐项一致
 // (由测试双向锁定),lexer 不在运行时读文件。
 //
-// 已知口径(差分 watchlist,fix round 1 裁定 Ruling 3/4/5/6/8/11/13,其
-// 前缀串一项已被 T11 jar 实测推翻并对齐):未闭合字符串、引号标识符内
-// 裸换行、BackTick 方言下的双引号、白名单外字符(: ! | { } [ ] -> .. 等)
-// 在本词法器报词法错,而 Java 版词法层放行、由解析器报 PARSE_ERROR ——
-// 对外错误码一致,消息与位置可能不同,差分按错误码比对。T11 更新:
+// 已知口径(差分 watchlist,fix round 1 只留档不改码的裁定为 Ruling
+// 3/4/5/6/8/11/13,其前缀串一项(Ruling 11)已被 T11 jar 实测推翻并对齐):
+// 未闭合字符串、引号标识符内裸换行、BackTick 方言下的双引号、白名单外
+// 字符(: ! | { } [ ] -> .. 等)在本词法器报词法错,而 Java 版词法层放行、
+// 由解析器报 PARSE_ERROR —— 对外错误码一致,消息与位置可能不同,差分按
+// 错误码比对(Ruling 4/5/6/8)。/*+ hint 维持按普通块注释跳过为 trivia
+// (Ruling 3:良构 hint 全接受,病态 hint 体/位置为已知缺口);空输入 EOF
+// 位置 Go {1,1} vs Java {0,0}(Ruling 13)。T11 更新:
 // N'…'/x'…'/U&'…'/_charset'…' 现按 jar 实测产单 String token(此前拆
 // Ident+String 造成接受面差异,见 lexPrefixedString);`<=>`/`&`/`^`/`~`
 // 补进 opTable(jar 实测 fork 解析接受);散落注释外的 */ 仍为
@@ -28,7 +31,8 @@ package lexer
 
 import "strconv"
 
-// Pos 源码位置,行号与列号均从 1 起;Tab 记 1 列(简报规定的 Calcite 语义)。
+// Pos 源码位置,行号与列号均从 1 起;Tab 按 JavaCC SimpleCharStream 的 8
+// 制表位推进(fix round 1 Ruling 12 jar 实测口径,简报"Tab 记 1 列"已废)。
 //
 // 注:Pos 暂落 lexer 包;Task 5 实现 ast 时由控制者统一去留。
 type Pos struct {
@@ -46,7 +50,10 @@ const (
 	QuotedIdent
 	// String 字符串字面量;Text 含两端引号原文('' 与 E\' 转义不展开)。
 	String
-	// Number 数字字面量 D+ [. D+] [E[+-]D+]。
+	// Number 数字字面量,规则对齐 JavaCC DECIMAL/APPROX(fix round 1 Ruling 7):
+	// `D+ .? D*`(整数位后小数点无条件消费,故 `1.`、`1.e5` 均为单个 Number)
+	// 或 `. D+`(裸 `.5`);指数 `e/E [+-]? D+` 必须有数字(`1e` 是 Ident)。
+	// 简报旧规则 `D+ [. D+] [E[+-]D+]` 已废。
 	Number
 	// Op 运算符,内容来自 opTable。
 	Op

@@ -30,7 +30,7 @@ M5(HTTP 服务+instance 模式)另行出计划。
 - Java 接受并改写的查询,Go 解析期同样接受;Java 拒绝的,Go 以**相同错误码**
   在对应阶段拒绝(文案可异)。
 - 验收 = 契约差分:`testdata/contract/parse-verdicts.json` 记录 Java 版对
-  全语料(86 条 mask-engine 场景语料 + 24 条 Go 侧构造语料)的判定,Go 每次
+  全语料(63 条 mask-engine 场景语料 + 47 条 Go 侧构造语料)的判定,Go 每次
   `go test` 现算比对,零 Mismatch。
 
 ## 差分护栏用法
@@ -52,8 +52,9 @@ go run ./cmd/sqlmask --parse <file.sql> --dialect postgresql
 
 ## 已知口径与 watchlist(后续里程碑复核)
 
-以下为 jar 实测确认的已知差异/留档项(错误码一致或语料零命中,详见
-`docs/superpowers/plans/` 各任务报告与包内注释):
+以下为 jar 实测确认的已知差异/留档项(错误码一致或语料零命中;逐差异
+档案见 `docs/superpowers/plans/m1-differential-notes.md`,各任务报告详见
+`.superpowers/sdd/2026-09-27-go-port-m1-parser/`,包内注释同口径):
 
 - 词法层直接报 PARSE_ERROR 而 Java 词法放行、解析期报错(错误码同):
   未闭合字符串、引号标识符内裸换行、BackTick 方言下 `"`、部分白名单外字符。

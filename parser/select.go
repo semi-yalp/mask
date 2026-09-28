@@ -18,10 +18,13 @@ import (
 //	                    INTERSECT 优先级更高(镜像 Calcite toTree 优先级攀爬)
 //	限尾              = [ORDER BY 项 {, 项}]
 //	                    [ LIMIT n|ALL [OFFSET n [ROW|ROWS]]
-//	                    | OFFSET n [ROW|ROWS] [FETCH FIRST|NEXT n [ROW|ROWS] ONLY]
+//	                      | LIMIT start, count [OFFSET n [ROW|ROWS]]  (MySQL5/Lenient
+//	                        门控;AST 归一 Limit=count, Offset=start)
+//	                    | OFFSET n [ROW|ROWS] [LIMIT m | FETCH FIRST|NEXT
+//	                      n [ROW|ROWS] ONLY]      (OFFSET..LIMIT 仅 Lenient 门控)
 //	                    | FETCH FIRST|NEXT n [ROW|ROWS] ONLY ]
 //	表引用链          = 表引用 { (, 表引用 | JOIN 系列 表引用) }   左结合单循环
-//	表引用            = 表名(1–4 段)[[AS] alias [(cols)]]
+//	表引用            = 表名(段数无上限)[[AS] alias [(cols)]]
 //	                    | ( Query ) [[AS] alias [(cols)]]           派生表
 //	JOIN 系列         = [NATURAL] [INNER|LEFT [OUTER]|RIGHT [OUTER]|
 //	                     FULL [OUTER]|CROSS] JOIN 表引用 [ON expr|USING (..)]
@@ -36,9 +39,10 @@ import (
 //     SqlParserUtil.toTree;限尾镜像 OrderedQueryOrExpr 的 OrderByLimitOpt
 //     (SqlOrderBy 包装)——括号查询经由 ExprOrJoinOrOrderedQuery 的
 //     LOOKAHEAD(2) Query+OrderByLimitOpt 分支,限尾同样留在括号内消费;
-//   - 组合面按简报收窄:OFFSET 之后不再接 LIMIT(fork 该分支受
-//     isOffsetLimitAllowed 门控,Go Profile 无对应开关,差异记 T11 watchlist),
-//     LIMIT 与 FETCH 互斥(Calcite 同一 Fetch 产生式的两个分支);
+//   - 组合面按 conformance 门控对齐 fork(T11 jar 实测):OFFSET 之后可接
+//     LIMIT——仅 Lenient 档接受,pg/MySQL5 拒(fork isOffsetLimitAllowed 门控
+//     的对齐落地);LIMIT start, count 在 MySQL5/Lenient 接受;LIMIT 与 FETCH
+//     互斥(Calcite 同一 Fetch 产生式的两个分支);
 //   - TOP 镜像 fork SqlSelect 的 SqlMaskTopN 挂点:SELECT [DISTINCT|ALL] 之后
 //     TOP 后随 '(' 或无符号数字字面量才进入挂点,先解析值再做 conformance
 //     检查——五方言 Profile.AllowTopN 均为 false,一律 PARSE_ERROR;门控读
@@ -333,9 +337,10 @@ func (p *Parser) setOpQuantifier() bool {
 //	| OFFSET n [ROW|ROWS] [FETCH FIRST|NEXT n [ROW|ROWS] ONLY]
 //	| FETCH FIRST|NEXT n [ROW|ROWS] ONLY ]
 //
-// 组合面按简报:LIMIT 后可跟 OFFSET;OFFSET 后可跟 FETCH;LIMIT 与 FETCH 互斥
-// (Calcite 同一 Fetch 产生式的两个分支);OFFSET 之后不接 LIMIT(fork 该分支
-// 受 isOffsetLimitAllowed 门控,Go Profile 无对应开关,差异记 T11 watchlist)。
+// 组合面按 conformance 门控(T11 jar 实测):LIMIT 后可跟 OFFSET;LIMIT
+// start, count 在 MySQL5/Lenient 接受(可随 OFFSET);OFFSET 后可跟 LIMIT
+// (仅 Lenient 档,pg/MySQL5 拒——fork isOffsetLimitAllowed 门控的对齐落地)
+// 或 FETCH;LIMIT 与 FETCH 互斥(Calcite 同一 Fetch 产生式的两个分支)。
 // topFetch 非 nil(TOP 挂点,AllowTopN 开启时才可达)时并入包装的 Fetch,与
 // LIMIT/OFFSET/FETCH 同现即冲突(fork OrderByLimitOpt 的 TOP 冲突检查);
 // setOpSeen 表示左操作数已经过集合运算归约——TOP 隶属单个 SELECT 头,与集合
@@ -782,7 +787,8 @@ func (p *Parser) parseJoin(left ast.TableRef) (ast.TableRef, error) {
 	return nil, p.errAt(t.Pos, "expected ON or USING after JOIN, found %s %q", t.Kind, t.Text)
 }
 
-// parseTableRefPrimary 解析单个表引用:表名(1–4 段)或派生表 `( Query )`,
+// parseTableRefPrimary 解析单个表引用:表名(段数无上限;parseTableIdentifier
+// 见下方段数口径)或派生表 `( Query )`,
 // 两者均可带 [[AS] alias [(cols)]]。派生表经 ParseQuery 解析(子查询自动获得
 // 完整查询能力;T8/T9 扩展集合运算/VALUES 后无需改动本处)。
 func (p *Parser) parseTableRefPrimary() (ast.TableRef, error) {

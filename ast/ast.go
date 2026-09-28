@@ -76,8 +76,10 @@ type Select struct {
 	Window   []WindowDef
 }
 
-// SelectItem 选择项:普通表达式或 *;StarQualifier 为 t.* 中的 t
-// (Star=false 时必须为空)。
+// SelectItem 选择项:普通表达式或 *。编码约定:星项 Star 恒为 true——裸 *
+// 时 StarQualifier 为空,`t.*`/`s.t.*` 时为限定段(每段一个 IdentPart,不含
+// 星号本身;表达式项 Star=false 且 StarQualifier 必须为空。parser 按此构造,
+// M3 unparse 依此区分两类项)。
 type SelectItem struct {
 	Expr          Expr
 	Alias         *Identifier

@@ -567,6 +567,177 @@
     ]
   },
   {
+    "key": "testdata/extra/hive.sql#0@hive",
+    "dialect": "hive",
+    "sql": "-- T12 方言差异语料(hive):反引号标识符、INSERT OVERWRITE、Lenient 限尾。\n-- 判定以 jar 实测为准(accept / classify / later 均可,parse 拒绝即 Mismatch)。\n\n-- 反引号标识符(仅 BackTick 方言)\nSELECT `c_email_address` FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#1@hive",
+    "dialect": "hive",
+    "sql": "SELECT `a b` FROM customer LIMIT 1",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#2@hive",
+    "dialect": "hive",
+    "sql": "-- 大小写折算:未引号转小写、引号内原样\nSELECT Foo FROM Bar",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#3@hive",
+    "dialect": "hive",
+    "sql": "SELECT \"Foo\" FROM Bar",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#4@hive",
+    "dialect": "hive",
+    "sql": "-- INSERT OVERWRITE 仅 Lenient 方言语法面\nINSERT OVERWRITE TABLE customer SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#5@hive",
+    "dialect": "hive",
+    "sql": "INSERT OVERWRITE customer SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#6@hive",
+    "dialect": "hive",
+    "sql": "-- OFFSET..LIMIT / LIMIT start,count 仅 Lenient 接受\nSELECT 1 OFFSET 1 LIMIT 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#7@hive",
+    "dialect": "hive",
+    "sql": "SELECT 1 LIMIT 1, 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#8@hive",
+    "dialect": "hive",
+    "sql": "-- WITH RECURSIVE 解析接受(后端拒绝,契约记 later)\nWITH RECURSIVE q AS (SELECT 1 AS x) SELECT x FROM q",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/hive.sql#9@hive",
+    "dialect": "hive",
+    "sql": "-- TOP(n) 全方言关闭\nSELECT TOP (5) 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#0@mysql",
+    "dialect": "mysql",
+    "sql": "-- T12 方言差异语料(mysql):反引号、MySQL5 conformance 接受面。\n\nSELECT `c_email_address` FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#1@mysql",
+    "dialect": "mysql",
+    "sql": "SELECT `a b` FROM customer LIMIT 1",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#2@mysql",
+    "dialect": "mysql",
+    "sql": "SELECT Foo FROM Bar",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#3@mysql",
+    "dialect": "mysql",
+    "sql": "SELECT \"Foo\" FROM Bar",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#4@mysql",
+    "dialect": "mysql",
+    "sql": "-- != 在 MySQL5 接受(Default 拒)\nSELECT 1 != 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#5@mysql",
+    "dialect": "mysql",
+    "sql": "SELECT 1 LIMIT 1, 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#6@mysql",
+    "dialect": "mysql",
+    "sql": "-- INSERT OVERWRITE 非 Lenient 方言:解析期拒绝( Go 应同为 PARSE_ERROR )\nINSERT OVERWRITE TABLE customer SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#7@mysql",
+    "dialect": "mysql",
+    "sql": "WITH RECURSIVE q AS (SELECT 1 AS x) SELECT x FROM q",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/mysql.sql#8@mysql",
+    "dialect": "mysql",
+    "sql": "SELECT TOP (5) 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
     "key": "testdata/extra/parse-rejects.sql#0@postgresql",
     "dialect": "postgresql",
     "sql": "-- T11 parse-reject 语料:Java(postgresql)在解析期拒绝的形态集合。\n-- 每条均为 jar 实测 [PARSE_ERROR];契约中 verdict=parse,守护 Go 词法/解析面。\n\n-- 残片:事务控制词带非法伴随(jar: Encountered \"x\")\nCOMMIT x",
@@ -636,6 +807,186 @@
     "verdict": [
       "parse",
       "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#0@sparksql",
+    "dialect": "sparksql",
+    "sql": "-- T12 方言差异语料(sparksql):与 hive 同族(BackTick + Lenient + INSERT OVERWRITE)。\n\nSELECT `c_email_address` FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#1@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT `a b` FROM customer LIMIT 1",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#2@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT Foo FROM Bar",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#3@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT \"Foo\" FROM Bar",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#4@sparksql",
+    "dialect": "sparksql",
+    "sql": "INSERT OVERWRITE TABLE customer SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#5@sparksql",
+    "dialect": "sparksql",
+    "sql": "INSERT OVERWRITE customer SELECT c_email_address FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#6@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT 1 OFFSET 1 LIMIT 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#7@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT 1 LIMIT 1, 2",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#8@sparksql",
+    "dialect": "sparksql",
+    "sql": "WITH RECURSIVE q AS (SELECT 1 AS x) SELECT x FROM q",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/sparksql.sql#9@sparksql",
+    "dialect": "sparksql",
+    "sql": "SELECT TOP (5) 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#0@trino",
+    "dialect": "trino",
+    "sql": "-- T12 方言差异语料(trino):双引号标识符、Default conformance 拒绝面。\n\nSELECT \"c_email_address\" FROM customer LIMIT 1",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#1@trino",
+    "dialect": "trino",
+    "sql": "SELECT \"a b\" FROM customer LIMIT 1",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#2@trino",
+    "dialect": "trino",
+    "sql": "SELECT Foo FROM Bar",
+    "verdict": [
+      "later",
+      "VALIDATION_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#3@trino",
+    "dialect": "trino",
+    "sql": "SELECT `c_email_address` FROM customer LIMIT 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#4@trino",
+    "dialect": "trino",
+    "sql": "-- != 在 Default 拒(解析期)\nSELECT 1 != 2",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#5@trino",
+    "dialect": "trino",
+    "sql": "SELECT 1 OFFSET 1 LIMIT 2",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#6@trino",
+    "dialect": "trino",
+    "sql": "SELECT 1 LIMIT 1, 2",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#7@trino",
+    "dialect": "trino",
+    "sql": "WITH RECURSIVE q AS (SELECT 1 AS x) SELECT x FROM q",
+    "verdict": [
+      "accept",
+      ""
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#8@trino",
+    "dialect": "trino",
+    "sql": "SELECT TOP (5) 1",
+    "verdict": [
+      "parse",
+      "PARSE_ERROR"
+    ]
+  },
+  {
+    "key": "testdata/extra/trino.sql#9@trino",
+    "dialect": "trino",
+    "sql": "CREATE TABLE tpcds.public.newt AS SELECT 1",
+    "verdict": [
+      "accept",
+      ""
     ]
   }
 ]

@@ -443,10 +443,17 @@ func TestOperatorRoundTrip(t *testing.T) {
 	for _, op := range vocab.Operators {
 		inJSON[op] = true
 	}
+	var beyond []string
 	for _, op := range opTable {
 		if !inJSON[op] {
-			continue // T11 jar 实测扩展项(<=> & ^ ~),不在白名单快照内
+			beyond = append(beyond, op)
 		}
+	}
+	// 超集的精确形态:opTable 超出 tokens.json 白名单的部分必须恰好是 T11
+	// jar 实测扩展集(防扩展集静默增减或白名单快照漂移)。
+	wantBeyond := []string{"<=>", "&", "^", "~"}
+	if !reflect.DeepEqual(beyond, wantBeyond) {
+		t.Fatalf("opTable beyond tokens.json whitelist = %v, want exactly %v", beyond, wantBeyond)
 	}
 	// 超集断言:白名单每一项都必须仍在 opTable(防机械表回退)。
 	opSet := make(map[string]bool, len(opTable))
